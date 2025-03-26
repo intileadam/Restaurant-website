@@ -38,7 +38,7 @@ p
 	font-size: 3em;
 	color: #fff;
 	text-transform: capitalize;
-	background-color: #d3d3d3;
+	background-color: #DA291C;
 }
 
 .banner .content p
@@ -102,7 +102,7 @@ header.sticky .logo
 
 header .logo span
 {
-	color: #EF3340;
+	color: #DA291C;
 }
 
 header .navigation
@@ -130,7 +130,7 @@ header.sticky .navigation li a
 
 header .navigation li a:hover
 {
-	color: #EF3340;
+	color: #DA291C;
 }
 
 section
@@ -161,7 +161,7 @@ section
 
 .titleText span
 {
-	color: #EF3340;
+	color: #DA291C;
 	font-weight: 700;
 	font-size: 1.5em;
 }
@@ -313,16 +313,16 @@ section
 	margin-top: 20px;
 	color: #111;
 	font-size: 1em;
-	color: #EF3340;
+	color: #DA291C;
 	font-weight: 600;
 }
 
 
-.contact
+/* .contact
 {
 	background: url(img/bg3.jpg);
 	background-size: cover;
-}
+} */
 
 .contactForm
 {
@@ -361,22 +361,6 @@ section
 	resize: none;
 }
 
-.contactForm .inputBox input[type="submit"]
-{
-	font-size: 1em;
-	color: #fff;
-	background: #EF3340;
-	display: inline-block;
-	text-transform: uppercase;
-	text-decoration: none;
-	letter-spacing: 2px;
-	transition: 0.5s;
-	max-width: 100px;
-	font-weight: 500;
-	border: none;
-	cursor: pointer;
-}
-
 .copyrightText
 {
 	padding: 8px 40px;
@@ -391,7 +375,7 @@ section
 
 .copyrightText a
 {
-	color: #EF3340;
+	color: #DA291C;
 	font-weight: 500;
 	text-decoration: none;
 }
@@ -500,6 +484,7 @@ section
 	.col50 .imgBx
 	{
 		margin-top: 30px;
+		width: 10%;
 	}
 
 	.menu .content

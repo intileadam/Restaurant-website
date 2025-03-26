@@ -1,7 +1,4 @@
 # Restaurant website template
-
-![Restaurant website template](img/Restaurant-website-by-atulcodex.png)
-
 This is a Modern, Clean and Professional restaurant website template. Prefect for restaurant, Fastfood, Bakery, Cafe, Pub, Bar, Catering, and any food business. This work is totally open-saurce and free to use.
 
 ### Features
