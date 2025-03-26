@@ -89,21 +89,9 @@ header.sticky
 
 header .logo
 {
-	color: #fff;
-	font-weight: 700;
-	font-size: 2em;
-	text-decoration: none;
+	width: 20%;
 }
 
-header.sticky .logo
-{
-	color: #111;
-}
-
-header .logo span
-{
-	color: #DA291C;
-}
 
 header .navigation
 {
@@ -317,13 +305,6 @@ section
 	font-weight: 600;
 }
 
-
-/* .contact
-{
-	background: url(img/bg3.jpg);
-	background-size: cover;
-} */
-
 .contactForm
 {
 	padding: 75px 50px;
@@ -484,7 +465,6 @@ section
 	.col50 .imgBx
 	{
 		margin-top: 30px;
-		width: 10%;
 	}
 
 	.menu .content
@@ -537,4 +517,12 @@ section
 		margin-top: 20px;
 		margin-bottom: 30px;
 	}
+	.banner .content h2
+	{
+		font-size: 1em;
+	}
+	header .logo
+{
+	width: 40%;
+}
 }
