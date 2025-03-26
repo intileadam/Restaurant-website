@@ -346,7 +346,7 @@ section
 {
 	padding: 8px 40px;
 	border-top: 1px solid rgba(0, 0, 0, 0.1);
-	text-align: center;
+	text-align: right;
 }
 
 .copyrightText p
@@ -359,6 +359,12 @@ section
 	color: #DA291C;
 	font-weight: 500;
 	text-decoration: none;
+}
+
+.copyrightText a img
+{
+	width: 6%;
+	padding: 10px;
 }
 
 .location
@@ -524,5 +530,11 @@ section
 	header .logo
 {
 	width: 40%;
+}
+
+.copyrightText a img
+{
+	width: 10%;
+	padding-right: 10px;
 }
 }
