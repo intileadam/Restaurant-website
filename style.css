@@ -35,16 +35,16 @@ p
 
 .banner .content h2
 {
-	font-size: 3em;
+	font-size: 3vh;
 	color: #fff;
-	text-transform: capitalize;
 	background-color: #DA291C;
 }
 
 .banner .content p
 {
-	font-size: 1em;
+	font-size: 2vh;
 	color: #fff;
+	background-color: #DA291C
 }
 
 .btn
@@ -87,9 +87,9 @@ header.sticky
 	box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
 }
 
-header .logo
+header a .logo
 {
-	width: 20%;
+	width: 30%;
 }
 
 
@@ -208,101 +208,10 @@ section
 	color: #111;
 }
 
-.expert .content
-{
-	display: flex;
-	justify-content: center;
-	flex-wrap: wrap;
-	margin-top: 40px;
-}
-
-.expert .content .box
-{
-	width: 250px;
-	margin: 15px;
-}
-
-.expert .content .box .imgBx
-{
-	position: relative;
-	width: 100%;
-	height: 300px;
-}
-
-.expert .content .box .imgBx img
-{
-	max-width: 100%;
-	width: 100%;
-	height: 100%;
-}
-
-.expert .content .box .text
-{
-	padding: 15px 0 5px;
-}
-
-.expert .content .box .text h3
-{
-	font-weight: 400;
-	color: #111;
-}
-
-
-.testimonials
-{
-	background: url(img/bg2.jpg);
-	background-size: cover;
-}
-
 .white .titleText,
 .white p
 {
 	color: #fff;
-}
-
-.testimonials .content
-{
-	display: flex;
-	justify-content: center;
-	flex-wrap: wrap;
-	flex-direction: row;
-	margin-top: 40px;
-}
-
-.testimonials .content .box
-{
-	width: 340px;
-	margin: 20px;
-	padding: 40px;
-	background: #fff;
-	display: flex;
-	justify-content: center;
-	align-items: center;
-	flex-direction: column;
-}
-
-.testimonials .content .box .imgBx img
-{
-	width: 80px;
-	height: 80px;
-	margin-bottom: 20px;
-	border-radius: 50%;
-	overflow: hidden;
-}
-
-.testimonials .content .box .text p
-{
-	color: #666;
-	font-style: italic;
-}
-
-.testimonials .content .box .text h3
-{
-	margin-top: 20px;
-	color: #111;
-	font-size: 1em;
-	color: #DA291C;
-	font-weight: 600;
 }
 
 .contactForm
@@ -346,7 +255,7 @@ section
 {
 	padding: 8px 40px;
 	border-top: 1px solid rgba(0, 0, 0, 0.1);
-	text-align: right;
+	text-align: right;;
 }
 
 .copyrightText p
@@ -454,7 +363,7 @@ section
 
 	.banner .content h2
 	{
-		font-size: 3em;
+		font-size: 4vh;
 		color: #fff;
 	}
 
@@ -525,12 +434,18 @@ section
 	}
 	.banner .content h2
 	{
-		font-size: 1em;
+		font-size: 3vh;
 	}
-	header .logo
-{
+
+	.banner .content p
+	{
+		font-size: 2vh;
+	}
+
+	header a .logo
+	{
 	width: 40%;
-}
+	}
 
 .copyrightText a img
 {
