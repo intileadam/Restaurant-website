@@ -1,3 +1,5 @@
+# To copy, run git clone https://github.com/intileadam/Restaurant-website.git
+
 # Restaurant website template
 This is a Modern, Clean and Professional restaurant website template. Prefect for restaurant, Fastfood, Bakery, Cafe, Pub, Bar, Catering, and any food business. This work is totally open-saurce and free to use.
 
