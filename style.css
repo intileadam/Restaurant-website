@@ -23,7 +23,7 @@ p
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	background: url(img/costaricaflag.png);
+	background: url(img/side_restaraunt.jpg);
 	background-size: cover;
 }
 
@@ -37,15 +37,15 @@ p
 {
 	font-size: 3vh;
 	font-family: cursive;
-	color: #fff;
-	background-color: #DA291C;
+	color: #000;
+	background-color: #fff;
 }
 
 .banner .content p
 {
 	font-size: 2vh;
-	color: #fff;
-	background-color: #DA291C
+	color: #000;
+	background-color: #fff
 }
 
 .btn
@@ -448,6 +448,7 @@ section
 	{
 		font-size: 3vh;
 		font-family: cursive;
+		color: #000;
 	}
 
 	.banner .content p
