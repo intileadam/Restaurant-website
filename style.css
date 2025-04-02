@@ -36,6 +36,7 @@ p
 .banner .content h2
 {
 	font-size: 3vh;
+	font-family: cursive;
 	color: #fff;
 	background-color: #DA291C;
 }
@@ -107,8 +108,10 @@ header .navigation li
 header .navigation li a
 {
 	text-decoration: none;
+	font-family: cursive;
 	color: #fff;
 	font-weight: 400;
+	font-size:xx-large;
 }
 
 header.sticky .navigation li a
@@ -143,12 +146,14 @@ section
 .titleText
 {
 	color: #111;
+	font-family: cursive;
 	font-size: 2em;
 	font-weight: 300;
 }
 
 .titleText span
 {
+	font-family: cursive;
 	color: #DA291C;
 	font-weight: 700;
 	font-size: 1.5em;
@@ -272,7 +277,7 @@ section
 
 .copyrightText a img
 {
-	width: 6%;
+	width: 4%;
 	padding: 10px;
 }
 
@@ -364,6 +369,7 @@ section
 	.banner .content h2
 	{
 		font-size: 4vh;
+		font-family: cursive;
 		color: #fff;
 	}
 
@@ -409,6 +415,12 @@ section
 		margin-bottom: 15px;
 		font-weight: 300;
 	}
+
+	.copyrightText a img
+{
+	width: 10%;
+	padding: 10px;
+}
 }
 /*-------- Tablet scren ------------*/
 
@@ -435,6 +447,7 @@ section
 	.banner .content h2
 	{
 		font-size: 3vh;
+		font-family: cursive;
 	}
 
 	.banner .content p
@@ -449,7 +462,7 @@ section
 
 .copyrightText a img
 {
-	width: 10%;
-	padding-right: 10px;
+	width: 12%;
+	padding-right: 5px;
 }
 }
