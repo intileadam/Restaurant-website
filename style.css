@@ -25,10 +25,9 @@ p
 	align-items: center;
 	background-image: url(img/chicken\ casado.jpg);
 	background-size: cover;
-	background-color: rgba(0,0,0,0.4);
+	background-color: rgba(0,0,0,0.6);
 	background-blend-mode:darken;
 	background-position: 0% 20%;
-	
 }
 
 .banner .content
@@ -40,14 +39,14 @@ p
 
 .banner .content h2
 {
-	font-size: 3vh;
+	font-size: 5vh;
 	font-family: cursive;
 	color: #fff;
 }
 
 .banner .content p
 {
-	font-size: 2vh;
+	font-size: 3vh;
 	color: #fff;
 }
 
