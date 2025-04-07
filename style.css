@@ -23,29 +23,32 @@ p
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	background: url(img/side_restaraunt.jpg);
+	background-image: url(img/chicken\ casado.jpg);
 	background-size: cover;
+	background-color: rgba(0,0,0,0.4);
+	background-blend-mode:darken;
+	background-position: 0% 20%;
+	
 }
 
 .banner .content
 {
 	max-width: 900px;
 	text-align: center;
+	
 }
 
 .banner .content h2
 {
 	font-size: 3vh;
 	font-family: cursive;
-	color: #000;
-	background-color: #fff;
+	color: #fff;
 }
 
 .banner .content p
 {
 	font-size: 2vh;
-	color: #000;
-	background-color: #fff
+	color: #fff;
 }
 
 .btn
@@ -370,7 +373,6 @@ section
 	{
 		font-size: 4vh;
 		font-family: cursive;
-		color: #fff;
 	}
 
 	.row
@@ -421,6 +423,10 @@ section
 	width: 10%;
 	padding: 10px;
 }
+.banner
+	{
+		background-position: 60%;
+	}
 }
 /*-------- Tablet scren ------------*/
 
@@ -430,6 +436,11 @@ section
 	header.sticky
 	{
 		padding: 10px 20px;
+	}
+	
+	.banner
+	{
+		background-position: 60%;
 	}
 
 	.testimonials .content .box
@@ -448,7 +459,6 @@ section
 	{
 		font-size: 3vh;
 		font-family: cursive;
-		color: #000;
 	}
 
 	.banner .content p
@@ -461,9 +471,9 @@ section
 	width: 40%;
 	}
 
-.copyrightText a img
-{
-	width: 12%;
-	padding-right: 5px;
-}
+	.copyrightText a img
+	{
+		width: 12%;
+		padding-right: 5px;
+	}
 }
