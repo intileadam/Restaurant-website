@@ -155,6 +155,12 @@ section
 	width: 48%;
 }
 
+.row .col50 .imgBx
+{
+	filter: brightness(140%);
+
+}
+
 .titleText
 {
 	color: #111;
