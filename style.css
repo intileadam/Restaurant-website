@@ -33,9 +33,6 @@ p
 	align-items: center;
 	background-image: url(img/chicken\ casado.jpg);
 	background-size: cover;
-	color: #ffffff;
-	background-color: rgba(0,0,0,.2);
-	background-blend-mode:darken;
 	background-position: 0% 20%;
 }
 
