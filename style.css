@@ -120,7 +120,7 @@ header .navigation li
 header .navigation li a
 {
 	text-decoration: none;
-	font-family: cursive;
+	font-family: 'anandaregular';
 	color: #00205B;
 	font-weight: 400;
 	font-size:xx-large;
@@ -158,14 +158,14 @@ section
 .titleText
 {
 	color: #111;
-	font-family: cursive;
+	font-family: 'anandaregular';
 	font-size: 2em;
 	font-weight: 300;
 }
 
 .titleText span
 {
-	font-family: cursive;
+	font-family: 'anandaregular';
 	color: #DA291C;
 	font-weight: 700;
 	font-size: 1.5em;
@@ -445,7 +445,6 @@ section
 	{
 		font-size: 2vh;
 		padding: 5px 6px 5px 6px;
-
 	}
 
 	header a .logo
