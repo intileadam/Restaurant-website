@@ -25,7 +25,8 @@ p
 	align-items: center;
 	background-image: url(img/chicken\ casado.jpg);
 	background-size: cover;
-	background-color: rgba(0,0,0,0.6);
+	color: #ffffff;
+	background-color: rgba(0,0,0,.2);
 	background-blend-mode:darken;
 	background-position: 0% 20%;
 }
@@ -34,20 +35,21 @@ p
 {
 	max-width: 900px;
 	text-align: center;
-	
 }
 
 .banner .content h2
 {
-	font-size: 5vh;
+	font-size: 10vh;
 	font-family: cursive;
-	color: #fff;
+	color: red;
+	-webkit-text-stroke: .8vh #fff;
+	paint-order: stroke fill;
 }
 
 .banner .content p
 {
 	font-size: 3vh;
-	color: #fff;
+	padding: 10px 12px 10px 12px;
 }
 
 .btn
@@ -56,12 +58,12 @@ p
 	color: #fff;
 	background: #00205B;
 	display: inline-block;
-	padding: 10px 30px;
+	padding: 10px 20px;
 	margin-top: 20px;
-	text-transform: uppercase;
 	text-decoration: none;
 	letter-spacing: 2px;
 	transition: 0.5s;
+	border-radius: .5em;
 }
 
 .btn:hover
@@ -111,14 +113,14 @@ header .navigation li a
 {
 	text-decoration: none;
 	font-family: cursive;
-	color: #fff;
+	color: #00205B;
 	font-weight: 400;
 	font-size:xx-large;
 }
 
 header.sticky .navigation li a
 {
-	color: #111;
+	color: #00205B;
 }
 
 header .navigation li a:hover
@@ -221,43 +223,6 @@ section
 	color: #fff;
 }
 
-.contactForm
-{
-	padding: 75px 50px;
-	background: #fff;
-	box-shadow: 0 15px 50px rgba(0, 0, 0, 0.1);
-	max-width: 500px;
-	margin-top: 50px;
-}
-
-.contactForm h3
-{
-	color: #111;
-	font-size: 1.2em;
-	margin-bottom: 20px;
-	font-weight: 500;
-}
-
-.contactForm .inputBox
-{
-	position: relative;
-	width: 100%;
-	margin-bottom: 20px;
-}
-
-.contactForm .inputBox input,
-.contactForm .inputBox textarea
-{
-	width: 100%;
-	border: 1px solid #555;
-	padding: 10px;
-	color: #111;
-	outline: none;
-	font-size: 16px;
-	font-weight: 300;
-	resize: none;
-}
-
 .copyrightText
 {
 	padding: 8px 40px;
@@ -298,7 +263,7 @@ section
 }
 
 /*-------- Tablet scren ------------*/
-@media screen and (max-width:  991px)
+@media screen and (max-width:  1100px)
 {
 	header,
 	header.sticky
@@ -338,6 +303,17 @@ section
 		font-weight: 300;
 	}
 
+	header a .logo
+	{
+	width: 35%;
+	}
+
+	.btn
+	{
+		font-size: 1.5em;
+		padding: 10px 15px;
+	}
+
 	.menuToggle
 	{
 		position: relative;
@@ -370,8 +346,9 @@ section
 
 	.banner .content h2
 	{
-		font-size: 4vh;
+		font-size: 8vh;
 		font-family: cursive;
+		-webkit-text-stroke: .5vh #fff;
 	}
 
 	.row
@@ -436,11 +413,6 @@ section
 	{
 		padding: 10px 20px;
 	}
-	
-	.banner
-	{
-		background-position: 60%;
-	}
 
 	.testimonials .content .box
 	{
@@ -456,18 +428,21 @@ section
 	}
 	.banner .content h2
 	{
-		font-size: 3vh;
+		font-size: 6vh;
 		font-family: cursive;
+		-webkit-text-stroke: .5vh #fff;
 	}
 
 	.banner .content p
 	{
 		font-size: 2vh;
+		padding: 5px 6px 5px 6px;
+
 	}
 
 	header a .logo
 	{
-	width: 40%;
+	width: 50%;
 	}
 
 	.copyrightText a img
