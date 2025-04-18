@@ -375,6 +375,7 @@ section
 	.col50 .imgBx
 	{
 		margin-top: 30px;
+		filter: brightness(140%);
 	}
 
 	.menu .content
@@ -459,5 +460,10 @@ section
 	{
 		width: 12%;
 		padding-right: 5px;
+	}
+
+	.col50 .imgBx
+	{
+		filter: brightness(140%);
 	}
 }
