@@ -19,6 +19,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     
     $responseData = json_decode($verifyResponse);
     if (!$responseData->success) {
+        http_response_code(400);
         echo "Captcha validation failed.";
         exit;
     }
@@ -45,7 +46,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     try {
         // Server settings
         $mail->isSMTP();
-        $mail->Host       = 'mail.casadelpollo.com';
+        $mail->Host       = 'smtp.dreamhost.com';
         $mail->SMTPAuth   = true;
         $mail->Username   = $_ENV['EMAIL_USER']; // add to .env
         $mail->Password   = $_ENV['EMAIL_PASSWORD']; // add to .env
@@ -60,15 +61,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         // Content
         $mail->isHTML(false);
-        $mail->Subject = 'Contact request from casadelpollo.com'; // subject
+        $mail->Subject = 'New contact form submission'; // subject
         $mail->Body    =
             "Name: $name\n" .
             "Email: $email\n" .
             "Phone: $phone\n\n" .
             "Message:\n$message";
 
-        $mail->send();
-        echo "Thank you for your message! We'll be in touch soon.";
+        if ($mail->send()) {
+            echo "success";  // This means email sent successfully
+        } else {
+            http_response_code(500);  // Set an error HTTP code
+            echo "error";  // Email failed to send
+        }
+        
     } catch (Exception $e) {
         echo "Message could not be sent. Mailer Error: {$mail->ErrorInfo}";
     }
