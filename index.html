@@ -184,7 +184,25 @@
 			<p>Give us a call at <a href="tel:+15033444354">503-344-4354</a></p>
 			<p>For special requests, please fill out the form below. We will contact you to confirm your request. Thank you!</p>
 		</div>
-		<iframe src="https://docs.google.com/forms/d/e/1FAIpQLSfS_PsYmHkHJdDD6_6wBcDc93lmqUsTCLCJWIM0Ka1bISi19Q/viewform?embedded=true" width="100%" height="850px" frameborder="0" marginheight="0" marginwidth="0">Loading…</iframe>
+		<form action="contact-form-handler.php" method="POST">
+			<label for="name">Name: <span class="required-asterisk">*</span></label><br>
+			<input type="text" name="name" required><br><br>
+		
+			<label for="email">Email: <span class="required-asterisk">*</span></label><br>
+			<input type="email" name="email" required><br><br>
+		
+			<label for="phone">Phone Number: <span class="required-asterisk">*</span></label><br>
+			<input type="tel" name="phone" required><br><br>
+		
+			<label for="message">Comments or Catering Inquiries: <span class="required-asterisk">*</span></label><br>
+			<textarea name="message" rows="5" required></textarea><br><br>
+
+			<div class="g-recaptcha" data-sitekey="6LfddFErAAAAABzWCFleZeedVdp6uymB3rmGHAsX"></div>
+			<script src="https://www.google.com/recaptcha/api.js" async defer></script>
+
+		
+			<button type="submit">Submit</button>
+		  </form>
 	</section>
 
 	<div class="copyrightText">

@@ -1,0 +1,77 @@
+<?php
+require 'vendor/autoload.php';
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+use Dotenv\Dotenv;
+
+$dotenv = Dotenv::createImmutable(__DIR__);
+$dotenv->load();
+
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+
+    $recaptchaSecret = $_ENV['RECAPTCHA_SECRET_KEY'];
+    $recaptchaResponse = $_POST['g-recaptcha-response'];
+
+    $verifyResponse = file_get_contents(
+        "https://www.google.com/recaptcha/api/siteverify?secret=$recaptchaSecret&response=$recaptchaResponse"
+    );
+    
+    $responseData = json_decode($verifyResponse);
+    if (!$responseData->success) {
+        echo "Captcha validation failed.";
+        exit;
+    }
+
+    $name    = htmlspecialchars(trim($_POST["name"]));
+    $email   = filter_var(trim($_POST["email"]), FILTER_SANITIZE_EMAIL);
+    $phone   = htmlspecialchars(trim($_POST["phone"]));
+    $message = htmlspecialchars(trim($_POST["message"]));
+
+    // Check fields
+    if (empty($name) || empty($email) || empty($phone) || empty($message)) {
+        echo "Please fill out all fields.";
+        exit;
+    }
+
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    echo "Please enter a valid email address.";
+    exit;
+    }
+
+    // Create mail object
+    $mail = new PHPMailer(true);
+
+    try {
+        // Server settings
+        $mail->isSMTP();
+        $mail->Host       = 'mail.casadelpollo.com';
+        $mail->SMTPAuth   = true;
+        $mail->Username   = $_ENV['EMAIL_USER']; // add to .env
+        $mail->Password   = $_ENV['EMAIL_PASSWORD']; // add to .env
+        $mail->SMTPSecure = 'tls';
+        $mail->Port       = 587;
+
+        // Recipients
+        $mail->setFrom('mario@casadelpollo.com', 'Contact request from casadelpollo.com'); // the address sending the email
+        $mail->addAddress('mario@casadelpollo.com'); // the address to send the email
+        $mail->addReplyTo($email, $name); // the customer's address
+
+
+        // Content
+        $mail->isHTML(false);
+        $mail->Subject = 'Contact request from casadelpollo.com'; // subject
+        $mail->Body    =
+            "Name: $name\n" .
+            "Email: $email\n" .
+            "Phone: $phone\n\n" .
+            "Message:\n$message";
+
+        $mail->send();
+        echo "Thank you for your message! We'll be in touch soon.";
+    } catch (Exception $e) {
+        echo "Message could not be sent. Mailer Error: {$mail->ErrorInfo}";
+    }
+} else {
+    echo "Invalid request.";
+}
