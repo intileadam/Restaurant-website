@@ -48,14 +48,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $mail->isSMTP();
         $mail->Host       = 'smtp.dreamhost.com';
         $mail->SMTPAuth   = true;
-        $mail->Username   = $_ENV['EMAIL_USER']; // add to .env
-        $mail->Password   = $_ENV['EMAIL_PASSWORD']; // add to .env
-        $mail->SMTPSecure = 'tls';
+        $mail->Username   = $_ENV['EMAIL_USER'];
+        $mail->Password   = $_ENV['EMAIL_PASSWORD'];
         $mail->Port       = 587;
 
         // Recipients
         $mail->setFrom('mario@casadelpollo.com', 'Contact request from casadelpollo.com'); // the address sending the email
-        $mail->addAddress('mario@casadelpollo.com'); // the address to send the email
+        $mail->addAddress('mario@casadelpollo.com'); // the recipient
         $mail->addReplyTo($email, $name); // the customer's address
 
 
