@@ -1,0 +1,1 @@
+# Intentionally minimal; makes 'mailer' a package.

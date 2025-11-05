@@ -17,3 +17,16 @@ This is a Modern, Clean and Professional restaurant website template. Prefect fo
 
 Thank you to https://github.com/atulcodex for the resource! Buy him a coffee using the link below:
 [![Atul - Buy Me A Coffee](https://i.ibb.co/7rR9S4L/buy-me-a-coffee.png)](https://www.buymeacoffee.com/atulcodex)
+
+## I've also extended this repo to include an email campaign tool
+### Casa del Pollo — Email Campaign Web App
+
+
+### Quick Start
+
+
+1. **Clone** this repo and `cd casadelpollo-emailer`.
+2. **Python** 3.11+ recommended. Create a venv and install deps:
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt

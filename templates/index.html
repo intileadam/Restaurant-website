@@ -1,0 +1,77 @@
+{% extends 'base.html' %} {% block content %}
+<section>
+  <form method="get" action="/preview">
+    <label for="file">Choose campaign file:</label>
+    <select name="file" id="file" required>
+      {% for f in campaign_files %}
+      <option value="{{ f }}">{{ f }}</option>
+      {% endfor %}
+    </select>
+
+    <label for="subject">Email subject:</label>
+    <input
+      type="text"
+      id="subject"
+      name="subject"
+      placeholder="e.g., Weekend Specials at Casa del Pollo"
+      required
+    />
+
+    <button type="submit">Preview</button>
+  </form>
+</section>
+
+<section style="margin-top: 1rem">
+  <h2>Test Send</h2>
+  <form method="post" action="/send-test">
+    <label for="test_file">Campaign:</label>
+    <select name="file" id="test_file" required>
+      {% for f in campaign_files %}
+      <option value="{{ f }}">{{ f }}</option>
+      {% endfor %}
+    </select>
+    <label for="test_subject">Subject:</label>
+    <input type="text" id="test_subject" name="subject" required />
+    <label for="test_email">Send test to:</label>
+    <input type="email" id="test_email" name="email" required />
+    <button type="submit">Send Test</button>
+  </form>
+</section>
+<section style="margin-top: 1rem">
+  <h2>Send to Customers</h2>
+  <form method="get" action="/confirm">
+    <label for="file2">Campaign:</label>
+    <select name="file" id="file2" required>
+      {% for f in campaign_files %}
+      <option value="{{ f }}">{{ f }}</option>
+      {% endfor %}
+    </select>
+    <label for="subject2">Subject:</label>
+    <input type="text" id="subject2" name="subject" required />
+
+    <details>
+      <summary>Advanced (batching)</summary>
+      <label
+        >Batch size:
+        <input
+          type="number"
+          name="batch_size"
+          min="1"
+          value="{{ defaults.batch_size }}"
+        />
+      </label>
+      <label
+        >Delay (ms) between sends:
+        <input
+          type="number"
+          name="delay_ms"
+          min="0"
+          value="{{ defaults.delay_ms }}"
+        />
+      </label>
+    </details>
+
+    <button type="submit">Review & Confirm</button>
+  </form>
+</section>
+{% endblock %}

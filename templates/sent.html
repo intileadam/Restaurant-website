@@ -1,0 +1,22 @@
+{% extends 'base.html' %} {% block content %}
+<h2>Sending: {{ file }}</h2>
+<p>Subject: {{ subject }}</p>
+<pre
+  id="log"
+  style="
+    background: #111;
+    color: #eee;
+    padding: 1rem;
+    height: 50vh;
+    overflow: auto;
+  "
+></pre>
+<script>
+  const log = document.getElementById("log");
+  const es = new EventSource("/logs/stream");
+  es.onmessage = (e) => {
+    log.textContent += e.data + "\n";
+    log.scrollTop = log.scrollHeight;
+  };
+</script>
+{% endblock %}

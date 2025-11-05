@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Casa del Pollo — Unsubscribe</title>
+  </head>
+  <body>
+    {% if rejoined %}
+    <h1>Welcome back!</h1>
+    <p>You’ve been resubscribed. We’re glad you’re here.</p>
+    {% else %}
+    <h1>You’re unsubscribed</h1>
+    <p>We’re sorry to see you go. You can always subscribe again:</p>
+    <p>
+      <a href="/resubscribe?token={{ request.args.get('token') }}"
+        >Resubscribe</a
+      >
+    </p>
+    {% endif %}
+  </body>
+</html>

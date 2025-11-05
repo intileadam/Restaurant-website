@@ -50,7 +50,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $mail->SMTPAuth   = true;
         $mail->Username   = $_ENV['EMAIL_USER'];
         $mail->Password   = $_ENV['EMAIL_PASSWORD'];
-        $mail->Port       = 587;
+        $mail->Port       = $_ENV['SMTP_PORT'];
 
         // Recipients
         $mail->setFrom('mario@casadelpollo.com', 'Contact request from casadelpollo.com'); // the address sending the email

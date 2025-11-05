@@ -1,0 +1,42 @@
+{% extends 'base.html' %} {% block content %}
+<h2>Preview: {{ file }}</h2>
+<p><strong>Subject:</strong> {{ subject }}</p>
+<form method="post" action="/lint">
+  <input type="hidden" name="file" value="{{ file }}" />
+  <button type="submit">Run Lint Checks</button>
+</form>
+
+<iframe
+  srcdoc="{{ html|e }}"
+  style="width: 100%; height: 70vh; border: 1px solid #ddd"
+></iframe>
+
+{% if lint %}
+<h3>Lint Report</h3>
+<div class="lint">
+  {% if lint.errors %}
+  <h4>Errors</h4>
+  <ul>
+    {% for e in lint.errors %}
+    <li>{{ e }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %} {% if lint.warnings %}
+  <h4>Warnings</h4>
+  <ul>
+    {% for w in lint.warnings %}
+    <li>{{ w }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %} {% if lint.notes %}
+  <h4>Notes</h4>
+  <ul>
+    {% for n in lint.notes %}
+    <li>{{ n }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %} {% if not (lint.errors or lint.warnings or lint.notes) %}
+  <p>No issues found.</p>
+  {% endif %}
+</div>
+{% endif %} {% endblock %}

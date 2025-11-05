@@ -1,0 +1,19 @@
+{% extends 'base.html' %} {% block content %}
+<h2>Confirm Send</h2>
+<p><strong>Campaign:</strong> {{ file }}</p>
+<p><strong>Subject:</strong> {{ subject }}</p>
+<p><strong>Recipients:</strong> {{ recipient_count }}</p>
+<form method="post" action="/send">
+  <input type="hidden" name="file" value="{{ file }}" />
+  <input type="hidden" name="subject" value="{{ subject }}" />
+  <label
+    >Batch size:
+    <input type="number" name="batch_size" min="1" value="{{ batch_size }}" />
+  </label>
+  <label
+    >Delay (ms):
+    <input type="number" name="delay_ms" min="0" value="{{ delay_ms }}" />
+  </label>
+  <button type="submit">Yes, send to customers</button>
+</form>
+{% endblock %}
