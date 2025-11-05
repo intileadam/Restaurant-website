@@ -29,32 +29,32 @@ class SmtpClient:
         return server
 
 
-def build_message(self, to_email: str, subject: str, html_body: str, text_alt: str | None = None) -> EmailMessage:
-    msg = EmailMessage()
-    msg["From"] = f"{self.from_name} <{self.from_email}>"
-    msg["To"] = to_email
-    msg["Subject"] = subject
-    if text_alt:
-        msg.set_content(text_alt)
-        msg.add_alternative(html_body, subtype="html")
-    else:
-        # HTML-only works, but multipart/alternative improves deliverability; we can auto-generate later.
-        msg.add_alternative(html_body, subtype="html")
-    return msg
+    def build_message(self, to_email: str, subject: str, html_body: str, text_alt: str | None = None) -> EmailMessage:
+        msg = EmailMessage()
+        msg["From"] = f"{self.from_name} <{self.from_email}>"
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        if text_alt:
+            msg.set_content(text_alt)
+            msg.add_alternative(html_body, subtype="html")
+        else:
+            # HTML-only works, but multipart/alternative improves deliverability; we can auto-generate later.
+            msg.add_alternative(html_body, subtype="html")
+        return msg
 
 
-def send(self, msg: EmailMessage, delay_ms: int = 0):
-    last_err = None
-    for attempt in range(RETIES + 1):
-        try:
-            with self._connect() as server:
-                server.send_message(msg)
-            if delay_ms:
-                time.sleep(delay_ms / 1000.0)
-            return True
-        except Exception as e:
-            last_err = e
-            time.sleep(0.5 * (attempt + 1))
-    if last_err:
-        raise last_err
-    return False
+    def send(self, msg: EmailMessage, delay_ms: int = 0):
+        last_err = None
+        for attempt in range(RETIES + 1):
+            try:
+                with self._connect() as server:
+                    server.send_message(msg)
+                if delay_ms:
+                    time.sleep(delay_ms / 1000.0)
+                return True
+            except Exception as e:
+                last_err = e
+                time.sleep(0.5 * (attempt + 1))
+        if last_err:
+            raise last_err
+        return False
