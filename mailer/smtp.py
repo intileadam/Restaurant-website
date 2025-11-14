@@ -48,7 +48,9 @@ class SmtpClient:
         for attempt in range(RETIES + 1):
             try:
                 with self._connect() as server:
-                    server.send_message(msg)
+                    refused = server.send_message(msg)
+                    if refused:
+                        raise smtplib.SMTPRecipientsRefused(refused)
                 if delay_ms:
                     time.sleep(delay_ms / 1000.0)
                 return True

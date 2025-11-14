@@ -4,13 +4,50 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Casa del Pollo — Emailer</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
   </head>
-  <body>
-    <header>
-      <h1>Casa del Pollo — Campaign Sender</h1>
-      <nav><a href="/">Home</a></nav>
-    </header>
-    <main>{% block content %}{% endblock %}</main>
+  <body class="theme">
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand">
+          <img src="{{ url_for('static', filename='logo.png') }}" alt="Casa del Pollo" class="brand-mark" />
+          <div class="brand-copy">
+            <h1>Campaign Console</h1>
+          </div>
+        </div>
+        <nav class="primary-nav">
+          <a href="{{ url_for('index') }}" class="nav-link">Dashboard</a>
+          <a href="{{ url_for('new_customer') }}" class="nav-link">Customers</a>
+        </nav>
+      </header>
+
+      {% with flashes = get_flashed_messages(with_categories=True) %}
+        {% if flashes %}
+          <section class="flash-stack">
+            {% for category, message in flashes %}
+              <div class="flash flash-{{ category }}">
+                <span>{{ message }}</span>
+                <button type="button" class="flash-dismiss" aria-label="Dismiss">&times;</button>
+              </div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      <main class="app-main">{% block content %}{% endblock %}</main>
+    </div>
+    <script>
+      document.addEventListener("click", (event) => {
+        if (event.target.matches(".flash-dismiss")) {
+          event.target.closest(".flash").remove();
+        }
+      });
+    </script>
   </body>
 </html>

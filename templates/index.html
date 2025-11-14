@@ -1,77 +1,545 @@
 {% extends 'base.html' %} {% block content %}
-<section>
-  <form method="get" action="/preview">
-    <label for="file">Choose campaign file:</label>
-    <select name="file" id="file" required>
-      {% for f in campaign_files %}
-      <option value="{{ f }}">{{ f }}</option>
-      {% endfor %}
-    </select>
-
-    <label for="subject">Email subject:</label>
-    <input
-      type="text"
-      id="subject"
-      name="subject"
-      placeholder="e.g., Weekend Specials at Casa del Pollo"
-      required
-    />
-
-    <button type="submit">Preview</button>
-  </form>
+<section class="hero hero-utility">
+  <div class="hero-copy">
+    <p class="eyebrow">Workflow</p>
+    <h2>Prepare and send campaigns</h2>
+    <p>
+      Follow the steps below in order. Each section unlocks once a campaign file
+      is selected.
+    </p>
+  </div>
+  <div class="hero-note">
+    <p>
+      Need a new template? Upload an HTML file below or drop it into
+      <code>campaigns/</code> and refresh this page.
+    </p>
+    <button
+      type="button"
+      class="button outline hero-upload-button"
+      id="openUploadModal"
+    >
+      Upload HTML
+    </button>
+  </div>
 </section>
 
-<section style="margin-top: 1rem">
-  <h2>Test Send</h2>
-  <form method="post" action="/send-test">
-    <label for="test_file">Campaign:</label>
-    <select name="file" id="test_file" required>
-      {% for f in campaign_files %}
-      <option value="{{ f }}">{{ f }}</option>
-      {% endfor %}
-    </select>
-    <label for="test_subject">Subject:</label>
-    <input type="text" id="test_subject" name="subject" required />
-    <label for="test_email">Send test to:</label>
-    <input type="email" id="test_email" name="email" required />
-    <button type="submit">Send Test</button>
-  </form>
-</section>
-<section style="margin-top: 1rem">
-  <h2>Send to Customers</h2>
-  <form method="get" action="/confirm">
-    <label for="file2">Campaign:</label>
-    <select name="file" id="file2" required>
-      {% for f in campaign_files %}
-      <option value="{{ f }}">{{ f }}</option>
-      {% endfor %}
-    </select>
-    <label for="subject2">Subject:</label>
-    <input type="text" id="subject2" name="subject" required />
+<div id="campaign-workflow" class="dashboard-grid">
+  <section class="card focus-card preview-panel">
+    <header class="card-header">
+      <div>
+        <p class="eyebrow">Step 1</p>
+        <h2>Select a campaign</h2>
+      </div>
+      <span class="badge">Required</span>
+    </header>
+    <div class="focus-card__form">
+      <label for="campaignSelect" class="field-label">Campaign file</label>
+      <div class="field-control">
+        <select id="campaignSelect">
+          <option value="" selected>Select a campaign...</option>
+          {% for f in campaign_files %}
+          <option value="{{ f }}">{{ f }}</option>
+          {% endfor %}
+        </select>
+        <svg aria-hidden="true" viewBox="0 0 20 20">
+          <path d="M6 8l4 4 4-4" />
+        </svg>
+      </div>
+      <p class="help-text">
+        Selecting a file automatically refreshes the preview and unlocks test
+        and live send actions.
+      </p>
+    </div>
+    <div class="focus-card__preview">
+      <div class="preview-header">
+        <h3>Email preview</h3>
+        <button
+          type="button"
+          class="button ghost"
+          id="reloadPreview"
+          data-requires-selection
+          disabled
+        >
+          Reload preview
+        </button>
+      </div>
+      <div id="previewPlaceholder" class="preview-placeholder">
+        Choose a campaign to render a fully responsive preview.
+      </div>
+      <iframe
+        id="previewFrame"
+        class="preview-frame"
+        title="Email preview"
+        hidden
+      ></iframe>
+      <div id="previewError" class="preview-error card muted" hidden></div>
 
-    <details>
-      <summary>Advanced (batching)</summary>
-      <label
-        >Batch size:
+      <section id="lintSection" class="lint card soft" hidden>
+        <div class="lint-header">
+          <h3>Lint report</h3>
+          <span class="lint-chip">Auto generated</span>
+        </div>
+        <div id="lintContent"></div>
+      </section>
+    </div>
+  </section>
+
+  <div class="workflow-actions">
+    <section class="card form-card">
+      <header class="card-header">
+        <div>
+          <p class="eyebrow">Step 2</p>
+          <h2>Send a test</h2>
+        </div>
+      </header>
+      <form method="post" action="/send-test" class="form-grid" id="testEmailForm">
+        <input type="hidden" name="file" id="testFileInput" data-sync="file" />
+        <label for="test_subject">Subject</label>
         <input
-          type="number"
-          name="batch_size"
-          min="1"
-          value="{{ defaults.batch_size }}"
+          type="text"
+          id="test_subject"
+          name="subject"
+          placeholder="e.g., Weekend Specials"
+          required
         />
-      </label>
-      <label
-        >Delay (ms) between sends:
-        <input
-          type="number"
-          name="delay_ms"
-          min="0"
-          value="{{ defaults.delay_ms }}"
-        />
-      </label>
-    </details>
 
-    <button type="submit">Review & Confirm</button>
-  </form>
-</section>
+        <label for="test_email">Send test to</label>
+        <input
+          type="email"
+          id="test_email"
+          name="email"
+          placeholder="name@casadelpollo.com"
+          required
+        />
+
+        <button
+          type="submit"
+          class="button primary full-width"
+          data-requires-selection
+          data-requires-clean-lint
+          disabled
+        >
+          Send test email
+        </button>
+        <p class="lint-status" data-lint-status="test" hidden></p>
+        <p
+          id="testEmailStatus"
+          class="lint-status form-status"
+          aria-live="polite"
+          hidden
+        ></p>
+      </form>
+    </section>
+
+    <section class="card form-card">
+      <header class="card-header">
+        <div>
+          <p class="eyebrow">Step 3</p>
+          <h2>Live send</h2>
+        </div>
+      </header>
+      <form method="get" action="/confirm" class="form-grid">
+        <input type="hidden" name="file" id="sendFileInput" data-sync="file" />
+
+        <label for="subject2">Subject</label>
+        <input
+          type="text"
+          id="subject2"
+          name="subject"
+          placeholder="Subject line for customers"
+          required
+        />
+
+        <button
+          type="submit"
+          class="button accent full-width"
+          data-requires-selection
+          data-requires-clean-lint
+          disabled
+        >
+          Review &amp; confirm
+        </button>
+        <p class="lint-status" data-lint-status="live" hidden></p>
+      </form>
+    </section>
+  </div>
+
+</div>
+
+<div class="workflow-modal-backdrop" id="uploadModal" hidden>
+  <div
+    class="workflow-modal card upload-card"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="uploadModalTitle"
+  >
+    <button
+      type="button"
+      class="workflow-modal__close"
+      data-close-modal
+      aria-label="Close upload dialog"
+    >
+      &times;
+    </button>
+    <header class="card-header">
+      <div>
+        <h2 id="uploadModalTitle">Upload a campaign</h2>
+      </div>
+      <span class="badge">Optional</span>
+    </header>
+    <p class="upload-card__lead">
+      Drop a fresh HTML export here so preview, lint, and send actions all stay
+      synced. Files are stored in <code>campaigns/</code>.
+    </p>
+    <form
+      method="post"
+      action="{{ url_for('upload_campaign') }}"
+      class="upload-card__form form-grid"
+      enctype="multipart/form-data"
+    >
+      <label for="campaign_file">HTML file</label>
+      <input
+        type="file"
+        id="campaign_file"
+        name="campaign_file"
+        accept=".html,text/html"
+        required
+      />
+
+      <label for="campaign_filename">Save as (optional)</label>
+      <input
+        type="text"
+        id="campaign_filename"
+        name="filename"
+        placeholder="my-email.html"
+        inputmode="text"
+      />
+
+      <button type="submit" class="button secondary full-width">
+        Upload HTML
+      </button>
+      <p class="upload-card__note">
+        Existing names stay protected, so choose a unique filename when keeping
+        previous drafts.
+      </p>
+    </form>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const uploadModal = document.getElementById("uploadModal");
+    const uploadTrigger = document.getElementById("openUploadModal");
+    const select = document.getElementById("campaignSelect");
+    const previewFrame = document.getElementById("previewFrame");
+    const previewPlaceholder = document.getElementById("previewPlaceholder");
+    const previewError = document.getElementById("previewError");
+    const reloadButton = document.getElementById("reloadPreview");
+    const lintSection = document.getElementById("lintSection");
+    const lintContent = document.getElementById("lintContent");
+    const syncInputs = document.querySelectorAll("[data-sync='file']");
+    const gatedControls = document.querySelectorAll(
+      "[data-requires-selection]"
+    );
+    const lintDependentControls = document.querySelectorAll(
+      "[data-requires-clean-lint]"
+    );
+    const lintStatusTargets = document.querySelectorAll("[data-lint-status]");
+    const testForm = document.getElementById("testEmailForm");
+    const testStatus = document.getElementById("testEmailStatus");
+    let controller = null;
+    let lintReport = null;
+    let lintStatusMessage = "";
+
+    if (uploadModal && uploadTrigger) {
+      const closeButtons = uploadModal.querySelectorAll("[data-close-modal]");
+      const campaignInput = uploadModal.querySelector("#campaign_file");
+      const toggleUploadModal = (shouldOpen) => {
+        if (shouldOpen) {
+          uploadModal.removeAttribute("hidden");
+          document.body.classList.add("modal-open");
+          requestAnimationFrame(() => campaignInput?.focus());
+        } else {
+          uploadModal.setAttribute("hidden", "");
+          document.body.classList.remove("modal-open");
+        }
+      };
+
+      uploadTrigger.addEventListener("click", () => toggleUploadModal(true));
+      closeButtons.forEach((btn) =>
+        btn.addEventListener("click", () => toggleUploadModal(false))
+      );
+      uploadModal.addEventListener("click", (event) => {
+        if (event.target === uploadModal) {
+          toggleUploadModal(false);
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !uploadModal.hasAttribute("hidden")) {
+          toggleUploadModal(false);
+        }
+      });
+    }
+
+    function setLoading(isLoading) {
+      reloadButton.textContent = isLoading ? "Loading..." : "Reload preview";
+      reloadButton.disabled = isLoading || !select.value;
+    }
+
+    function updateLintStatus({ report = null, message = "" } = {}) {
+      lintReport = report;
+      lintStatusMessage = message;
+      applyLintState();
+    }
+
+    function applyLintState() {
+      const fileSelected = Boolean(select.value);
+      const lintReady = lintReport !== null;
+      const errors =
+        lintReady && Array.isArray(lintReport.errors)
+          ? lintReport.errors.length
+          : 0;
+      const warnings =
+        lintReady && Array.isArray(lintReport.warnings)
+          ? lintReport.warnings.length
+          : 0;
+      const hasErrors = errors > 0;
+      const hasWarnings = warnings > 0;
+
+      lintDependentControls.forEach((control) => {
+        const shouldDisable = !fileSelected || !lintReady || hasErrors;
+        control.disabled = shouldDisable;
+      });
+
+      lintStatusTargets.forEach((el) => {
+        let text = "";
+        let state = "";
+        if (!fileSelected) {
+          text = "Select a campaign to enable this action.";
+        } else if (!lintReady) {
+          text = lintStatusMessage || "Waiting for lint results...";
+          state = "info";
+        } else if (hasErrors) {
+          state = "error";
+          text =
+            el.dataset.lintStatus === "test"
+              ? "Fix lint errors before sending a test email."
+              : "Fix lint errors before proceeding.";
+        } else if (hasWarnings) {
+          state = "warning";
+          text = "Warnings detected. You may proceed but review carefully.";
+        }
+
+        if (text) {
+          el.hidden = false;
+          el.textContent = text;
+          el.classList.toggle("lint-status--error", state === "error");
+          el.classList.toggle("lint-status--warning", state === "warning");
+          el.classList.toggle("lint-status--info", state === "info");
+        } else {
+          el.hidden = true;
+          el.textContent = "";
+          el.classList.remove(
+            "lint-status--error",
+            "lint-status--warning",
+            "lint-status--info"
+          );
+        }
+      });
+    }
+
+    function setTestStatus(state, message) {
+      if (!testStatus) return;
+      if (!message) {
+        testStatus.hidden = true;
+        testStatus.textContent = "";
+        testStatus.classList.remove(
+          "lint-status--error",
+          "lint-status--warning",
+          "lint-status--info"
+        );
+        return;
+      }
+      testStatus.hidden = false;
+      testStatus.textContent = message;
+      testStatus.classList.remove(
+        "lint-status--error",
+        "lint-status--warning",
+        "lint-status--info"
+      );
+      if (state === "error") {
+        testStatus.classList.add("lint-status--error");
+      } else if (state === "warning") {
+        testStatus.classList.add("lint-status--warning");
+      } else {
+        testStatus.classList.add("lint-status--info");
+      }
+    }
+
+    function resetPreview() {
+      if (controller) controller.abort();
+      previewFrame.hidden = true;
+      previewFrame.removeAttribute("srcdoc");
+      previewPlaceholder.hidden = false;
+      previewError.hidden = true;
+      lintSection.hidden = true;
+      lintContent.innerHTML = "";
+      updateLintStatus({ report: null, message: "" });
+      setTestStatus(null, "");
+    }
+
+    function renderLint(report) {
+      lintContent.innerHTML = "";
+      if (!report) {
+        lintSection.hidden = true;
+        return;
+      }
+      const keys = [
+        { key: "errors", label: "Errors" },
+        { key: "warnings", label: "Warnings" },
+        { key: "notes", label: "Notes" },
+      ];
+      let hasContent = false;
+      keys.forEach(({ key, label }) => {
+        const items = Array.isArray(report[key]) ? report[key] : [];
+        if (!items.length) {
+          return;
+        }
+        hasContent = true;
+        const heading = document.createElement("h4");
+        heading.textContent = label;
+        lintContent.appendChild(heading);
+        const list = document.createElement("ul");
+        items.forEach((item) => {
+          const li = document.createElement("li");
+          li.textContent = item;
+          list.appendChild(li);
+        });
+        lintContent.appendChild(list);
+      });
+      if (!hasContent) {
+        const p = document.createElement("p");
+        p.textContent = "No lint issues found.";
+        lintContent.appendChild(p);
+      }
+      lintSection.hidden = false;
+    }
+
+    async function loadPreview() {
+      const file = select.value;
+      if (!file) {
+        resetPreview();
+        return;
+      }
+      if (controller) controller.abort();
+      controller = new AbortController();
+      previewPlaceholder.hidden = true;
+      previewError.hidden = true;
+      setLoading(true);
+      try {
+        const resp = await fetch(`/preview?file=${encodeURIComponent(file)}`, {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+        });
+        if (!resp.ok) {
+          const payload = await resp.json().catch(() => ({}));
+          throw new Error(payload.error || "Unable to load preview.");
+        }
+        const data = await resp.json();
+        previewFrame.hidden = false;
+        previewFrame.srcdoc = data.html || "";
+        renderLint(data.lint);
+        updateLintStatus({
+          report: data.lint || { errors: [], warnings: [], notes: [] },
+        });
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        previewFrame.hidden = true;
+        previewPlaceholder.hidden = true;
+        previewError.hidden = false;
+        previewError.textContent = err.message || "Unable to load preview.";
+        lintSection.hidden = true;
+        updateLintStatus({
+          report: null,
+          message: err.message || "Lint unavailable.",
+        });
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    select.addEventListener("change", () => {
+      const file = select.value;
+      syncInputs.forEach((input) => {
+        input.value = file;
+      });
+      gatedControls.forEach((control) => {
+        control.disabled = !file;
+      });
+      setTestStatus(null, "");
+      if (file) {
+        updateLintStatus({
+          report: null,
+          message: "Waiting for lint results...",
+        });
+        loadPreview();
+      } else {
+        resetPreview();
+      }
+    });
+
+    reloadButton.addEventListener("click", () => {
+      if (select.value) {
+        loadPreview();
+      }
+    });
+
+    if (testForm) {
+      const submitButton = testForm.querySelector("button[type='submit']");
+      testForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!testForm.reportValidity()) {
+          return;
+        }
+        const previousDisabled = submitButton ? submitButton.disabled : false;
+        if (submitButton) {
+          submitButton.disabled = true;
+        }
+        setTestStatus("info", "Sending test email...");
+        try {
+          const formData = new FormData(testForm);
+          const resp = await fetch(testForm.action, {
+            method: testForm.method,
+            body: formData,
+            headers: {
+              "X-Requested-With": "XMLHttpRequest",
+              Accept: "application/json",
+            },
+          });
+          const text = await resp.text();
+          let payload = {};
+          try {
+            payload = JSON.parse(text);
+          } catch (err) {
+            payload = {};
+          }
+          if (!resp.ok || payload.ok === false) {
+            throw new Error(payload.message || text || "Failed to send test email.");
+          }
+          setTestStatus("info", payload.message || "Test email sent.");
+        } catch (err) {
+          setTestStatus("error", err.message || "Failed to send test email.");
+        } finally {
+          if (submitButton) {
+            submitButton.disabled = previousDisabled;
+          }
+          applyLintState();
+        }
+      });
+    }
+
+    updateLintStatus({ report: null, message: "" });
+  })();
+</script>
+
 {% endblock %}

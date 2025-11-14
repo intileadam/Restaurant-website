@@ -1,0 +1,418 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card customer-manager" data-customers-page>
+  <header class="customer-manager__header">
+    <div>
+      <p class="eyebrow">Subscribers</p>
+      <h2>Customer Directory</h2>
+      <p class="muted">Tap any row to edit. Changes save instantly.</p>
+    </div>
+    <button type="button" class="btn primary" data-add-customer>
+      <span>+ Add customer</span>
+    </button>
+  </header>
+
+  <div class="customer-table-container">
+    <div class="table-status" data-customers-loading>Loading customers…</div>
+    <div class="table-status error" data-customers-error hidden>
+      <div>
+        <strong>Something went wrong.</strong>
+        <p data-customers-error-message>Unable to load customers.</p>
+      </div>
+      <button type="button" class="btn ghost" data-reload-customers>Try again</button>
+    </div>
+    <div class="table-scroll" data-customers-shell hidden>
+      <table class="customer-table">
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>First name</th>
+            <th>Last name</th>
+            <th>Company</th>
+            <th>Phone</th>
+            <th>Status</th>
+            <th>Comments</th>
+          </tr>
+        </thead>
+        <tbody data-customers-body></tbody>
+      </table>
+      <div class="table-empty" data-customers-empty hidden>No customers yet.</div>
+    </div>
+  </div>
+</section>
+
+<div class="customer-modal-backdrop" data-customer-modal hidden>
+  <div class="customer-modal" role="dialog" aria-modal="true" aria-labelledby="customerModalTitle">
+    <header class="customer-modal__header">
+      <div>
+        <p class="eyebrow" data-modal-mode-label></p>
+        <h3 id="customerModalTitle" data-modal-title></h3>
+      </div>
+      <button type="button" class="icon-button" aria-label="Close dialog" data-modal-close>&times;</button>
+    </header>
+    <form class="customer-form" data-customer-form>
+      <div class="form-alert" data-form-alert hidden></div>
+      <div class="form-grid">
+        <label>
+          <span>Email <span class="required">*</span></span>
+          <input type="email" name="email" data-field-email required />
+        </label>
+        <label>
+          <span>First name</span>
+          <input type="text" name="firstname" data-field-firstname />
+        </label>
+        <label>
+          <span>Last name</span>
+          <input type="text" name="lastname" data-field-lastname />
+        </label>
+        <label>
+          <span>Company</span>
+          <input type="text" name="company" data-field-company />
+        </label>
+        <label>
+          <span>Phone</span>
+          <input type="text" name="phone" data-field-phone />
+        </label>
+        <label class="textarea-field">
+          <span>Comments</span>
+          <textarea name="comments" rows="3" data-field-comments></textarea>
+        </label>
+        <label class="checkbox-field">
+          <input type="checkbox" name="is_subscribed" data-field-subscribed checked />
+          <span>Subscribed</span>
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn danger" data-modal-delete hidden>Delete customer</button>
+        <div class="form-actions__group">
+          <button type="button" class="btn ghost" data-modal-cancel>Cancel</button>
+          <button type="submit" class="btn primary" data-modal-save>Save changes</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const root = document.querySelector("[data-customers-page]");
+    if (!root) return;
+
+    const elements = {
+      tableBody: root.querySelector("[data-customers-body]"),
+      shell: root.querySelector("[data-customers-shell]"),
+      loading: root.querySelector("[data-customers-loading]"),
+      error: root.querySelector("[data-customers-error]"),
+      errorMessage: root.querySelector("[data-customers-error-message]"),
+      empty: root.querySelector("[data-customers-empty]"),
+      reloadBtn: root.querySelector("[data-reload-customers]"),
+      addBtn: root.querySelector("[data-add-customer]"),
+      container: root.querySelector(".customer-table-container"),
+      modal: document.querySelector("[data-customer-modal]"),
+      form: document.querySelector("[data-customer-form]"),
+      alert: document.querySelector("[data-form-alert]"),
+      modeLabel: document.querySelector("[data-modal-mode-label]"),
+      modalTitle: document.querySelector("[data-modal-title]"),
+      saveBtn: document.querySelector("[data-modal-save]"),
+      cancelBtn: document.querySelector("[data-modal-cancel]"),
+      closeBtn: document.querySelector("[data-modal-close]"),
+      deleteBtn: document.querySelector("[data-modal-delete]"),
+    };
+
+    if (!elements.tableBody || !elements.modal || !elements.form) return;
+
+    const state = {
+      customers: [],
+      mode: "create",
+      activeId: null,
+    };
+
+    function setLoading(isLoading) {
+      elements.loading.hidden = !isLoading;
+      if (elements.container) {
+        elements.container.classList.toggle("is-loading", isLoading);
+      }
+    }
+
+    function showError(message) {
+      elements.error.hidden = false;
+      elements.errorMessage.textContent = message;
+      elements.shell.hidden = true;
+    }
+
+    function hideError() {
+      elements.error.hidden = true;
+      elements.shell.hidden = false;
+    }
+
+    function renderCustomers() {
+      elements.tableBody.innerHTML = "";
+      if (!state.customers.length) {
+        elements.empty.hidden = false;
+        return;
+      }
+      elements.empty.hidden = true;
+
+      const fragment = document.createDocumentFragment();
+      state.customers.forEach((customer) => {
+        const row = document.createElement("tr");
+        row.dataset.id = customer.id;
+
+        function addCell(text, className) {
+          const td = document.createElement("td");
+          if (className) td.className = className;
+          td.textContent = text || "";
+          row.appendChild(td);
+        }
+
+        addCell(customer.email);
+        addCell(customer.firstname || "—");
+        addCell(customer.lastname || "—");
+        addCell(customer.company || "—");
+        addCell(customer.phone || "—");
+
+        const statusTd = document.createElement("td");
+        const pill = document.createElement("span");
+        pill.className = customer.is_subscribed ? "status-pill success" : "status-pill muted";
+        pill.textContent = customer.is_subscribed ? "Subscribed" : "Unsubscribed";
+        statusTd.appendChild(pill);
+        row.appendChild(statusTd);
+
+        const commentsTd = document.createElement("td");
+        const comments = customer.comments || "";
+        commentsTd.textContent = comments ? truncate(comments) : "—";
+        commentsTd.title = comments;
+        row.appendChild(commentsTd);
+
+        fragment.appendChild(row);
+      });
+
+      elements.tableBody.appendChild(fragment);
+    }
+
+    function truncate(text, limit = 48) {
+      if (text.length <= limit) return text;
+      return text.slice(0, limit - 3) + "...";
+    }
+
+    async function loadCustomers() {
+      setLoading(true);
+      hideError();
+      try {
+        const response = await fetch("/api/customers");
+        if (!response.ok) {
+          throw new Error("Server returned an error.");
+        }
+        const data = await response.json();
+        state.customers = Array.isArray(data.customers) ? data.customers : [];
+        elements.shell.hidden = false;
+        renderCustomers();
+      } catch (error) {
+        showError("Unable to load customers. Please try again.");
+        console.error(error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function openModal(mode, customer) {
+      state.mode = mode;
+      state.activeId = customer ? customer.id : null;
+      elements.form.reset();
+      elements.alert.hidden = true;
+      elements.alert.textContent = "";
+
+      if (elements.modeLabel) {
+        elements.modeLabel.textContent = mode === "create" ? "New customer" : "Editing customer";
+      }
+      if (elements.modalTitle) {
+        elements.modalTitle.textContent = mode === "create" ? "Add customer" : customer.email;
+      }
+      if (elements.saveBtn) {
+        elements.saveBtn.textContent = mode === "create" ? "Create customer" : "Save changes";
+      }
+
+      const formFields = {
+        email: elements.form.querySelector("[data-field-email]"),
+        firstname: elements.form.querySelector("[data-field-firstname]"),
+        lastname: elements.form.querySelector("[data-field-lastname]"),
+        company: elements.form.querySelector("[data-field-company]"),
+        phone: elements.form.querySelector("[data-field-phone]"),
+        comments: elements.form.querySelector("[data-field-comments]"),
+        subscribed: elements.form.querySelector("[data-field-subscribed]"),
+      };
+
+      if (customer) {
+        formFields.email.value = customer.email || "";
+        formFields.firstname.value = customer.firstname || "";
+        formFields.lastname.value = customer.lastname || "";
+        formFields.company.value = customer.company || "";
+        formFields.phone.value = customer.phone || "";
+        formFields.comments.value = customer.comments || "";
+        formFields.subscribed.checked = customer.is_subscribed;
+      } else {
+        formFields.subscribed.checked = true;
+      }
+
+      if (elements.deleteBtn) {
+        const canDelete = mode === "edit";
+        elements.deleteBtn.hidden = !canDelete;
+        elements.deleteBtn.disabled = !canDelete;
+        delete elements.deleteBtn.dataset.loading;
+      }
+
+      elements.modal.hidden = false;
+      document.body.classList.add("modal-open");
+      formFields.email.focus();
+    }
+
+    function closeModal() {
+      elements.modal.hidden = true;
+      document.body.classList.remove("modal-open");
+      elements.alert.hidden = true;
+      elements.alert.textContent = "";
+      if (elements.deleteBtn) {
+        elements.deleteBtn.hidden = true;
+        elements.deleteBtn.disabled = false;
+        delete elements.deleteBtn.dataset.loading;
+      }
+      state.activeId = null;
+    }
+
+    async function handleSubmit(event) {
+      event.preventDefault();
+      const formData = new FormData(elements.form);
+      const valueFor = (field) => {
+        const value = formData.get(field);
+        return value ? value.toString().trim() : "";
+      };
+      const payload = {
+        email: valueFor("email"),
+        firstname: valueFor("firstname"),
+        lastname: valueFor("lastname"),
+        company: valueFor("company"),
+        phone: valueFor("phone"),
+        comments: valueFor("comments"),
+        is_subscribed: elements.form.querySelector("[data-field-subscribed]").checked,
+      };
+
+      elements.saveBtn.disabled = true;
+      elements.saveBtn.dataset.loading = "true";
+      elements.alert.hidden = true;
+      elements.alert.textContent = "";
+
+      try {
+        const url =
+          state.mode === "create"
+            ? "/api/customers"
+            : `/api/customers/${encodeURIComponent(state.activeId)}`;
+        const response = await fetch(url, {
+          method: state.mode === "create" ? "POST" : "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const message = data.error || "Unable to save customer.";
+          throw new Error(message);
+        }
+
+        const customer = data.customer;
+        if (!customer) throw new Error("Missing customer payload.");
+
+        if (state.mode === "create") {
+          state.customers = [customer, ...state.customers];
+        } else {
+          state.customers = state.customers.map((existing) =>
+            existing.id === customer.id ? customer : existing
+          );
+        }
+
+        renderCustomers();
+        closeModal();
+      } catch (error) {
+        elements.alert.textContent = error.message;
+        elements.alert.hidden = false;
+        console.error(error);
+      } finally {
+        elements.saveBtn.disabled = false;
+        delete elements.saveBtn.dataset.loading;
+      }
+    }
+
+    async function handleDelete() {
+      if (!state.activeId || !elements.deleteBtn) return;
+      if (!window.confirm("Delete this customer permanently?")) {
+        return;
+      }
+
+      elements.alert.hidden = true;
+      elements.alert.textContent = "";
+      elements.deleteBtn.disabled = true;
+      elements.deleteBtn.dataset.loading = "true";
+
+      try {
+        const response = await fetch(`/api/customers/${encodeURIComponent(state.activeId)}`, {
+          method: "DELETE",
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to delete customer.");
+        }
+        state.customers = state.customers.filter((item) => item.id !== state.activeId);
+        renderCustomers();
+        closeModal();
+      } catch (error) {
+        elements.alert.textContent = error.message;
+        elements.alert.hidden = false;
+        console.error(error);
+      } finally {
+        elements.deleteBtn.disabled = false;
+        delete elements.deleteBtn.dataset.loading;
+      }
+    }
+
+    elements.tableBody.addEventListener("click", (event) => {
+      const row = event.target.closest("tr");
+      if (!row) return;
+      const id = Number(row.dataset.id);
+      const customer = state.customers.find((item) => item.id === id);
+      if (customer) {
+        openModal("edit", customer);
+      }
+    });
+
+    if (elements.addBtn) {
+      elements.addBtn.addEventListener("click", () => openModal("create"));
+    }
+    if (elements.reloadBtn) {
+      elements.reloadBtn.addEventListener("click", loadCustomers);
+    }
+    elements.form.addEventListener("submit", handleSubmit);
+    if (elements.cancelBtn) {
+      elements.cancelBtn.addEventListener("click", closeModal);
+    }
+    if (elements.closeBtn) {
+      elements.closeBtn.addEventListener("click", closeModal);
+    }
+    if (elements.deleteBtn) {
+      elements.deleteBtn.addEventListener("click", handleDelete);
+    }
+
+    elements.modal.addEventListener("click", (event) => {
+      if (event.target === elements.modal) {
+        closeModal();
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !elements.modal.hidden) {
+        closeModal();
+      }
+    });
+
+    loadCustomers();
+  })();
+</script>
+{% endblock %}

@@ -86,11 +86,4 @@ def lint_html(html: str) -> dict:
     if not soup.find("meta", attrs={"charset": True}):
         report["notes"].append("No <meta charset> found; UTF-8 recommended.")
 
-    # 7) Unsubscribe token placeholder (your app auto-appends if missing)
-    html_text = str(soup)
-    if "{{ unsubscribe_url }}" not in html_text:
-        report["notes"].append(
-            "No {{ unsubscribe_url }} placeholder; we'll auto-append a footer on send."
-        )
-
     return report

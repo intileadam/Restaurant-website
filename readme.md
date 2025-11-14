@@ -25,7 +25,7 @@ Thank you to https://github.com/atulcodex for the resource! Buy him a coffee usi
 ### Quick Start
 
 
-1. **Clone** this repo and `cd casadelpollo-emailer`.
+1. **Clone** this repo
 2. **Python** 3.11+ recommended. Create a venv and install deps:
 ```bash
 python3 -m venv .venv && source .venv/bin/activate

@@ -3,17 +3,196 @@
 <p><strong>Campaign:</strong> {{ file }}</p>
 <p><strong>Subject:</strong> {{ subject }}</p>
 <p><strong>Recipients:</strong> {{ recipient_count }}</p>
+<section class="card preview-panel confirm-preview">
+  <div class="preview-header">
+    <div>
+      <p class="eyebrow">Campaign preview</p>
+      <h3>{{ file }}</h3>
+    </div>
+  </div>
+  {% if preview_html %}
+  <iframe id="confirmPreviewFrame" class="preview-frame" title="Email preview"></iframe>
+  {% else %}
+  <div class="preview-error card muted">
+    {{ preview_error or "Preview unavailable. Return to the dashboard to reload the preview." }}
+  </div>
+  {% endif %}
+</section>
+<section class="lint-summary card soft">
+  <h3>Lint report</h3>
+  {% if lint_has_errors %}
+  <p class="lint-summary__status lint-summary__status--error">
+    Sending is blocked until the following lint errors are fixed.
+  </p>
+  {% elif lint_has_warnings %}
+  <p class="lint-summary__status lint-summary__status--warning">
+    Warnings were found. Review them below, but you may proceed with the send.
+  </p>
+  {% else %}
+  <p class="lint-summary__status lint-summary__status--ok">No lint issues detected.</p>
+  {% endif %}
+  {% if lint_report.errors %}
+  <h4>Errors</h4>
+  <ul>
+    {% for err in lint_report.errors %}
+    <li>{{ err }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if lint_report.warnings %}
+  <h4>Warnings</h4>
+  <ul>
+    {% for warning in lint_report.warnings %}
+    <li>{{ warning }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if lint_report.notes %}
+  <h4>Notes</h4>
+  <ul>
+    {% for note in lint_report.notes %}
+    <li>{{ note }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% if recipients %}
+{% set preview_limit = 5 %}
+<div class="recipient-list">
+  <div class="recipient-list__header">
+    <h3>Recipient Preview</h3>
+    {% if recipients|length > preview_limit %}
+    <button
+      id="recipient-toggle"
+      type="button"
+      class="recipient-list__toggle"
+      aria-expanded="false"
+    >
+      Show all recipients ({{ recipients|length - preview_limit }} more)
+    </button>
+    {% endif %}
+  </div>
+  <table id="recipient-table" data-preview-limit="{{ preview_limit }}">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>First name</th>
+        <th>Last name</th>
+        <th>Email</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for customer in recipients %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ customer["FIRSTNAME"] }}</td>
+        <td>{{ customer["LASTNAME"] }}</td>
+        <td>{{ customer["EMAIL"] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p>No subscribed customers are available to receive this campaign.</p>
+{% endif %}
 <form method="post" action="/send">
   <input type="hidden" name="file" value="{{ file }}" />
   <input type="hidden" name="subject" value="{{ subject }}" />
-  <label
+<label
     >Batch size:
     <input type="number" name="batch_size" min="1" value="{{ batch_size }}" />
   </label>
-  <label
+<label
     >Delay (ms):
     <input type="number" name="delay_ms" min="0" value="{{ delay_ms }}" />
   </label>
-  <button type="submit">Yes, send to customers</button>
+{% if lint_has_errors %}
+  <p class="lint-blocker">Fix the lint errors above to enable the send button.</p>
+{% elif lint_has_warnings %}
+  <p class="lint-warning">Warnings were detected, but sending is still allowed.</p>
+{% endif %}
+<button type="submit" {% if lint_has_errors or sending %}disabled aria-disabled="true"{% endif %}>
+    {% if sending %}Sending...{% else %}Yes, send to customers{% endif %}
+  </button>
 </form>
+{% if sending %}
+<section class="card send-log">
+  <h3>Send log</h3>
+  <p class="eyebrow">Campaign: {{ file }}{% if subject %} · Subject: {{ subject }}{% endif %}</p>
+  <pre
+    id="confirmSendLog"
+    style="
+      background: #111;
+      color: #eee;
+      padding: 1rem;
+      min-height: 40vh;
+      max-height: 60vh;
+      overflow: auto;
+    "
+  ></pre>
+  <p class="muted">Keep this page open to monitor progress.</p>
+</section>
+{% endif %}
+{% if recipients and recipients|length > preview_limit %}
+<script>
+  (function () {
+    const table = document.getElementById("recipient-table");
+    const toggle = document.getElementById("recipient-toggle");
+    if (!table || !toggle) return;
+
+    const previewLimit = parseInt(table.dataset.previewLimit || "0", 10);
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+
+    function render(expanded) {
+      rows.forEach((row, idx) => {
+        const shouldShow = expanded || idx < previewLimit;
+        row.style.display = shouldShow ? "" : "none";
+      });
+      toggle.dataset.expanded = expanded ? "true" : "false";
+      toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+      if (expanded) {
+        toggle.textContent = "Collapse recipient list";
+      } else {
+        const remaining = Math.max(rows.length - previewLimit, 0);
+        toggle.textContent =
+          remaining > 0
+            ? `Show all recipients (${remaining} more)`
+            : "Show recipients";
+      }
+    }
+
+    toggle.addEventListener("click", () => {
+      const expanded = toggle.dataset.expanded === "true";
+      render(!expanded);
+    });
+
+    render(false);
+  })();
+</script>
+{% endif %}
+{% if preview_html %}
+<script>
+  (function () {
+    const frame = document.getElementById("confirmPreviewFrame");
+    if (!frame) return;
+    const html = {{ preview_html|tojson|safe }};
+    frame.srcdoc = html || "";
+  })();
+</script>
+{% endif %}
+{% if sending %}
+<script>
+  (function () {
+    const log = document.getElementById("confirmSendLog");
+    if (!log) return;
+    const es = new EventSource("/logs/stream");
+    es.onmessage = (event) => {
+      const needsNewline = log.textContent && !log.textContent.endsWith("\n");
+      log.textContent += (needsNewline ? "\n" : "") + event.data + "\n";
+      log.scrollTop = log.scrollHeight;
+    };
+  })();
+</script>
+{% endif %}
 {% endblock %}

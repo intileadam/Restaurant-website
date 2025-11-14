@@ -16,12 +16,14 @@ _jinja = Environment(loader=BaseLoader(), autoescape=False)
 
 
 DEFAULT_FOOTER = """
-<hr>
-<p style="font-size:12px; color:#666;">You are receiving this because you dined with us or subscribed in-store.
-If you’d like to stop receiving emails, <a href="{{ unsubscribe_url }}">unsubscribe here</a>.
-</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:24px;">
+  <tr>
+    <td style="border-top:1px solid #e2e2e2; padding:16px 0; text-align:center; font-size:12px; line-height:1.6; color:#666;">
+      <a href="{{ unsubscribe_url }}" style="color:#d62828;">Unsubscribe here</a>
+    </td>
+  </tr>
+</table>
 """.strip()
-
 
 
 
@@ -33,15 +35,23 @@ def load_campaign_html(path: str) -> str:
 
 
 def ensure_unsubscribe(html: str) -> str:
-    """If {{ unsubscribe_url }} is not present, append default footer.
-    We do this during SEND, not for preview, so the author’s HTML remains as-authored.
+    """Ensure an unsubscribe footer with a Jinja placeholder is present.
+    Idempotent: if a placeholder already exists, return html unchanged.
     """
-    if "{{ unsubscribe_url }}" in html:
+    # If either placeholder exists, do nothing.
+    if "{{ unsubscribe_url }}" in html or "{{ UNSUBSCRIBE_URL }}" in html:
         return html
-    # Append before closing </body> if present, else at end.
-    if "</body>" in html.lower():
-        return re.sub(r"</body>\s*$", DEFAULT_FOOTER + "\n</body>", html, flags=re.IGNORECASE)
-    return html + "\n" + DEFAULT_FOOTER
+
+    # Try to inject right before the last </body> (case-insensitive).
+    lower = html.lower()
+    i = lower.rfind("</body>")
+    footer_block = "\n" + DEFAULT_FOOTER + "\n"
+    if i != -1:
+        return html[:i] + footer_block + html[i:]
+
+    # No </body> found: just append at the end.
+    suffix = "" if html.endswith("\n") else "\n"
+    return html + suffix + DEFAULT_FOOTER + "\n"
 
 
 
