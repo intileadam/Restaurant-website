@@ -117,11 +117,12 @@
   </button>
 </form>
 {% if sending %}
-<section class="card send-log">
+<section id="sendLogSection" class="card send-log">
   <h3>Send log</h3>
   <p class="eyebrow">Campaign: {{ file }}{% if subject %} · Subject: {{ subject }}{% endif %}</p>
   <pre
     id="confirmSendLog"
+    tabindex="-1"
     style="
       background: #111;
       color: #eee;
@@ -186,6 +187,30 @@
   (function () {
     const log = document.getElementById("confirmSendLog");
     if (!log) return;
+
+    const focusLog = () => {
+      const section = document.getElementById("sendLogSection") || log;
+      if (section.scrollIntoView) {
+        try {
+          section.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (err) {
+          section.scrollIntoView();
+        }
+      }
+      if (log.focus) {
+        try {
+          log.focus({ preventScroll: true });
+        } catch (err) {
+          log.focus();
+        }
+      }
+    };
+    if (window.requestAnimationFrame) {
+      window.requestAnimationFrame(focusLog);
+    } else {
+      setTimeout(focusLog, 0);
+    }
+
     const es = new EventSource("/logs/stream");
     es.onmessage = (event) => {
       const needsNewline = log.textContent && !log.textContent.endsWith("\n");
