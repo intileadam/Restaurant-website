@@ -1,76 +1,53 @@
-# DreamHost Deployment — Unsubscribe Service (Passenger)
+# DreamHost Deployment — Unsubscribe Service (PHP)
 
-
-> This section walks you through hosting the **unsubscribe microservice** on DreamHost using **Passenger** on a subdomain like `unsubscribe.casadelpollo.com`. Your main site can remain static on `casadelpollo.com`.
-
+> The unsubscribe microservice runs as a lightweight PHP front controller.
 
 ## 0) Prereqs
-- DreamHost shared/VPS account with shell (SSH) access.
-- Your DreamHost user (e.g., `dhuser`) and domain already added in the panel.
-- MySQL database created in DreamHost panel (note your **DB host** e.g., `mysql.casadelpollo.com`, DB name, user, and password).
+- DreamHost account with a user that can upload files (SSH or SFTP).
+- MySQL database + credentials (hostname, DB name, user, password).
+- PHP 8.x selected for the subdomain (recommended in DreamHost panel).
 
-
-## 1) Add a subdomain for the app
+## 1) Add the subdomain
 1. DreamHost Panel → **Websites** → **Manage Websites** → **Add Hosting to a Domain / Sub-Domain**.
 2. Enter `unsubscribe.casadelpollo.com`.
-3. Check **Passenger (Ruby/NodeJS/Python apps)** (a.k.a. "Enable Passenger").
-4. Enable **Let’s Encrypt** (HTTPS).
-5. Save.
+3. Pick PHP (FastCGI) — do **not** enable Passenger.
+4. Enable Let’s Encrypt (HTTPS) and save.
+5. DreamHost creates `/home/<dhuser>/unsubscribe.casadelpollo.com/` as the doc root.
 
+## 2) Upload the service files
+From your local repo root, copy these items into the subdomain’s doc root:
 
-> DreamHost will create a directory like: `/home/dhuser/unsubscribe.casadelpollo.com/`
+- `unsubscribe_service/index.php`
+- `unsubscribe_service/.htaccess` (routes `/unsubscribe`, `/resubscribe`, `/healthz`)
+- `unsubscribe_service/templates/` (HTML/PHP views)
+- `vendor/` (for `vlucas/phpdotenv`)
+- `composer.json` and `composer.lock` (optional, for clarity)
 
+Example (replace `dhuser` and server name as needed):
+```bash
+scp -r unsubscribe_service vendor composer.* dhuser@server.dreamhost.com:/home/dhuser/unsubscribe.casadelpollo.com
+```
 
-## 2) Deploy the app files
-On your machine, copy this subset of the repo to the subdomain directory (via `scp` or SFTP):
-
-├─ server.py # Flask microservice for casadelpollo.com
-│ └─ templates/
-│ ├─ unsubscribed.html
-│ └─ error.html
-
-### `passenger_wsgi.py`
-```python
-# passenger_wsgi.py — DreamHost/Passenger entrypoint
-import os, sys
-sys.path.insert(0, os.path.dirname(__file__))
-from unsubscribe_service.server import app as application
-
-
-### requirements.txt
-Flask==3.0.2
-python-dotenv==1.0.1
-mysql-connector-python==9.0.0
-
-
-### Create a virtualenv & install deps (over SSH)
-ssh dhuser@dreamhost.com # or the server your user lives on
-cd ~/unsubscribe.casadelpollo.com
-python3 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-deactivate
-
-### Create /home/dhuser/unsubscribe.casadelpollo.com/.env with your production DB settings (do not commit this file):
-DB_HOST=mysql.casadelpollo.com # your DreamHost MySQL hostname
+## 3) Configure environment
+Create `/home/<dhuser>/unsubscribe.casadelpollo.com/.env` with your production DB values:
+```ini
+DB_HOST=mysql.casadelpollo.com
 DB_PORT=3306
 DB_USER=your_mysql_user
-DB_PASSWORD=your_mysql_password
+DB_PASS=your_mysql_password   # DB_PASSWORD also works if you prefer
 DB_NAME=restaurant_db
+```
 
-### Restart Passenger
-mkdir -p tmp
-touch tmp/restart.txt
+## 4) Test on the server
+- Health check: `https://unsubscribe.casadelpollo.com/healthz` should return `ok`.
+- Unsubscribe flow: `https://unsubscribe.casadelpollo.com/unsubscribe?token=TESTTOKEN`
+- Resubscribe flow: `https://unsubscribe.casadelpollo.com/resubscribe?token=TESTTOKEN`
 
+If you change files, re-upload them; no Passenger restart is needed for PHP.
 
-### Test it
-https://unsubscribe.casadelpollo.com/unsubscribe?token=TEST
-
-
-### Point your emails at the subdomain
+## 5) Point emails at the subdomain
+Set these in the campaign app’s `.env` so generated links hit the PHP service:
+```ini
 BASE_URL_PUBLIC=https://unsubscribe.casadelpollo.com
 UNSUBSCRIBE_PATH=/unsubscribe
-
-### Health check
-https://unsubscribe.casadelpollo.com/healthz
+```

@@ -1,21 +1,179 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Casa del Pollo — Unsubscribe</title>
-  </head>
-  <body>
-    {% if rejoined %}
-    <h1>Welcome back!</h1>
-    <p>You’ve been resubscribed. We’re glad you’re here.</p>
-    {% else %}
-    <h1>You’re unsubscribed</h1>
-    <p>We’re sorry to see you go. You can always subscribe again:</p>
-    <p>
-      <a href="/resubscribe?token={{ request.args.get('token') }}"
-        >Resubscribe</a
-      >
-    </p>
-    {% endif %}
-  </body>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Casa del Pollo — Unsubscribe</title>
+  <link rel="stylesheet" href="https://casadelpollo.com/style.css">
+  <link rel="icon" href="https://casadelpollo.com/img/favicon.png" type="image/png">
+  <style>
+    body {
+      background: #fdf7f6;
+      color: #111;
+    }
+    .unsubscribe-hero {
+      min-height: 60vh;
+      padding: 160px 20px 80px;
+      background-position: 40% 45%;
+      display: flex;
+      align-items: center;
+    }
+    .hero-card {
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 14px;
+      box-shadow: 0 12px 35px rgba(0, 0, 0, 0.12);
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 40px 38px;
+      text-align: center;
+      backdrop-filter: blur(1px);
+    }
+    .hero-card .logo-mark {
+      width: 140px;
+      margin-bottom: 10px;
+    }
+    .hero-card h1 {
+      font-family: 'anandaregular';
+      font-size: 2.2em;
+      color: #DA291C;
+      margin-bottom: 12px;
+    }
+    .hero-card p {
+      font-size: 1.05em;
+      margin-bottom: 14px;
+      color: #333;
+    }
+    .actions {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 8px;
+      margin-bottom: 10px;
+    }
+    .btn.secondary {
+      background: #ffffff;
+      color: #00205B;
+      border: 2px solid #00205B;
+      letter-spacing: 1px;
+    }
+    .btn.secondary:hover {
+      color: #DA291C;
+      border-color: #DA291C;
+    }
+    .assurance {
+      max-width: 920px;
+      margin: 0 auto 80px;
+      padding: 30px;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+    }
+    .assurance h2 {
+      font-family: 'anandaregular';
+      margin-bottom: 10px;
+      color: #00205B;
+    }
+    .assurance ul {
+      margin: 12px 0 0 16px;
+      padding: 0;
+      color: #333;
+      line-height: 1.6;
+    }
+    .assurance li {
+      margin-bottom: 8px;
+    }
+    .small-print {
+      margin-top: 10px;
+      color: #555;
+      font-size: 0.95em;
+    }
+    @media screen and (max-width: 640px) {
+      .unsubscribe-hero {
+        padding: 130px 16px 70px;
+      }
+      .hero-card {
+        padding: 30px 26px;
+      }
+      .hero-card h1 {
+        font-size: 1.8em;
+      }
+      .actions {
+        gap: 10px;
+      }
+      header a .logo {
+        width: 40%;
+      }
+    }
+  </style>
+</head>
+<body>
+<?php
+  $isRejoined = !empty($rejoined);
+  $tokenParam = $token ?? ($_GET['token'] ?? '');
+?>
+
+  <header>
+    <a href="https://casadelpollo.com/"><img class="logo" src="https://casadelpollo.com/img/logo.png" alt="Casa del Pollo logo" fetchpriority="high"></a>
+    <div class="menuToggle" onclick="toggleMenu()"></div>
+    <ul class="navigation">
+      <li><a href="https://www.clover.com/online-ordering/casa-del-pollo-lake-oswego-2" target="_blank">Order Online</a></li>
+      <li><a href="https://casadelpollo.com/#about" onclick="toggleMenu()">About</a></li>
+      <li><a href="https://casadelpollo.com/#menu" onclick="toggleMenu()">Menu</a></li>
+      <li><a href="https://casadelpollo.com/#location" onclick="toggleMenu()">Location</a></li>
+      <li><a href="https://casadelpollo.com/#contact" onclick="toggleMenu()">Contact</a></li>
+    </ul>
+  </header>
+
+  <section class="banner unsubscribe-hero" id="banner">
+    <div class="content hero-card">
+      <img class="logo-mark" src="https://casadelpollo.com/img/logo.png" alt="Casa del Pollo">
+      <?php if ($isRejoined): ?>
+        <h1>Welcome back to the family!</h1>
+        <p>You're resubscribed. We'll keep sharing specials, events, and Casa del Pollo news.</p>
+      <?php else: ?>
+        <h1>You’re unsubscribed</h1>
+        <p>We’ve confirmed your request and stopped our emails. If you change your mind, you can rejoin anytime.</p>
+      <?php endif; ?>
+
+      <div class="actions">
+        <?php if ($isRejoined): ?>
+          <a class="btn" href="https://www.clover.com/online-ordering/casa-del-pollo-lake-oswego-2" target="_blank" rel="noopener">Order Online</a>
+          <a class="btn secondary" href="https://casadelpollo.com/#menu">See Our Menu</a>
+        <?php else: ?>
+          <a class="btn" href="/resubscribe?token=<?= rawurlencode((string) $tokenParam); ?>">Resubscribe</a>
+          <a class="btn secondary" href="https://casadelpollo.com/#contact">Contact Us</a>
+        <?php endif; ?>
+      </div>
+
+      <p class="small-print">Need help? Call <a href="tel:+15033444354">503-344-4354</a> or reach out through our contact form.</p>
+    </div>
+  </section>
+
+  <section class="assurance">
+    <h2 class="titleText"><span>W</span>e value your trust</h2>
+    <p>Casa del Pollo is a family-owned restaurant in Lake Oswego. We only use your email for restaurant updates—no spam, no sharing.</p>
+    <ul>
+      <li>Your preference has been saved securely in our system.</li>
+      <li>You can resubscribe at any time using the button above.</li>
+      <li>Have questions? We’re happy to help by phone or through the contact form.</li>
+    </ul>
+  </section>
+
+  <script type="text/javascript">
+    window.addEventListener('scroll', function(){
+      const header = document.querySelector('header');
+      header.classList.toggle("sticky", window.scrollY > 0);
+    });
+
+    function toggleMenu()
+    {
+      const menuToggle = document.querySelector('.menuToggle');
+      const navigation = document.querySelector('.navigation');
+      menuToggle.classList.toggle('active');
+      navigation.classList.toggle('active');
+    }
+  </script>
+</body>
 </html>

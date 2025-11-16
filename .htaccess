@@ -1,0 +1,12 @@
+RewriteEngine On
+
+# Block direct access to view templates.
+RewriteRule ^templates/ - [F,L]
+
+# Allow direct access to existing files and folders.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Route app endpoints to the PHP front controller.
+RewriteRule ^(unsubscribe|resubscribe|healthz)/?$ index.php [QSA,L]

@@ -95,19 +95,19 @@ A Flask-based dashboard (see `app.py`) turns the static site into a mini ESP tai
 3. **Send yourself a test**: Step 2 collects subject + email, validates the address, renders merge tags (`{{ first_name }}`, `{{ unsubscribe_url }}`), and sends via your SMTP creds.
 4. **Review the live send**: Step 3 opens `/confirm` showing the rendered preview, lint summary, and a sample of recipients pulled from MySQL. Adjust batch size or delay as needed.
 5. **Go live**: click “Yes, send to customers.” A background thread (`_send_worker`) walks the subscriber list, throttles based on your controls, and writes every event to the live log stream so you can watch progress (and failures) in real time.
-6. **Test unsubscribe**: each email contains a `UNSUBSCRIBE_URL` parameterized with that row’s token. Run `python unsubscribe_service/server.py` locally (or deploy it — see below), then click the link in your test message to confirm opt-outs flip `IS_SUBSCRIBED` back to 0.
+6. **Test unsubscribe**: each email contains a `UNSUBSCRIBE_URL` parameterized with that row’s token. Start `php -S 127.0.0.1:8000 -t unsubscribe_service unsubscribe_service/index.php` locally (or deploy it — see below), then click the link in your test message to confirm opt-outs flip `IS_SUBSCRIBED` back to 0.
 
 ### Subscriber data & unsubscribe service
 
 - The campaign app only reads subscriber rows; writes happen through the dashboard/API or through the unsubscribe microservice. That keeps marketing sends auditable and ensures compliance.
-- `unsubscribe_service/` is a tiny Flask app meant to run separately (e.g., on DreamHost Passenger). Follow `unsubscribe_instructions.md` for deployment notes, environment variables, and Passenger setup.
+- `unsubscribe_service/` is a tiny PHP app that runs separately (the repo includes an .htaccess router for DreamHost). Follow `unsubscribe_instructions.md` for deployment notes and environment variables.
 - Environment parity matters: both apps load from `.env`, so keep DB + SMTP creds in sync across environments (local, staging, production).
 
 ### Helpful commands & docs
 
 - `scripts/run_campaign_local.sh` — convenience script for launching Flask on `127.0.0.1:8080`.
 - `python -m flask shell` — useful for poking at `mailer.db` helpers.
-- `unsubscribe_instructions.md` — step-by-step notes for deploying the opt-out service on DreamHost/Passenger.
+- `unsubscribe_instructions.md` — step-by-step notes for deploying the opt-out service on DreamHost/PHP.
 - `campaigns/menu.html` — sample HTML email you can use immediately after setup.
 
 That’s it! Customize the restaurant landing page, wire up your SMTP + MySQL credentials, and you’ll have a private little ESP tailored to Casa del Pollo’s campaigns.

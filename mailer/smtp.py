@@ -5,6 +5,7 @@
 from __future__ import annotations
 import os, time, smtplib
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 from typing import Iterable
 
 
@@ -22,9 +23,11 @@ class SmtpClient:
 
 
     def _connect(self):
-        server = smtplib.SMTP(self.host, self.port, timeout=30)
+        local_hostname = self.from_email.split("@")[-1] if self.from_email else None
+        server = smtplib.SMTP(self.host, self.port, timeout=30, local_hostname=local_hostname)
         server.ehlo()
         server.starttls()
+        server.ehlo()  # Refresh capabilities after STARTTLS
         server.login(self.user, self.password)
         return server
 
@@ -34,6 +37,8 @@ class SmtpClient:
         msg["From"] = f"{self.from_name} <{self.from_email}>"
         msg["To"] = to_email
         msg["Subject"] = subject
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid(domain=self.from_email.split("@")[-1]) if self.from_email else make_msgid()
         if text_alt:
             msg.set_content(text_alt)
             msg.add_alternative(html_body, subtype="html")
