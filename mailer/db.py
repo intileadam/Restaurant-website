@@ -109,6 +109,50 @@ def fetch_all_customers():
     return rows
 
 
+def fetch_customers_paginated(*, search: str | None = None, limit: int = 50, offset: int = 0):
+    """Return a page of customers along with the total count."""
+    conn = get_connection()
+    normalized_limit = max(1, int(limit))
+    normalized_offset = max(0, int(offset))
+
+    where_clause = ""
+    search_params: list[str] = []
+    if search:
+        term = search.strip().lower()
+        if term:
+            like = f"%{term}%"
+            where_clause = """
+        WHERE
+            LOWER(FIRSTNAME) LIKE %s OR
+            LOWER(LASTNAME) LIKE %s OR
+            LOWER(EMAIL) LIKE %s
+        """
+            search_params = [like, like, like]
+
+    count_sql = f"SELECT COUNT(*) AS total FROM CUSTOMERS {where_clause}"
+    count_cur = conn.cursor()
+    count_cur.execute(count_sql, search_params)
+    count_row = count_cur.fetchone()
+    total = int(count_row[0]) if count_row else 0
+    count_cur.close()
+
+    data_sql = f"""
+    SELECT {_CUSTOMER_FIELD_SET}
+    FROM CUSTOMERS
+    {where_clause}
+    ORDER BY CUSTID DESC
+    LIMIT %s OFFSET %s
+    """
+    params = list(search_params)
+    params.extend([normalized_limit, normalized_offset])
+    data_cur = conn.cursor(dictionary=True)
+    data_cur.execute(data_sql, params)
+    rows = data_cur.fetchall()
+    data_cur.close()
+
+    return rows, total
+
+
 def fetch_customer_by_id(custid: int):
     """Return a single customer row or None."""
     conn = get_connection()

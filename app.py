@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, pathlib, threading
+import math, os, pathlib, threading
 from flask import Flask, render_template, request, redirect, url_for, Response, stream_with_context, flash, jsonify
 from dotenv import load_dotenv
 from email_validator import validate_email, EmailNotValidError
@@ -147,6 +147,19 @@ def _serialize_customer(row) -> dict | None:
         "comments": row.get("COMMENTS") or "",
         "is_subscribed": _bool_from_db(row.get("IS_SUBSCRIBED")),
     }
+
+
+def _parse_int(value, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
+    """Coerce a request arg into a bounded integer."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
 
 
 @app.get("/")
@@ -376,12 +389,47 @@ def add_customer():
 
 @app.get("/api/customers")
 def list_customers_api():
+    search_term = _optional_field(request.args, "search")
+    per_page = _parse_int(request.args.get("per_page"), 25, minimum=1, maximum=100)
+    page = _parse_int(request.args.get("page"), 1, minimum=1, maximum=1000)
+    offset = (page - 1) * per_page
     try:
-        customers = dbmod.fetch_all_customers()
+        rows, total = dbmod.fetch_customers_paginated(
+        search=search_term,
+        limit=per_page,
+        offset=offset,
+        )
+        total = int(total or 0)
+        if total <= 0:
+            page = 1
+            total_pages = 1
+        else:
+            total_pages = max(1, math.ceil(total / per_page))
+            if page > total_pages:
+                page = total_pages
+                offset = (page - 1) * per_page
+                rows, total = dbmod.fetch_customers_paginated(
+                search=search_term,
+                limit=per_page,
+                offset=offset,
+                )
     except Exception as e:
         app.logger.exception("Failed to fetch customers")
         return jsonify({"error": f"Unable to load customers: {e}"}), 500
-    return jsonify({"customers": [_serialize_customer(row) for row in customers]})
+    serialized = [_serialize_customer(row) for row in rows]
+    if total > 0:
+        total_pages = max(1, math.ceil(total / per_page))
+    else:
+        total_pages = 1
+    pagination = {
+    "page": page,
+    "per_page": per_page,
+    "total": total,
+    "total_pages": total_pages,
+    "has_next": total > 0 and page < total_pages,
+    "has_prev": total > 0 and page > 1,
+    }
+    return jsonify({"customers": serialized, "pagination": pagination, "search": search_term or ""})
 
 
 @app.post("/api/customers")

@@ -708,6 +708,50 @@ button:focus-visible,
   pointer-events: none;
 }
 
+.customer-table-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.customer-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.page-size-control,
+.customer-search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.page-size-control select,
+.customer-search-field input {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.45rem 0.75rem;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.95rem;
+  min-height: 40px;
+}
+
+.page-size-control {
+  min-width: 150px;
+}
+
+.customer-search-field {
+  flex: 1;
+  min-width: 240px;
+}
+
 .table-status {
   display: flex;
   align-items: center;
@@ -727,7 +771,6 @@ button:focus-visible,
 
 .table-scroll {
   overflow: auto;
-  margin-top: 1rem;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: #fff;
@@ -768,6 +811,41 @@ button:focus-visible,
   padding: 2rem 1rem;
   color: var(--muted);
   font-weight: 600;
+}
+
+.pagination-controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.pager-button {
+  border: 1px solid var(--border-strong);
+  background: #fff;
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.pager-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pager-button:not(:disabled):hover,
+.pager-button:not(:disabled):focus-visible {
+  border-color: var(--primary);
+  background: rgba(194, 112, 50, 0.15);
+}
+
+.pagination-info {
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .status-pill {

@@ -21,22 +21,48 @@
       </div>
       <button type="button" class="btn ghost" data-reload-customers>Try again</button>
     </div>
-    <div class="table-scroll" data-customers-shell hidden>
-      <table class="customer-table">
-        <thead>
-          <tr>
-            <th>Email</th>
-            <th>First name</th>
-            <th>Last name</th>
-            <th>Company</th>
-            <th>Phone</th>
-            <th>Status</th>
-            <th>Comments</th>
-          </tr>
-        </thead>
-        <tbody data-customers-body></tbody>
-      </table>
-      <div class="table-empty" data-customers-empty hidden>No customers yet.</div>
+    <div class="customer-table-shell" data-customers-shell hidden>
+      <div class="customer-table-toolbar">
+        <label class="page-size-control">
+          <span>Rows per page</span>
+          <select data-customers-page-size>
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
+        <label class="customer-search-field">
+          <span>Search</span>
+          <input
+            type="search"
+            placeholder="Search by first name, last name, or email"
+            data-customers-search
+          />
+        </label>
+      </div>
+      <div class="table-scroll">
+        <table class="customer-table">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>First name</th>
+              <th>Last name</th>
+              <th>Company</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Comments</th>
+            </tr>
+          </thead>
+          <tbody data-customers-body></tbody>
+        </table>
+        <div class="table-empty" data-customers-empty hidden>No customers yet.</div>
+      </div>
+      <div class="pagination-controls" data-pagination hidden>
+        <button type="button" class="pager-button" data-pagination-prev>Prev</button>
+        <div class="pagination-info" data-pagination-info></div>
+        <button type="button" class="pager-button" data-pagination-next>Next</button>
+      </div>
     </div>
   </div>
 </section>
@@ -117,14 +143,29 @@
       cancelBtn: document.querySelector("[data-modal-cancel]"),
       closeBtn: document.querySelector("[data-modal-close]"),
       deleteBtn: document.querySelector("[data-modal-delete]"),
+      searchInput: root.querySelector("[data-customers-search]"),
+      pageSizeSelect: root.querySelector("[data-customers-page-size]"),
+      pagination: root.querySelector("[data-pagination]"),
+      paginationInfo: root.querySelector("[data-pagination-info]"),
+      prevBtn: root.querySelector("[data-pagination-prev]"),
+      nextBtn: root.querySelector("[data-pagination-next]"),
     };
 
     if (!elements.tableBody || !elements.modal || !elements.form) return;
+
+    const defaultEmptyMessage = elements.empty ? elements.empty.textContent : "No customers yet.";
+    const SEARCH_DELAY = 300;
+    let searchTimer;
 
     const state = {
       customers: [],
       mode: "create",
       activeId: null,
+      page: 1,
+      perPage: Number(elements.pageSizeSelect?.value) || 25,
+      totalPages: 1,
+      totalCount: 0,
+      search: elements.searchInput ? elements.searchInput.value.trim() : "",
     };
 
     function setLoading(isLoading) {
@@ -142,16 +183,17 @@
 
     function hideError() {
       elements.error.hidden = true;
-      elements.shell.hidden = false;
     }
 
     function renderCustomers() {
       elements.tableBody.innerHTML = "";
       if (!state.customers.length) {
         elements.empty.hidden = false;
+        elements.empty.textContent = state.search ? "No matching customers." : defaultEmptyMessage;
         return;
       }
       elements.empty.hidden = true;
+      elements.empty.textContent = defaultEmptyMessage;
 
       const fragment = document.createDocumentFragment();
       state.customers.forEach((customer) => {
@@ -190,6 +232,27 @@
       elements.tableBody.appendChild(fragment);
     }
 
+    function renderPagination() {
+      if (!elements.pagination) return;
+      const total = state.totalCount || 0;
+      const totalPages = Math.max(1, state.totalPages || 1);
+      const shouldShow = total > state.perPage;
+      elements.pagination.hidden = !shouldShow;
+
+      if (elements.paginationInfo) {
+        elements.paginationInfo.textContent = shouldShow
+          ? `Page ${state.page} of ${totalPages} · ${total} total`
+          : "";
+      }
+
+      if (elements.prevBtn) {
+        elements.prevBtn.disabled = state.page <= 1;
+      }
+      if (elements.nextBtn) {
+        elements.nextBtn.disabled = state.page >= totalPages || total === 0;
+      }
+    }
+
     function truncate(text, limit = 48) {
       if (text.length <= limit) return text;
       return text.slice(0, limit - 3) + "...";
@@ -199,14 +262,51 @@
       setLoading(true);
       hideError();
       try {
-        const response = await fetch("/api/customers");
+        const params = new URLSearchParams();
+        params.set("page", String(state.page));
+        params.set("per_page", String(state.perPage));
+        if (state.search) {
+          params.set("search", state.search);
+        }
+
+        const response = await fetch(`/api/customers?${params.toString()}`);
         if (!response.ok) {
           throw new Error("Server returned an error.");
         }
         const data = await response.json();
         state.customers = Array.isArray(data.customers) ? data.customers : [];
+
+        const pagination = data.pagination || {};
+        const resolvedTotal = Number(pagination.total);
+        state.totalCount = Number.isFinite(resolvedTotal) && resolvedTotal >= 0 ? resolvedTotal : state.customers.length;
+
+        const resolvedPage = Number(pagination.page);
+        if (Number.isFinite(resolvedPage) && resolvedPage > 0) {
+          state.page = resolvedPage;
+        } else if (!state.totalCount) {
+          state.page = 1;
+        }
+
+        const resolvedPerPage = Number(pagination.per_page);
+        if (Number.isFinite(resolvedPerPage) && resolvedPerPage > 0) {
+          state.perPage = resolvedPerPage;
+          if (elements.pageSizeSelect) {
+            elements.pageSizeSelect.value = String(state.perPage);
+          }
+        }
+
+        const resolvedPages = Number(pagination.total_pages);
+        if (Number.isFinite(resolvedPages) && resolvedPages > 0) {
+          state.totalPages = resolvedPages;
+        } else if (state.totalCount > 0) {
+          state.totalPages = Math.max(1, Math.ceil(state.totalCount / state.perPage));
+        } else {
+          state.totalPages = 1;
+        }
+
         elements.shell.hidden = false;
         renderCustomers();
+        renderPagination();
       } catch (error) {
         showError("Unable to load customers. Please try again.");
         console.error(error);
@@ -322,15 +422,10 @@
         if (!customer) throw new Error("Missing customer payload.");
 
         if (state.mode === "create") {
-          state.customers = [customer, ...state.customers];
-        } else {
-          state.customers = state.customers.map((existing) =>
-            existing.id === customer.id ? customer : existing
-          );
+          state.page = 1;
         }
-
-        renderCustomers();
         closeModal();
+        loadCustomers();
       } catch (error) {
         elements.alert.textContent = error.message;
         elements.alert.hidden = false;
@@ -360,9 +455,8 @@
         if (!response.ok) {
           throw new Error(data.error || "Unable to delete customer.");
         }
-        state.customers = state.customers.filter((item) => item.id !== state.activeId);
-        renderCustomers();
         closeModal();
+        loadCustomers();
       } catch (error) {
         elements.alert.textContent = error.message;
         elements.alert.hidden = false;
@@ -400,6 +494,14 @@
       elements.deleteBtn.addEventListener("click", handleDelete);
     }
 
+    function goToPage(targetPage) {
+      const maxPage = Math.max(1, state.totalPages || 1);
+      const nextPage = Math.min(Math.max(1, targetPage), maxPage);
+      if (nextPage === state.page) return;
+      state.page = nextPage;
+      loadCustomers();
+    }
+
     elements.modal.addEventListener("click", (event) => {
       if (event.target === elements.modal) {
         closeModal();
@@ -411,6 +513,40 @@
         closeModal();
       }
     });
+
+    if (elements.searchInput) {
+      elements.searchInput.addEventListener("input", (event) => {
+        const { value } = event.target;
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(() => {
+          const nextValue = value.trim();
+          if (nextValue === state.search) return;
+          state.search = nextValue;
+          state.page = 1;
+          loadCustomers();
+        }, SEARCH_DELAY);
+      });
+    }
+
+    if (elements.pageSizeSelect) {
+      elements.pageSizeSelect.addEventListener("change", (event) => {
+        const nextValue = Number(event.target.value);
+        if (!Number.isFinite(nextValue) || nextValue <= 0 || nextValue === state.perPage) {
+          return;
+        }
+        state.perPage = nextValue;
+        state.page = 1;
+        loadCustomers();
+      });
+    }
+
+    if (elements.prevBtn) {
+      elements.prevBtn.addEventListener("click", () => goToPage(state.page - 1));
+    }
+
+    if (elements.nextBtn) {
+      elements.nextBtn.addEventListener("click", () => goToPage(state.page + 1));
+    }
 
     loadCustomers();
   })();
