@@ -5,11 +5,25 @@
 from __future__ import annotations
 import os
 import secrets
+import threading
 import mysql.connector as mysql
 from mysql.connector import errorcode
 
 
 _conn_pool = None
+_conn_lock = threading.Lock()
+
+
+def _connect():
+    """Build a fresh MySQL connection from environment settings."""
+    return mysql.connect(
+    host=os.getenv("DB_HOST", "localhost"),
+    port=int(os.getenv("DB_PORT", "3306")),
+    user=os.getenv("DB_USER"),
+    password=os.getenv("DB_PASS"),
+    database=os.getenv("DB_NAME"),
+    autocommit=True,
+    )
 
 
 class DuplicateCustomerError(Exception):
@@ -22,16 +36,21 @@ class CustomerNotFoundError(Exception):
 
 def get_connection():
     global _conn_pool
-    if _conn_pool is None:
-        _conn_pool = mysql.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", "3306")),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS"),
-        database=os.getenv("DB_NAME"),
-        autocommit=True,
-        )
-    return _conn_pool
+    with _conn_lock:
+        if _conn_pool is None:
+            _conn_pool = _connect()
+            return _conn_pool
+
+        try:
+            # Ensure the existing connection is alive; reconnect if it dropped.
+            _conn_pool.ping(reconnect=True, attempts=3, delay=2)
+        except mysql.Error:
+            try:
+                _conn_pool.close()
+            except Exception:
+                pass
+            _conn_pool = _connect()
+        return _conn_pool
 
 
 

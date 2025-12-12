@@ -104,15 +104,30 @@ function handleUnsubscribe(): void
 
     try {
         $conn = db();
+        $statusStmt = $conn->prepare('SELECT IS_SUBSCRIBED FROM TESTCUSTOMERS WHERE UNSUBSCRIBE_TOKEN = ? LIMIT 1');
+        $statusStmt->bind_param('s', $token);
+        $statusStmt->execute();
+        $statusStmt->bind_result($currentStatus);
+        $hasRow = $statusStmt->fetch();
+        $statusStmt->close();
+
+        if (!$hasRow) {
+            render('error', ['message' => 'Invalid unsubscribe link.'], 404);
+        }
+
+        if ((int) $currentStatus === 0) {
+            render('unsubscribed', [
+                'rejoined' => false,
+                'token' => $token,
+                'alreadyUnsubscribed' => true,
+            ]);
+        }
+
         $stmt = $conn->prepare('UPDATE TESTCUSTOMERS SET IS_SUBSCRIBED = 0 WHERE UNSUBSCRIBE_TOKEN = ?');
         $stmt->bind_param('s', $token);
         $stmt->execute();
 
-        if ($stmt->affected_rows === 0) {
-            render('error', ['message' => 'Invalid or already processed token.'], 404);
-        }
-
-        render('unsubscribed', ['rejoined' => false, 'token' => $token]);
+        render('unsubscribed', ['rejoined' => false, 'token' => $token, 'alreadyUnsubscribed' => false]);
     } catch (Throwable $e) {
         file_put_contents(__DIR__ . '/php-error.log', date('c') . ' unsubscribe error: ' . $e->getMessage() . PHP_EOL, FILE_APPEND);
         render('error', ['message' => $e->getMessage()], 500);
@@ -136,7 +151,7 @@ function handleResubscribe(): void
             render('error', ['message' => 'Invalid token.'], 404);
         }
 
-        render('unsubscribed', ['rejoined' => true, 'token' => $token]);
+        render('unsubscribed', ['rejoined' => true, 'token' => $token, 'alreadyUnsubscribed' => false]);
     } catch (Throwable $e) {
         file_put_contents(__DIR__ . '/php-error.log', date('c') . ' resubscribe error: ' . $e->getMessage() . PHP_EOL, FILE_APPEND);
         render('error', ['message' => $e->getMessage()], 500);
@@ -158,6 +173,9 @@ if ($normalizedPath === '') {
 }
 
 switch ($normalizedPath) {
+    case '/':
+        header('Location: /unsubscribe', true, 302);
+        exit;
     case '/unsubscribe':
         handleUnsubscribe();
         break;
