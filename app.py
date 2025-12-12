@@ -267,10 +267,19 @@ def send_test():
         return error_response(f"Invalid email: {e}")
 
     subscriber = None
+    subscriber_token = None
     try:
         subscriber = dbmod.fetch_customer_by_email(to_addr)
     except Exception as e:
         return error_response(f"Unable to load subscriber info: {e}")
+    if subscriber:
+        try:
+            subscriber_token = dbmod.ensure_unsubscribe_token(
+            subscriber.get("CUSTID"),
+            subscriber.get("UNSUBSCRIBE_TOKEN"),
+            )
+        except Exception as e:
+            return error_response(f"Unable to ensure unsubscribe token: {e}")
 
     try:
         candidate = resolve_campaign_path(file_field)
@@ -291,12 +300,12 @@ def send_test():
 
     try:
         raw_html = ensure_unsubscribe(campaign_html)
-        if subscriber and subscriber.get("UNSUBSCRIBE_TOKEN"):
+        if subscriber and subscriber_token:
             html = render_for_recipient(
             raw_html,
             subscriber.get("FIRSTNAME"),
             subscriber.get("LASTNAME"),
-            subscriber.get("UNSUBSCRIBE_TOKEN"),
+            subscriber_token,
             )
         else:
             html = render_for_test(raw_html)
@@ -606,7 +615,13 @@ def _send_worker(file: str, subject: str, batch_size: int, delay_ms: int):
             GLOBAL_BUS.emit(f"Batch {idx//batch_size + 1}: {len(batch)} recipients")
             for r in batch:
                 to_addr = r["EMAIL"].strip()
-                html = render_for_recipient(raw_html, r.get("FIRSTNAME"), r.get("LASTNAME"), r.get("UNSUBSCRIBE_TOKEN"))
+                try:
+                    token = dbmod.ensure_unsubscribe_token(r.get("CUSTID"), r.get("UNSUBSCRIBE_TOKEN"))
+                except Exception as e:
+                    GLOBAL_BUS.emit(f"✖ Missing unsubscribe token for {to_addr}: {e}")
+                    continue
+
+                html = render_for_recipient(raw_html, r.get("FIRSTNAME"), r.get("LASTNAME"), token)
                 try:
                     msg = smtp.build_message(to_addr, subject, html)
                     smtp.send(msg, delay_ms=delay_ms)

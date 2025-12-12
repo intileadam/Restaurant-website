@@ -11,6 +11,14 @@
       type="image/png"
     />
     <style>
+      @font-face {
+        font-family: "anandaregular";
+        src: url("/font/ananda_personal_use-webfont.woff2") format("woff2"),
+             url("/font/ananda_personal_use-webfont.woff") format("woff");
+        font-weight: normal;
+        font-style: normal;
+        font-display: swap;
+      }
       body {
         background: #fdf7f6;
         color: #111;
@@ -45,6 +53,9 @@
         color: #333;
         font-size: 1.05em;
         margin-bottom: 14px;
+      }
+      header .navigation li a {
+        font-family: "anandaregular", "Poppins", sans-serif;
       }
       .actions {
         display: flex;
@@ -128,9 +139,15 @@
       <div class="content error-card">
         <img src="https://casadelpollo.com/img/logo.png" alt="Casa del Pollo" />
         <h1>Oops, something went wrong</h1>
-        <p>
-          <?= htmlspecialchars($message ?? 'Please try again in a moment.', ENT_QUOTES, 'UTF-8'); ?>
-        </p>
+        <?php
+          $rawMessage = isset($message) ? trim((string) $message) : '';
+          $shouldShowDefault = !isset($message);
+        ?>
+        <?php if ($rawMessage !== ''): ?>
+          <p><?= htmlspecialchars($rawMessage, ENT_QUOTES, 'UTF-8'); ?></p>
+        <?php elseif ($shouldShowDefault): ?>
+          <p><?= htmlspecialchars('Please try again in a moment.', ENT_QUOTES, 'UTF-8'); ?></p>
+        <?php endif; ?>
         <div class="actions">
           <a class="btn secondary" href="https://casadelpollo.com/"
             >Back to Home</a

@@ -99,7 +99,7 @@ function handleUnsubscribe(): void
 {
     $token = getToken();
     if ($token === '') {
-        render('error', ['message' => 'Missing token.'], 400);
+        render('error', ['message' => ''], 400);
     }
 
     try {
@@ -138,7 +138,7 @@ function handleResubscribe(): void
 {
     $token = getToken();
     if ($token === '') {
-        render('error', ['message' => 'Missing token.'], 400);
+        render('error', ['message' => ''], 400);
     }
 
     try {

@@ -289,3 +289,46 @@ def delete_customer(custid: int):
             raise CustomerNotFoundError(f"CUSTID {custid} not found.")
     finally:
         cur.close()
+
+
+def ensure_unsubscribe_token(custid: int, token: str | None = None) -> str:
+    """Guarantee a subscriber row has an unsubscribe token and return it."""
+    token_value = (token or "").strip()
+    if token_value:
+        return token_value
+
+    conn = get_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        new_token = secrets.token_hex(32)
+        cur.execute(
+        """
+        UPDATE TESTCUSTOMERS
+        SET UNSUBSCRIBE_TOKEN = %s
+        WHERE CUSTID = %s AND (
+            UNSUBSCRIBE_TOKEN IS NULL OR CHAR_LENGTH(TRIM(UNSUBSCRIBE_TOKEN)) = 0
+        )
+        """,
+        (new_token, custid),
+        )
+        if cur.rowcount:
+            return new_token
+
+        cur.execute(
+        """
+        SELECT UNSUBSCRIBE_TOKEN
+        FROM TESTCUSTOMERS
+        WHERE CUSTID = %s
+        """,
+        (custid,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise CustomerNotFoundError(f"CUSTID {custid} not found.")
+
+        existing = (row.get("UNSUBSCRIBE_TOKEN") or "").strip()
+        if existing:
+            return existing
+        raise RuntimeError(f"Unable to ensure unsubscribe token for CUSTID {custid}.")
+    finally:
+        cur.close()
