@@ -63,7 +63,7 @@ def fetch_subscribed_customers():
     cur.execute(
     """
     SELECT CUSTID, FIRSTNAME, LASTNAME, EMAIL, UNSUBSCRIBE_TOKEN
-    FROM TESTCUSTOMERS
+    FROM CUSTOMERS
     WHERE IS_SUBSCRIBED = 1 AND EMAIL IS NOT NULL AND EMAIL <> ''
     """
     )
@@ -73,7 +73,7 @@ def fetch_subscribed_customers():
 
 
 def _blank_to_empty(value: str | None) -> str:
-    """All optional columns are defined as NOT NULL in TESTCUSTOMERS."""
+    """All optional columns are defined as NOT NULL in CUSTOMERS."""
     if value is None:
         return ""
     value = value.strip()
@@ -100,7 +100,7 @@ def fetch_all_customers():
     cur.execute(
     f"""
     SELECT {_CUSTOMER_FIELD_SET}
-    FROM TESTCUSTOMERS
+    FROM CUSTOMERS
     ORDER BY CUSTID DESC
     """
     )
@@ -116,7 +116,7 @@ def fetch_customer_by_id(custid: int):
     cur.execute(
     f"""
     SELECT {_CUSTOMER_FIELD_SET}
-    FROM TESTCUSTOMERS
+    FROM CUSTOMERS
     WHERE CUSTID = %s
     """,
     (custid,),
@@ -135,7 +135,7 @@ def fetch_customer_by_email(email: str):
     cur.execute(
     f"""
     SELECT {_CUSTOMER_FIELD_SET}
-    FROM TESTCUSTOMERS
+    FROM CUSTOMERS
     WHERE LOWER(EMAIL) = LOWER(%s)
     LIMIT 1
     """,
@@ -165,7 +165,7 @@ def create_customer(
         cur.execute(
         """
         SELECT 1
-        FROM TESTCUSTOMERS
+        FROM CUSTOMERS
         WHERE LOWER(EMAIL) = LOWER(%s)
         LIMIT 1
         """,
@@ -176,7 +176,7 @@ def create_customer(
 
         cur.execute(
         """
-        INSERT INTO TESTCUSTOMERS
+        INSERT INTO CUSTOMERS
         (FIRSTNAME, LASTNAME, EMAIL, COMPANY, PHONE, COMMENTS, IS_SUBSCRIBED, UNSUBSCRIBE_TOKEN)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
@@ -219,7 +219,7 @@ def update_customer(
         cur.execute(
         """
         SELECT 1
-        FROM TESTCUSTOMERS
+        FROM CUSTOMERS
         WHERE CUSTID = %s
         """,
         (custid,),
@@ -230,7 +230,7 @@ def update_customer(
         cur.execute(
         """
         SELECT 1
-        FROM TESTCUSTOMERS
+        FROM CUSTOMERS
         WHERE LOWER(EMAIL) = LOWER(%s) AND CUSTID <> %s
         LIMIT 1
         """,
@@ -241,7 +241,7 @@ def update_customer(
 
         cur.execute(
         """
-        UPDATE TESTCUSTOMERS
+        UPDATE CUSTOMERS
         SET
             FIRSTNAME = %s,
             LASTNAME = %s,
@@ -280,7 +280,7 @@ def delete_customer(custid: int):
     try:
         cur.execute(
         """
-        DELETE FROM TESTCUSTOMERS
+        DELETE FROM CUSTOMERS
         WHERE CUSTID = %s
         """,
         (custid,),
@@ -303,7 +303,7 @@ def ensure_unsubscribe_token(custid: int, token: str | None = None) -> str:
         new_token = secrets.token_hex(32)
         cur.execute(
         """
-        UPDATE TESTCUSTOMERS
+        UPDATE CUSTOMERS
         SET UNSUBSCRIBE_TOKEN = %s
         WHERE CUSTID = %s AND (
             UNSUBSCRIBE_TOKEN IS NULL OR CHAR_LENGTH(TRIM(UNSUBSCRIBE_TOKEN)) = 0
@@ -317,7 +317,7 @@ def ensure_unsubscribe_token(custid: int, token: str | None = None) -> str:
         cur.execute(
         """
         SELECT UNSUBSCRIBE_TOKEN
-        FROM TESTCUSTOMERS
+        FROM CUSTOMERS
         WHERE CUSTID = %s
         """,
         (custid,),

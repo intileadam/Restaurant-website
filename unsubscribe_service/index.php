@@ -104,7 +104,7 @@ function handleUnsubscribe(): void
 
     try {
         $conn = db();
-        $statusStmt = $conn->prepare('SELECT IS_SUBSCRIBED FROM TESTCUSTOMERS WHERE UNSUBSCRIBE_TOKEN = ? LIMIT 1');
+        $statusStmt = $conn->prepare('SELECT IS_SUBSCRIBED FROM CUSTOMERS WHERE UNSUBSCRIBE_TOKEN = ? LIMIT 1');
         $statusStmt->bind_param('s', $token);
         $statusStmt->execute();
         $statusStmt->bind_result($currentStatus);
@@ -123,7 +123,7 @@ function handleUnsubscribe(): void
             ]);
         }
 
-        $stmt = $conn->prepare('UPDATE TESTCUSTOMERS SET IS_SUBSCRIBED = 0 WHERE UNSUBSCRIBE_TOKEN = ?');
+        $stmt = $conn->prepare('UPDATE CUSTOMERS SET IS_SUBSCRIBED = 0 WHERE UNSUBSCRIBE_TOKEN = ?');
         $stmt->bind_param('s', $token);
         $stmt->execute();
 
@@ -143,7 +143,7 @@ function handleResubscribe(): void
 
     try {
         $conn = db();
-        $stmt = $conn->prepare('UPDATE TESTCUSTOMERS SET IS_SUBSCRIBED = 1 WHERE UNSUBSCRIBE_TOKEN = ?');
+        $stmt = $conn->prepare('UPDATE CUSTOMERS SET IS_SUBSCRIBED = 1 WHERE UNSUBSCRIBE_TOKEN = ?');
         $stmt->bind_param('s', $token);
         $stmt->execute();
 

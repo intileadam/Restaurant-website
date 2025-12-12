@@ -29,7 +29,7 @@ A Flask-based dashboard (see `app.py`) turns the static site into a mini ESP tai
 - Runs a lightweight linter (`mailer/lint.py`) that blocks live sends until HTML errors are fixed and highlights common email-client issues.
 - Sends ad-hoc tests to any address after validating and merging sample unsubscribe data.
 - Streams confirmation data, batch progress, and SMTP success/failure logs to the browser in real time using Server-Sent Events.
-- Sends full campaigns to the subscribers stored in MySQL (`TESTCUSTOMERS`), throttled by batch size and inter-send delay controls.
+- Sends full campaigns to the subscribers stored in MySQL (`CUSTOMERS`), throttled by batch size and inter-send delay controls.
 - Provides a REST-ish API (`/api/customers`) plus UI forms to add, edit, and delete subscribers without touching SQL.
 - Ships a dedicated unsubscribe microservice (`unsubscribe_service/`) that flips `IS_SUBSCRIBED` and honors unique `UNSUBSCRIBE_TOKEN`s injected into every message.
 
@@ -66,7 +66,7 @@ A Flask-based dashboard (see `app.py`) turns the static site into a mini ESP tai
 
 3. **Prep MySQL** — create a database and the subscriber table the app expects:
    ```sql
-   CREATE TABLE TESTCUSTOMERS (
+   CREATE TABLE CUSTOMERS (
      CUSTID INT AUTO_INCREMENT PRIMARY KEY,
      FIRSTNAME VARCHAR(255) NOT NULL,
      LASTNAME VARCHAR(255) NOT NULL,

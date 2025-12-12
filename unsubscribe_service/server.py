@@ -31,7 +31,7 @@ def unsubscribe():
     try:
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("UPDATE TESTCUSTOMERS SET IS_SUBSCRIBED = 0 WHERE UNSUBSCRIBE_TOKEN = %s", (token,))
+        cur.execute("UPDATE CUSTOMERS SET IS_SUBSCRIBED = 0 WHERE UNSUBSCRIBE_TOKEN = %s", (token,))
         if cur.rowcount == 0:
             return render_template("error.html", message="Invalid or already processed token."), 404
         return render_template("unsubscribed.html")
@@ -47,7 +47,7 @@ def resubscribe():
     try:
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("UPDATE TESTCUSTOMERS SET IS_SUBSCRIBED = 1 WHERE UNSUBSCRIBE_TOKEN = %s", (token,))
+        cur.execute("UPDATE CUSTOMERS SET IS_SUBSCRIBED = 1 WHERE UNSUBSCRIBE_TOKEN = %s", (token,))
         if cur.rowcount == 0:
             return render_template("error.html", message="Invalid token."), 404
         return render_template("unsubscribed.html", rejoined=True)
