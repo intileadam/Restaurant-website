@@ -1,5 +1,9 @@
 RewriteEngine On
 
+# Redirect bare domain to the canonical www hostname.
+RewriteCond %{HTTP_HOST} ^unsubscribe\.casadelpollo\.com$ [NC]
+RewriteRule ^(.*)$ https://www.unsubscribe.casadelpollo.com/$1 [R=301,L]
+
 # Block direct access to view templates.
 RewriteRule ^templates/ - [F,L]
 
