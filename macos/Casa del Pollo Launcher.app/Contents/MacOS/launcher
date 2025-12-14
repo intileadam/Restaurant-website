@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/../Resources" && pwd -P)"
+COMMAND="$SCRIPT_DIR/run_campaign_local.command"
+
+if ! open -a Terminal "$COMMAND" >/dev/null 2>&1; then
+    if command -v osascript >/dev/null 2>&1; then
+        osascript <<'APPLESCRIPT'
+            display alert "Casa del Pollo Launcher" message "We couldn't open Terminal automatically. Please run run_campaign_local.command from the repo folder." buttons {"OK"} default button "OK"
+APPLESCRIPT
+    fi
+fi
+
+exit 0

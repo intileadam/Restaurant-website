@@ -103,11 +103,16 @@ a {
 
 .app-main {
   flex: 1;
-  width: min(1100px, 100%);
-  margin: 2rem auto 0;
+  width: 100%;
+  margin: 2rem 0 0;
   display: flex;
   flex-direction: column;
   gap: 2rem;
+}
+
+.app-main--wide {
+  width: 100%;
+  max-width: none;
 }
 
 .flash-stack {
@@ -696,6 +701,10 @@ button:focus-visible,
   margin-bottom: 1rem;
 }
 
+.customer-manager {
+  width: 100%;
+}
+
 .customer-table-container {
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -800,6 +809,14 @@ button:focus-visible,
 .customer-table tbody tr {
   cursor: pointer;
   transition: background 0.2s ease;
+}
+
+.customer-table tbody tr:nth-child(odd) {
+  background: #fff;
+}
+
+.customer-table tbody tr:nth-child(even) {
+  background: rgba(50, 45, 38, 0.03);
 }
 
 .customer-table tbody tr:hover {

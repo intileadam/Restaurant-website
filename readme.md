@@ -88,6 +88,17 @@ A Flask-based dashboard (see `app.py`) turns the static site into a mini ESP tai
 
 5. **Visit** `http://127.0.0.1:8080` and keep an eye on your terminal for Flask logs.
 
+### macOS Dock launcher
+
+Shipping the repo now includes a ready-to-use app bundle at `macos/Casa del Pollo Launcher.app` so non-technical teammates can start the campaign tool the same way they launch Safari or Mail.
+
+1. Open Finder, drag `macos/Casa del Pollo Launcher.app` to `/Applications` (or the Desktop) and then into the Dock to “pin” it. The Dock keeps a reference to that copy, so it will survive Git pulls.
+2. Double-click the icon to run the same `run_campaign_local.command` logic without having to hunt through the repo; we'll pop open a Terminal window with the live logs so you can see what the app is doing, and the launcher will prompt for the project folder the first time and remember it.
+3. To stop the server later, click the Dock icon again and pick “Stop Server” in the dialog, or press `⌘Q` while the launcher is running.
+4. On first launch macOS will prompt for access to Desktop/Documents/Downloads plus “control Finder.” Click **OK** so the launcher can find the repo; if you deny, re-open the app and allow when the alerts return.
+5. Finder launches don’t show Terminal output, so check `~/Library/Application Support/CasaDelPolloCampaign/launcher.log` (or `/var/folders/.../CasaDelPolloCampaign/launcher.log` if macOS forces the temporary path) whenever you need to troubleshoot; the launcher mirrors everything it prints there.
+6. If you change `run_campaign_local.command`, run `macos/update_launcher_bundle.sh` and commit the refreshed app bundle so everyone gets the update on their next pull.
+
 ### Give it a try — typical workflow
 
 1. **Drop a campaign**: export HTML from your email designer (e.g., Bee, Figma-to-HTML) and place it in `campaigns/` or use the “Upload HTML” button.

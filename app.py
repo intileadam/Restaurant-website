@@ -15,6 +15,7 @@ load_dotenv() # Load .env at startup
 
 app = Flask(__name__)
 app.secret_key = os.getenv("APP_SECRET_KEY", "dev-secret")
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 CAMPAIGNS_DIR = pathlib.Path(__file__).parent / "campaigns"
 ALLOWED_CAMPAIGN_EXTS = {".html", ".htm"}

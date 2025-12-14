@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Casa del Pollo</string>
+    <key>CFBundleDisplayName</key>
+    <string>Casa del Pollo</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.casadelpollo.launcher</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleExecutable</key>
+    <string>launcher</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.13</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Needed to show dialogs that let you pick the Restaurant-website folder.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Needed to locate your Restaurant-website repo when it lives on the Desktop.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Needed to locate your Restaurant-website repo when it lives in Documents.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Needed to locate your Restaurant-website repo when it lives in Downloads.</string>
+</dict>
+</plist>

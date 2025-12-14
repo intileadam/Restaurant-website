@@ -10,38 +10,52 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+    <link
+      rel="icon"
+      type="image/png"
+      href="{{ url_for('static', filename='favicon.png') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='styles.css') }}"
+    />
   </head>
   <body class="theme">
     <div class="app-shell">
       <header class="app-header">
         <div class="brand">
-          <img src="{{ url_for('static', filename='logo.png') }}" alt="Casa del Pollo" class="brand-mark" />
+          <img
+            src="{{ url_for('static', filename='logo.png') }}"
+            alt="Casa del Pollo"
+            class="brand-mark"
+          />
           <div class="brand-copy">
             <h1>Campaign Console</h1>
           </div>
         </div>
         <nav class="primary-nav">
-          <a href="{{ url_for('index') }}" class="nav-link">Dashboard</a>
+          <a href="{{ url_for('index') }}" class="nav-link">Email Tool</a>
           <a href="{{ url_for('new_customer') }}" class="nav-link">Customers</a>
         </nav>
       </header>
 
-      {% with flashes = get_flashed_messages(with_categories=True) %}
-        {% if flashes %}
-          <section class="flash-stack">
-            {% for category, message in flashes %}
-              <div class="flash flash-{{ category }}">
-                <span>{{ message }}</span>
-                <button type="button" class="flash-dismiss" aria-label="Dismiss">&times;</button>
-              </div>
-            {% endfor %}
-          </section>
-        {% endif %}
-      {% endwith %}
+      {% with flashes = get_flashed_messages(with_categories=True) %} {% if
+      flashes %}
+      <section class="flash-stack">
+        {% for category, message in flashes %}
+        <div class="flash flash-{{ category }}">
+          <span>{{ message }}</span>
+          <button type="button" class="flash-dismiss" aria-label="Dismiss">
+            &times;
+          </button>
+        </div>
+        {% endfor %}
+      </section>
+      {% endif %} {% endwith %}
 
-      <main class="app-main">{% block content %}{% endblock %}</main>
+      <main class="app-main{% block app_main_class %}{% endblock %}">
+        {% block content %}{% endblock %}
+      </main>
     </div>
     <script>
       document.addEventListener("click", (event) => {

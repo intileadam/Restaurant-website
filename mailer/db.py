@@ -125,9 +125,12 @@ def fetch_customers_paginated(*, search: str | None = None, limit: int = 50, off
         WHERE
             LOWER(FIRSTNAME) LIKE %s OR
             LOWER(LASTNAME) LIKE %s OR
-            LOWER(EMAIL) LIKE %s
+            LOWER(EMAIL) LIKE %s OR
+            LOWER(COMPANY) LIKE %s OR
+            LOWER(PHONE) LIKE %s OR
+            LOWER(COMMENTS) LIKE %s
         """
-            search_params = [like, like, like]
+            search_params = [like] * 6
 
     count_sql = f"SELECT COUNT(*) AS total FROM CUSTOMERS {where_clause}"
     count_cur = conn.cursor()
