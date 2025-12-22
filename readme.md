@@ -43,26 +43,7 @@ A Flask-based dashboard (see `app.py`) turns the static site into a mini ESP tai
    pip install -r requirements.txt
    ```
 
-2. **Create `.env`** — copy/paste the block below (fill in the blanks with your own SMTP + DB values; never commit secrets):
-   ```ini
-   APP_SECRET_KEY=dev-secret
-   FLASK_ENV=development
-   DB_HOST=127.0.0.1
-   DB_PORT=3306
-   DB_USER=db_user
-   DB_PASS=supersecret
-   DB_NAME=restaurant_campaigns
-   SMTP_HOST=smtp.gmail.com
-   SMTP_PORT=587
-   EMAIL_USER=marketing@casadelpollo.com
-   EMAIL_PASSWORD=app-password-here
-   FROM_NAME=Casa del Pollo
-   FROM_EMAIL=marketing@casadelpollo.com
-   BASE_URL_PUBLIC=http://localhost:8080
-   UNSUBSCRIBE_PATH=/unsubscribe
-   DEFAULT_BATCH_SIZE=75
-   DEFAULT_BATCH_DELAY_MS=500
-   ```
+2. **Create `.env` safely** — copy `.env.example` to a location **outside** any web-accessible directory and fill in every placeholder with real credentials. Keep the file out of git (`.gitignore` already blocks it) and rotate secrets immediately if it ever leaks. For development you can place it in the repo root, but never upload the real `.env` to production servers.
 
 3. **Prep MySQL** — create a database and the subscriber table the app expects:
    ```sql
@@ -107,6 +88,8 @@ Shipping the repo now includes a ready-to-use app bundle at `macos/Casa del Poll
 4. **Review the live send**: Step 3 opens `/confirm` showing the rendered preview, lint summary, and a sample of recipients pulled from MySQL. Adjust batch size or delay as needed.
 5. **Go live**: click “Yes, send to customers.” A background thread (`_send_worker`) walks the subscriber list, throttles based on your controls, and writes every event to the live log stream so you can watch progress (and failures) in real time.
 6. **Test unsubscribe**: each email contains a `UNSUBSCRIBE_URL` parameterized with that row’s token. Start `php -S 127.0.0.1:8000 -t unsubscribe_service unsubscribe_service/index.php` locally (or deploy it — see below), then click the link in your test message to confirm opt-outs flip `IS_SUBSCRIBED` back to 0.
+
+Before committing or deploying, run `scripts/preflight.sh` to ensure `.env` is untracked, no obvious secrets slipped into sources, and that no `.log` files live inside the unsubscribe docroot.
 
 ### Subscriber data & unsubscribe service
 

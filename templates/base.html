@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content="{{ csrf_token() }}" />
     <title>Casa del Pollo — Emailer</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -19,8 +20,17 @@
       rel="stylesheet"
       href="{{ url_for('static', filename='styles.css') }}"
     />
+    <script>
+      window.getCsrfToken = function () {
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        return meta ? meta.getAttribute("content") || "" : "";
+      };
+    </script>
   </head>
-  <body class="theme">
+  <body
+    class="theme{% if current_db_mode == 'test' %} theme--test{% endif %}"
+    data-db-mode="{{ current_db_mode }}"
+  >
     <div class="app-shell">
       <header class="app-header">
         <div class="brand">
@@ -33,10 +43,69 @@
             <h1>Campaign Console</h1>
           </div>
         </div>
-        <nav class="primary-nav">
-          <a href="{{ url_for('index') }}" class="nav-link">Email Tool</a>
-          <a href="{{ url_for('new_customer') }}" class="nav-link">Customers</a>
-        </nav>
+        <div class="header-actions">
+          {% set email_tool_endpoints = ["index", "confirm", "send_to_customers"] %}
+          {% set customer_endpoints = ["new_customer"] %}
+          <nav class="primary-nav">
+            <a
+              href="{{ url_for('index') }}"
+              class="nav-link{% if request.endpoint in email_tool_endpoints %} nav-link--active{% endif %}"
+            >
+              Email Tool
+            </a>
+            <a
+              href="{{ url_for('new_customer') }}"
+              class="nav-link{% if request.endpoint in customer_endpoints %} nav-link--active{% endif %}"
+            >
+              Customers
+            </a>
+          </nav>
+          {% if g.user %}
+          <div
+            class="header-mode"
+            id="headerModeToggle"
+            data-active-mode="{{ current_db_mode }}"
+          >
+            <span class="header-mode__label">DB</span>
+            <div class="header-mode__buttons" role="group" aria-label="Database mode">
+              <button
+                type="button"
+                class="header-mode__button {% if current_db_mode != 'test' %}is-active{% endif %}"
+                data-mode="production"
+                {% if current_db_mode != 'test' %}disabled{% endif %}
+              >
+                Prod
+              </button>
+              <button
+                type="button"
+                class="header-mode__button {% if current_db_mode == 'test' %}is-active{% endif %}"
+                data-mode="test"
+                {% if current_db_mode == 'test' %}disabled{% endif %}
+              >
+                Test
+              </button>
+            </div>
+            <span class="header-mode__status" id="headerModeStatus" aria-live="polite">
+              {% if current_db_mode == 'test' %}Test mode{% else %}Production mode{% endif %}
+            </span>
+          </div>
+          {% endif %}
+          {% if g.user and show_user_modal %}
+          <button
+            type="button"
+            class="header-add-user"
+            data-open-user-modal
+          >
+            Add admin
+          </button>
+          {% endif %}
+          {% if g.user %}
+          <div class="session-controls">
+            <span class="session-user">Signed in as {{ g.user.username }}</span>
+            <a href="{{ url_for('logout') }}" class="nav-link nav-link--ghost">Sign out</a>
+          </div>
+          {% endif %}
+        </div>
       </header>
 
       {% with flashes = get_flashed_messages(with_categories=True) %} {% if
@@ -63,6 +132,117 @@
           event.target.closest(".flash").remove();
         }
       });
+      (function () {
+        const body = document.body;
+        const toggle = document.getElementById("headerModeToggle");
+        if (!body || !toggle) return;
+        const buttons = toggle.querySelectorAll("[data-mode]");
+        const status = document.getElementById("headerModeStatus");
+        let activeMode = toggle.dataset.activeMode || body.dataset.dbMode || "production";
+        let requestInFlight = false;
+
+        const normalizeMode = (mode) => (mode === "test" ? "test" : "production");
+
+        const applyBodyMode = (mode) => {
+          const normalized = normalizeMode(mode);
+          body.dataset.dbMode = normalized;
+          body.classList.toggle("theme--test", normalized === "test");
+        };
+
+        const syncButtonDisabled = () => {
+          buttons.forEach((btn) => {
+            const isActive = btn.dataset.mode === activeMode;
+            btn.disabled = isActive || requestInFlight;
+          });
+        };
+
+        const setModeUI = (mode) => {
+          const normalized = normalizeMode(mode);
+          activeMode = normalized;
+          toggle.dataset.activeMode = normalized;
+          buttons.forEach((btn) => {
+            const isActive = btn.dataset.mode === normalized;
+            btn.classList.toggle("is-active", isActive);
+          });
+          if (status) {
+            status.textContent = normalized === "test" ? "Test mode" : "Production mode";
+            status.classList.toggle("header-mode__status--error", false);
+          }
+          applyBodyMode(normalized);
+          syncButtonDisabled();
+        };
+
+        const setStatusMessage = (message, { isError = false, temporary = false } = {}) => {
+          if (!status) return;
+          status.textContent = message;
+          status.classList.toggle("header-mode__status--error", isError);
+          if (temporary) {
+            clearTimeout(setStatusMessage._timeout);
+            setStatusMessage._timeout = setTimeout(() => {
+              status.textContent = activeMode === "test" ? "Test mode" : "Production mode";
+              status.classList.remove("header-mode__status--error");
+            }, 2500);
+          }
+        };
+
+        const updateMode = async (targetMode) => {
+          const normalized = normalizeMode(targetMode);
+          if (normalized === activeMode || requestInFlight) {
+            return;
+          }
+          requestInFlight = true;
+          syncButtonDisabled();
+          setStatusMessage("Switching…");
+          try {
+            const headers = {
+              "Content-Type": "application/json",
+              "X-Requested-With": "XMLHttpRequest",
+              Accept: "application/json",
+            };
+            const csrfToken = window.getCsrfToken ? window.getCsrfToken() : "";
+            if (csrfToken) {
+              headers["X-CSRF-Token"] = csrfToken;
+            }
+            const resp = await fetch("/mode", {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ mode: normalized }),
+            });
+            const payload = await resp.json().catch(() => ({}));
+            if (!resp.ok || payload.ok === false) {
+              throw new Error(payload.message || "Unable to update mode.");
+            }
+            const appliedMode = normalizeMode(payload.mode || normalized);
+            setModeUI(appliedMode);
+            window.dispatchEvent(
+              new CustomEvent("db-mode-changed", { detail: { mode: appliedMode } })
+            );
+            setStatusMessage(
+              appliedMode === "test" ? "Test mode" : "Production mode",
+              { temporary: true }
+            );
+          } catch (err) {
+            setStatusMessage(err.message || "Unable to update mode.", {
+              isError: true,
+              temporary: true,
+            });
+          } finally {
+            requestInFlight = false;
+            syncButtonDisabled();
+          }
+        };
+
+        buttons.forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const target = btn.dataset.mode;
+            if (target) {
+              updateMode(target);
+            }
+          });
+        });
+
+        setModeUI(activeMode);
+      })();
     </script>
   </body>
 </html>

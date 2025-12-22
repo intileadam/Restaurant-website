@@ -7,8 +7,6 @@
       Follow the steps below in order. Each section unlocks once a campaign file
       is selected.
     </p>
-  </div>
-  <div class="hero-note">
     <p>
       Need a new template? Upload an HTML file below or drop it into
       <code>campaigns/</code> and refresh this page.
@@ -93,6 +91,7 @@
         </div>
       </header>
       <form method="post" action="/send-test" class="form-grid" id="testEmailForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <input type="hidden" name="file" id="testFileInput" data-sync="file" />
         <label for="test_subject">Subject</label>
         <input
@@ -166,6 +165,69 @@
 
 </div>
 
+<div class="workflow-modal-backdrop" id="userModal" hidden>
+  <div
+    class="workflow-modal card user-card"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="userModalTitle"
+  >
+    <button
+      type="button"
+      class="workflow-modal__close"
+      data-close-modal
+      aria-label="Close add user dialog"
+    >
+      &times;
+    </button>
+    <header class="card-header">
+      <div>
+        <p class="eyebrow">Team access</p>
+        <h2 id="userModalTitle">Add admin</h2>
+      </div>
+      <span class="badge">Admins only</span>
+    </header>
+    <p class="user-card__lead">
+      Keep this console restricted to trusted staff. New accounts can sign in immediately after
+      being added.
+    </p>
+    <form method="post" action="{{ url_for('add_operator') }}" class="form-grid user-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <label for="operator_email">Email address</label>
+      <input
+        type="email"
+        id="operator_email"
+        name="operator_email"
+        placeholder="name@casadelpollo.com"
+        required
+      />
+
+      <label for="operator_password">Password</label>
+      <input
+        type="password"
+        id="operator_password"
+        name="operator_password"
+        minlength="{{ min_password_length }}"
+        placeholder="Minimum {{ min_password_length }} characters"
+        required
+      />
+
+      <label for="operator_password_confirm">Confirm password</label>
+      <input
+        type="password"
+        id="operator_password_confirm"
+        name="operator_password_confirm"
+        minlength="{{ min_password_length }}"
+        required
+      />
+
+      <button type="submit" class="button primary full-width">
+        Save user
+      </button>
+    </form>
+  </div>
+</div>
+
 <div class="workflow-modal-backdrop" id="uploadModal" hidden>
   <div
     class="workflow-modal card upload-card"
@@ -197,6 +259,7 @@
       class="upload-card__form form-grid"
       enctype="multipart/form-data"
     >
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <label for="campaign_file">HTML file</label>
       <input
         type="file"
@@ -230,6 +293,8 @@
   (() => {
     const uploadModal = document.getElementById("uploadModal");
     const uploadTrigger = document.getElementById("openUploadModal");
+    const userModal = document.getElementById("userModal");
+    const userTrigger = document.querySelector("[data-open-user-modal]");
     const select = document.getElementById("campaignSelect");
     const previewFrame = document.getElementById("previewFrame");
     const previewPlaceholder = document.getElementById("previewPlaceholder");
@@ -251,35 +316,47 @@
     let lintReport = null;
     let lintStatusMessage = "";
 
-    if (uploadModal && uploadTrigger) {
-      const closeButtons = uploadModal.querySelectorAll("[data-close-modal]");
-      const campaignInput = uploadModal.querySelector("#campaign_file");
-      const toggleUploadModal = (shouldOpen) => {
+    const syncModalBodyState = () => {
+      const anyOpen = document.querySelector(
+        ".workflow-modal-backdrop:not([hidden])"
+      );
+      document.body.classList.toggle("modal-open", Boolean(anyOpen));
+    };
+
+    const setupModal = (backdrop, trigger, focusSelector) => {
+      if (!backdrop || !trigger) return;
+      const closeButtons = backdrop.querySelectorAll("[data-close-modal]");
+      const focusTarget = focusSelector
+        ? backdrop.querySelector(focusSelector)
+        : null;
+      const toggle = (shouldOpen) => {
         if (shouldOpen) {
-          uploadModal.removeAttribute("hidden");
-          document.body.classList.add("modal-open");
-          requestAnimationFrame(() => campaignInput?.focus());
+          backdrop.removeAttribute("hidden");
+          syncModalBodyState();
+          requestAnimationFrame(() => focusTarget?.focus());
         } else {
-          uploadModal.setAttribute("hidden", "");
-          document.body.classList.remove("modal-open");
+          backdrop.setAttribute("hidden", "");
+          syncModalBodyState();
         }
       };
-
-      uploadTrigger.addEventListener("click", () => toggleUploadModal(true));
+      trigger.addEventListener("click", () => toggle(true));
       closeButtons.forEach((btn) =>
-        btn.addEventListener("click", () => toggleUploadModal(false))
+        btn.addEventListener("click", () => toggle(false))
       );
-      uploadModal.addEventListener("click", (event) => {
-        if (event.target === uploadModal) {
-          toggleUploadModal(false);
+      backdrop.addEventListener("click", (event) => {
+        if (event.target === backdrop) {
+          toggle(false);
         }
       });
       document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && !uploadModal.hasAttribute("hidden")) {
-          toggleUploadModal(false);
+        if (event.key === "Escape" && !backdrop.hasAttribute("hidden")) {
+          toggle(false);
         }
       });
-    }
+    };
+
+    setupModal(uploadModal, uploadTrigger, "#campaign_file");
+    setupModal(userModal, userTrigger, "#operator_email");
 
     function setLoading(isLoading) {
       reloadButton.textContent = isLoading ? "Loading..." : "Reload preview";
@@ -508,13 +585,18 @@
         setTestStatus("info", "Sending test email...");
         try {
           const formData = new FormData(testForm);
+          const headers = {
+            "X-Requested-With": "XMLHttpRequest",
+            Accept: "application/json",
+          };
+          const csrfToken = window.getCsrfToken ? window.getCsrfToken() : "";
+          if (csrfToken) {
+            headers["X-CSRF-Token"] = csrfToken;
+          }
           const resp = await fetch(testForm.action, {
             method: testForm.method,
             body: formData,
-            headers: {
-              "X-Requested-With": "XMLHttpRequest",
-              Accept: "application/json",
-            },
+            headers,
           });
           const text = await resp.text();
           let payload = {};

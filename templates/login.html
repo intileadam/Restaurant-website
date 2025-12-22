@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Casa del Pollo Console — Sign in</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      href="{{ url_for('static', filename='favicon.png') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='styles.css') }}"
+    />
+  </head>
+  <body class="theme auth-page">
+    <div class="auth-card">
+      <img
+        src="{{ url_for('static', filename='logo.png') }}"
+        alt="Casa del Pollo"
+        class="auth-logo"
+      />
+      <div>
+        <h1 class="auth-title">Casa del Pollo Console</h1>
+        <p class="auth-subtitle">Campaigns & customer tools</p>
+      </div>
+
+      <form method="post" class="auth-form" novalidate>
+        <input type="hidden" name="next" value="{{ next or '' }}" />
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <div class="auth-field">
+          <label for="username">Email address</label>
+          <input
+            id="username"
+            name="username"
+            type="email"
+            class="auth-input"
+            autocomplete="email"
+            required
+            autofocus
+            value="{{ username or '' }}"
+          />
+        </div>
+
+        <div class="auth-field">
+          <label for="password">Password</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            class="auth-input"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+
+        {% if login_error %}
+        <div class="auth-error">{{ login_error }}</div>
+        {% endif %}
+
+        <button type="submit" class="auth-submit">Sign in</button>
+      </form>
+
+      <p class="auth-meta">Hosted at {{ brand_host }}</p>
+    </div>
+  </body>
+</html>

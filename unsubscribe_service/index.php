@@ -2,10 +2,11 @@
 declare(strict_types=1);
 
 error_reporting(E_ALL);
-ini_set('display_errors', '0'); // flip to '1' if you want to see the error in the browser
+ini_set('display_errors', '0');
 ini_set('log_errors', '1');
-ini_set('error_log', __DIR__ . '/php-error.log');
-file_put_contents(__DIR__ . '/php-debug.log', date('c') . " " . ($_SERVER['REQUEST_URI'] ?? '') . PHP_EOL, FILE_APPEND);
+
+loadEnvironment();
+ini_set('error_log', storage_path('php-error.log'));
 
 // Try to load Composer autoloader from the most common locations (docroot or repo root).
 $autoloadPaths = [
@@ -19,40 +20,91 @@ foreach ($autoloadPaths as $autoload) {
     }
 }
 
-// Load environment variables from .env if phpdotenv is available.
-if (class_exists(\Dotenv\Dotenv::class)) {
-    $envDir = file_exists(__DIR__ . '/../.env') ? dirname(__DIR__) : __DIR__;
-    if (file_exists($envDir . '/.env')) {
-        \Dotenv\Dotenv::createImmutable($envDir)->safeLoad();
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+function storage_directory(): string
+{
+    static $dir = null;
+    if ($dir !== null) {
+        return $dir;
     }
-} else {
-    // Minimal fallback .env loader so we still get DB settings without phpdotenv.
-    $envDir = file_exists(__DIR__ . '/../.env') ? dirname(__DIR__) : __DIR__;
-    $envPath = $envDir . '/.env';
-    if (is_file($envPath) && is_readable($envPath)) {
-        $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        if ($lines !== false) {
-            foreach ($lines as $line) {
-                if (str_starts_with(trim($line), '#')) {
-                    continue;
-                }
-                $parts = explode('=', $line, 2);
-                if (count($parts) === 2) {
-                    $key = trim($parts[0]);
-                    $value = trim($parts[1], " \t\n\r\0\x0B\"'");
-                    $_ENV[$key] = $value;
-                    $_SERVER[$key] = $value;
-                }
-            }
+    $candidate = getenv('CDP_UNSUB_STORAGE_DIR');
+    if (!$candidate) {
+        $candidate = dirname(__DIR__) . '/var/unsubscribe';
+    }
+    if (!is_dir($candidate)) {
+        @mkdir($candidate, 0750, true);
+    }
+    if (!is_dir($candidate) || !is_writable($candidate)) {
+        $candidate = sys_get_temp_dir();
+    }
+    $dir = rtrim($candidate, DIRECTORY_SEPARATOR);
+    return $dir;
+}
+
+function storage_path(string $filename): string
+{
+    return storage_directory() . DIRECTORY_SEPARATOR . ltrim($filename, DIRECTORY_SEPARATOR);
+}
+
+function loadEnvironment(): void
+{
+    $envFile = resolveEnvFile();
+    if (!$envFile) {
+        return;
+    }
+    if (class_exists(\Dotenv\Dotenv::class)) {
+        \Dotenv\Dotenv::createImmutable(dirname($envFile), basename($envFile))->safeLoad();
+        return;
+    }
+    $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if ($lines === false) {
+        return;
+    }
+    foreach ($lines as $line) {
+        $trimmed = trim($line);
+        if ($trimmed === '' || str_starts_with($trimmed, '#')) {
+            continue;
         }
+        [$key, $value] = array_pad(explode('=', $trimmed, 2), 2, '');
+        $key = trim($key);
+        $value = trim($value, " \t\n\r\0\x0B\"'");
+        if ($key === '') {
+            continue;
+        }
+        $_ENV[$key] = $value;
+        $_SERVER[$key] = $value;
+        putenv("{$key}={$value}");
     }
 }
 
-mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+function resolveEnvFile(): ?string
+{
+    $explicit = getenv('CDP_UNSUB_ENV_FILE');
+    $candidates = [];
+    if ($explicit) {
+        $candidates[] = $explicit;
+    }
+    $candidates[] = dirname(__DIR__) . '/config/unsubscribe.env';
+    $candidates[] = dirname(__DIR__) . '/.env';
+    foreach ($candidates as $candidate) {
+        if (!$candidate) {
+            continue;
+        }
+        if (is_file($candidate) && is_readable($candidate)) {
+            return $candidate;
+        }
+    }
+    return null;
+}
 
 function envValue(string $key, mixed $default = null): mixed
 {
-    return $_ENV[$key] ?? $_SERVER[$key] ?? $default;
+    $value = $_ENV[$key] ?? $_SERVER[$key] ?? getenv($key);
+    if ($value === false || $value === null) {
+        return $default;
+    }
+    return $value;
 }
 
 function db(): mysqli
@@ -62,10 +114,6 @@ function db(): mysqli
     $pass = (string) envValue('DB_PASS', envValue('DB_PASSWORD', ''));
     $name = (string) envValue('DB_NAME', '');
     $port = (int) envValue('DB_PORT', 3306);
-
-    // Log connection target to help debug prod issues.
-    file_put_contents(__DIR__ . '/php-debug.log', date('c') . " connecting to {$host}:{$port} db={$name}" . PHP_EOL, FILE_APPEND);
-
     $conn = new mysqli($host, $user, $pass, $name, $port);
     $conn->set_charset('utf8mb4');
     return $conn;
@@ -78,7 +126,7 @@ function render(string $template, array $data = [], int $status = 200): void
     extract($data, EXTR_SKIP);
     $candidates = [
         __DIR__ . '/templates/' . $template . '.php',
-        __DIR__ . '/templates/' . $template . '.html', // fallback for existing HTML templates
+        __DIR__ . '/templates/' . $template . '.html',
     ];
     foreach ($candidates as $file) {
         if (is_file($file)) {
@@ -90,16 +138,43 @@ function render(string $template, array $data = [], int $status = 200): void
     exit;
 }
 
-function getToken(): string
+function readToken(): string
 {
-    return isset($_GET['token']) ? trim((string) $_GET['token']) : '';
+    $token = isset($_GET['token']) ? trim((string) $_GET['token']) : '';
+    if ($token === '') {
+        return '';
+    }
+    if (!preg_match('/^[A-Fa-f0-9]{64}$/', $token)) {
+        return '';
+    }
+    return $token;
+}
+
+function logAuditEvent(string $action, string $token, bool $success): void
+{
+    $tokenHash = $token !== '' ? substr(hash('sha256', $token), 0, 12) : '-';
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '-';
+    $line = sprintf(
+        "%s action=%s success=%s token=%s ip=%s",
+        date('c'),
+        $action,
+        $success ? 'true' : 'false',
+        $tokenHash,
+        $ip
+    );
+    @file_put_contents(storage_path('audit.log'), $line . PHP_EOL, FILE_APPEND | LOCK_EX);
 }
 
 function handleUnsubscribe(): void
 {
-    $token = getToken();
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+        http_response_code(405);
+        exit;
+    }
+    $token = readToken();
     if ($token === '') {
-        render('error', ['message' => ''], 400);
+        logAuditEvent('unsubscribe.missing_token', '', false);
+        render('error', ['message' => 'Invalid unsubscribe link.'], 400);
     }
 
     try {
@@ -112,10 +187,12 @@ function handleUnsubscribe(): void
         $statusStmt->close();
 
         if (!$hasRow) {
+            logAuditEvent('unsubscribe.invalid_token', $token, false);
             render('error', ['message' => 'Invalid unsubscribe link.'], 404);
         }
 
         if ((int) $currentStatus === 0) {
+            logAuditEvent('unsubscribe.already_processed', $token, true);
             render('unsubscribed', [
                 'rejoined' => false,
                 'token' => $token,
@@ -127,18 +204,30 @@ function handleUnsubscribe(): void
         $stmt->bind_param('s', $token);
         $stmt->execute();
 
+        if ($stmt->affected_rows === 0) {
+            logAuditEvent('unsubscribe.noop', $token, false);
+            render('error', ['message' => 'Unable to process request.'], 500);
+        }
+
+        logAuditEvent('unsubscribe.success', $token, true);
         render('unsubscribed', ['rejoined' => false, 'token' => $token, 'alreadyUnsubscribed' => false]);
     } catch (Throwable $e) {
-        file_put_contents(__DIR__ . '/php-error.log', date('c') . ' unsubscribe error: ' . $e->getMessage() . PHP_EOL, FILE_APPEND);
-        render('error', ['message' => $e->getMessage()], 500);
+        logAuditEvent('unsubscribe.error', $token, false);
+        error_log('unsubscribe error: ' . $e->getMessage());
+        render('error', ['message' => 'Unable to process your request right now.'], 500);
     }
 }
 
 function handleResubscribe(): void
 {
-    $token = getToken();
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+        http_response_code(405);
+        exit;
+    }
+    $token = readToken();
     if ($token === '') {
-        render('error', ['message' => ''], 400);
+        logAuditEvent('resubscribe.missing_token', '', false);
+        render('error', ['message' => 'Invalid resubscribe link.'], 400);
     }
 
     try {
@@ -148,13 +237,16 @@ function handleResubscribe(): void
         $stmt->execute();
 
         if ($stmt->affected_rows === 0) {
+            logAuditEvent('resubscribe.invalid_token', $token, false);
             render('error', ['message' => 'Invalid token.'], 404);
         }
 
+        logAuditEvent('resubscribe.success', $token, true);
         render('unsubscribed', ['rejoined' => true, 'token' => $token, 'alreadyUnsubscribed' => false]);
     } catch (Throwable $e) {
-        file_put_contents(__DIR__ . '/php-error.log', date('c') . ' resubscribe error: ' . $e->getMessage() . PHP_EOL, FILE_APPEND);
-        render('error', ['message' => $e->getMessage()], 500);
+        logAuditEvent('resubscribe.error', $token, false);
+        error_log('resubscribe error: ' . $e->getMessage());
+        render('error', ['message' => 'Unable to process your request right now.'], 500);
     }
 }
 

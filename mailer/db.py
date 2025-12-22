@@ -1,22 +1,63 @@
 """MySQL connection helpers.
 - Loads credentials from .env (via app.py at startup).
-- Uses mysql-connector-python for portability.
+- Uses PyMySQL to avoid native semaphore issues.
 """
 from __future__ import annotations
 import os
+import re
 import secrets
 import threading
-import mysql.connector as mysql
-from mysql.connector import errorcode
+from datetime import datetime
+import pymysql
+from pymysql.cursors import DictCursor
+from pymysql.constants import ER
 
 
-_conn_pool = None
-_conn_lock = threading.Lock()
+_conn_state = threading.local()
+
+_customer_table_state = threading.local()
+_TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.$]+$")
+
+
+def _normalize_table(table: str | None) -> str:
+    candidate = (table or "").strip()
+    if not candidate:
+        return "CUSTOMERS"
+    if not _TABLE_NAME_PATTERN.match(candidate):
+        return "CUSTOMERS"
+    return candidate
+
+
+_DEFAULT_CUSTOMER_TABLE = _normalize_table(os.getenv("DB_CUSTOMER_TABLE", "CUSTOMERS"))
+_TEST_CUSTOMER_TABLE = _normalize_table(os.getenv("DB_TEST_CUSTOMER_TABLE", "TESTCUSTOMERS"))
+
+
+def get_customer_table_options() -> dict[str, str]:
+    """Return the physical table names used for each mode."""
+    return {"production": _DEFAULT_CUSTOMER_TABLE, "test": _TEST_CUSTOMER_TABLE}
+
+
+def set_customer_table_mode(mode: str | None):
+    """Select the CUSTOMER or TESTCUSTOMER table for the current context."""
+    normalized = (mode or "").strip().lower()
+    table = _TEST_CUSTOMER_TABLE if normalized == "test" else _DEFAULT_CUSTOMER_TABLE
+    _customer_table_state.name = _normalize_table(table)
+
+
+def clear_customer_table_mode():
+    if hasattr(_customer_table_state, "name"):
+        delattr(_customer_table_state, "name")
+    close_connection()
+
+
+def get_customer_table_name() -> str:
+    table = getattr(_customer_table_state, "name", None)
+    return _normalize_table(table or _DEFAULT_CUSTOMER_TABLE)
 
 
 def _connect():
     """Build a fresh MySQL connection from environment settings."""
-    return mysql.connect(
+    return pymysql.connect(
     host=os.getenv("DB_HOST", "localhost"),
     port=int(os.getenv("DB_PORT", "3306")),
     user=os.getenv("DB_USER"),
@@ -34,23 +75,40 @@ class CustomerNotFoundError(Exception):
     """Raised when a requested customer row does not exist."""
 
 
-def get_connection():
-    global _conn_pool
-    with _conn_lock:
-        if _conn_pool is None:
-            _conn_pool = _connect()
-            return _conn_pool
+class ServiceUserAlreadyExists(Exception):
+    """Raised when attempting to create a duplicate service user."""
 
+
+def get_connection():
+    conn = getattr(_conn_state, "connection", None)
+    if conn is None:
+        conn = _connect()
+        _conn_state.connection = conn
+        return conn
+    try:
+        # Ensure the existing connection is alive; reconnect if it dropped.
+        conn.ping(reconnect=True)
+    except Exception:
         try:
-            # Ensure the existing connection is alive; reconnect if it dropped.
-            _conn_pool.ping(reconnect=True, attempts=3, delay=2)
-        except mysql.Error:
-            try:
-                _conn_pool.close()
-            except Exception:
-                pass
-            _conn_pool = _connect()
-        return _conn_pool
+            conn.close()
+        except Exception:
+            pass
+        conn = _connect()
+        _conn_state.connection = conn
+    return conn
+
+
+def close_connection():
+    conn = getattr(_conn_state, "connection", None)
+    if conn is None:
+        return
+    try:
+        conn.close()
+    except Exception:
+        pass
+    finally:
+        if hasattr(_conn_state, "connection"):
+            delattr(_conn_state, "connection")
 
 
 
@@ -59,11 +117,12 @@ def fetch_subscribed_customers():
     Keep this read-only in the campaign app; writes occur only in the unsubscribe service.
     """
     conn = get_connection()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(DictCursor)
+    table = get_customer_table_name()
     cur.execute(
-    """
+    f"""
     SELECT CUSTID, FIRSTNAME, LASTNAME, EMAIL, UNSUBSCRIBE_TOKEN
-    FROM CUSTOMERS
+    FROM {table}
     WHERE IS_SUBSCRIBED = 1 AND EMAIL IS NOT NULL AND EMAIL <> ''
     """
     )
@@ -96,11 +155,12 @@ _CUSTOMER_FIELD_SET = """
 def fetch_all_customers():
     """Return every customer with editable fields."""
     conn = get_connection()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(DictCursor)
+    table = get_customer_table_name()
     cur.execute(
     f"""
     SELECT {_CUSTOMER_FIELD_SET}
-    FROM CUSTOMERS
+    FROM {table}
     ORDER BY CUSTID DESC
     """
     )
@@ -114,6 +174,7 @@ def fetch_customers_paginated(*, search: str | None = None, limit: int = 50, off
     conn = get_connection()
     normalized_limit = max(1, int(limit))
     normalized_offset = max(0, int(offset))
+    table = get_customer_table_name()
 
     where_clause = ""
     search_params: list[str] = []
@@ -132,7 +193,7 @@ def fetch_customers_paginated(*, search: str | None = None, limit: int = 50, off
         """
             search_params = [like] * 6
 
-    count_sql = f"SELECT COUNT(*) AS total FROM CUSTOMERS {where_clause}"
+    count_sql = f"SELECT COUNT(*) AS total FROM {table} {where_clause}"
     count_cur = conn.cursor()
     count_cur.execute(count_sql, search_params)
     count_row = count_cur.fetchone()
@@ -141,14 +202,14 @@ def fetch_customers_paginated(*, search: str | None = None, limit: int = 50, off
 
     data_sql = f"""
     SELECT {_CUSTOMER_FIELD_SET}
-    FROM CUSTOMERS
+    FROM {table}
     {where_clause}
     ORDER BY CUSTID DESC
     LIMIT %s OFFSET %s
     """
     params = list(search_params)
     params.extend([normalized_limit, normalized_offset])
-    data_cur = conn.cursor(dictionary=True)
+    data_cur = conn.cursor(DictCursor)
     data_cur.execute(data_sql, params)
     rows = data_cur.fetchall()
     data_cur.close()
@@ -159,11 +220,12 @@ def fetch_customers_paginated(*, search: str | None = None, limit: int = 50, off
 def fetch_customer_by_id(custid: int):
     """Return a single customer row or None."""
     conn = get_connection()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(DictCursor)
+    table = get_customer_table_name()
     cur.execute(
     f"""
     SELECT {_CUSTOMER_FIELD_SET}
-    FROM CUSTOMERS
+    FROM {table}
     WHERE CUSTID = %s
     """,
     (custid,),
@@ -178,11 +240,12 @@ def fetch_customer_by_email(email: str):
     if not email:
         return None
     conn = get_connection()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(DictCursor)
+    table = get_customer_table_name()
     cur.execute(
     f"""
     SELECT {_CUSTOMER_FIELD_SET}
-    FROM CUSTOMERS
+    FROM {table}
     WHERE LOWER(EMAIL) = LOWER(%s)
     LIMIT 1
     """,
@@ -208,11 +271,12 @@ def create_customer(
     conn = get_connection()
     cur = conn.cursor()
     custid = None
+    table = get_customer_table_name()
     try:
         cur.execute(
-        """
+        f"""
         SELECT 1
-        FROM CUSTOMERS
+        FROM {table}
         WHERE LOWER(EMAIL) = LOWER(%s)
         LIMIT 1
         """,
@@ -222,8 +286,8 @@ def create_customer(
             raise DuplicateCustomerError("Customer already exists.")
 
         cur.execute(
-        """
-        INSERT INTO CUSTOMERS
+        f"""
+        INSERT INTO {table}
         (FIRSTNAME, LASTNAME, EMAIL, COMPANY, PHONE, COMMENTS, IS_SUBSCRIBED, UNSUBSCRIBE_TOKEN)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
@@ -239,8 +303,8 @@ def create_customer(
         ),
         )
         custid = cur.lastrowid
-    except mysql.Error as exc:
-        if getattr(exc, "errno", None) == errorcode.ER_DUP_ENTRY:
+    except pymysql.MySQLError as exc:
+        if getattr(exc, "errno", None) == ER.DUP_ENTRY:
             raise DuplicateCustomerError("Customer already exists.") from exc
         raise
     finally:
@@ -262,11 +326,12 @@ def update_customer(
     """Update customer fields or raise errors."""
     conn = get_connection()
     cur = conn.cursor()
+    table = get_customer_table_name()
     try:
         cur.execute(
-        """
+        f"""
         SELECT 1
-        FROM CUSTOMERS
+        FROM {table}
         WHERE CUSTID = %s
         """,
         (custid,),
@@ -275,9 +340,9 @@ def update_customer(
             raise CustomerNotFoundError(f"CUSTID {custid} not found.")
 
         cur.execute(
-        """
+        f"""
         SELECT 1
-        FROM CUSTOMERS
+        FROM {table}
         WHERE LOWER(EMAIL) = LOWER(%s) AND CUSTID <> %s
         LIMIT 1
         """,
@@ -287,8 +352,8 @@ def update_customer(
             raise DuplicateCustomerError("Customer already exists.")
 
         cur.execute(
-        """
-        UPDATE CUSTOMERS
+        f"""
+        UPDATE {table}
         SET
             FIRSTNAME = %s,
             LASTNAME = %s,
@@ -312,8 +377,8 @@ def update_customer(
         )
         if cur.rowcount == 0:
             raise CustomerNotFoundError(f"CUSTID {custid} not found.")
-    except mysql.Error as exc:
-        if getattr(exc, "errno", None) == errorcode.ER_DUP_ENTRY:
+    except pymysql.MySQLError as exc:
+        if getattr(exc, "errno", None) == ER.DUP_ENTRY:
             raise DuplicateCustomerError("Customer already exists.") from exc
         raise
     finally:
@@ -324,10 +389,11 @@ def delete_customer(custid: int):
     """Hard-delete a customer row."""
     conn = get_connection()
     cur = conn.cursor()
+    table = get_customer_table_name()
     try:
         cur.execute(
-        """
-        DELETE FROM CUSTOMERS
+        f"""
+        DELETE FROM {table}
         WHERE CUSTID = %s
         """,
         (custid,),
@@ -345,12 +411,13 @@ def ensure_unsubscribe_token(custid: int, token: str | None = None) -> str:
         return token_value
 
     conn = get_connection()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(DictCursor)
+    table = get_customer_table_name()
     try:
         new_token = secrets.token_hex(32)
         cur.execute(
-        """
-        UPDATE CUSTOMERS
+        f"""
+        UPDATE {table}
         SET UNSUBSCRIBE_TOKEN = %s
         WHERE CUSTID = %s AND (
             UNSUBSCRIBE_TOKEN IS NULL OR CHAR_LENGTH(TRIM(UNSUBSCRIBE_TOKEN)) = 0
@@ -362,9 +429,9 @@ def ensure_unsubscribe_token(custid: int, token: str | None = None) -> str:
             return new_token
 
         cur.execute(
-        """
+        f"""
         SELECT UNSUBSCRIBE_TOKEN
-        FROM CUSTOMERS
+        FROM {table}
         WHERE CUSTID = %s
         """,
         (custid,),
@@ -377,5 +444,138 @@ def ensure_unsubscribe_token(custid: int, token: str | None = None) -> str:
         if existing:
             return existing
         raise RuntimeError(f"Unable to ensure unsubscribe token for CUSTID {custid}.")
+    finally:
+        cur.close()
+
+
+def fetch_user_by_username(username: str):
+    """Return a single service user row for authentication."""
+    if not username:
+        return None
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        cur.execute(
+        """
+        SELECT
+            id,
+            username,
+            password_hash,
+            password_algo,
+            role,
+            is_active,
+            force_password_reset,
+            failed_login_count,
+            locked_until,
+            last_login_at
+        FROM service_users
+        WHERE LOWER(username) = LOWER(%s)
+        LIMIT 1
+        """,
+        (username,),
+        )
+        return cur.fetchone()
+    finally:
+        cur.close()
+
+
+def fetch_user_by_id(user_id: int):
+    """Look up a service user by id."""
+    if not user_id:
+        return None
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        cur.execute(
+        """
+        SELECT
+            id,
+            username,
+            role,
+            is_active,
+            force_password_reset,
+            failed_login_count,
+            locked_until,
+            last_login_at
+        FROM service_users
+        WHERE id = %s
+        LIMIT 1
+        """,
+        (user_id,),
+        )
+        return cur.fetchone()
+    finally:
+        cur.close()
+
+
+def record_successful_login(user_id: int):
+    """Reset lockout counters on successful authentication."""
+    if not user_id:
+        return
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+        """
+        UPDATE service_users
+        SET
+            failed_login_count = 0,
+            locked_until = NULL,
+            last_login_at = UTC_TIMESTAMP()
+        WHERE id = %s
+        """,
+        (user_id,),
+        )
+    finally:
+        cur.close()
+
+
+def update_failed_login(user_id: int, *, failed_login_count: int, locked_until: datetime | None):
+    """Persist a failed-login attempt counter and optional lockout timestamp."""
+    if not user_id:
+        return
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+        """
+        UPDATE service_users
+        SET
+            failed_login_count = %s,
+            locked_until = %s
+        WHERE id = %s
+        """,
+        (failed_login_count, locked_until, user_id),
+        )
+    finally:
+        cur.close()
+
+
+def create_service_user(
+    *,
+    email: str,
+    password_hash: str,
+    role: str = "admin",
+    password_algo: str = "pbkdf2_sha256",
+    is_active: bool = True,
+) -> int:
+    """Insert a new operator account."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+        """
+        INSERT INTO service_users
+            (username, password_hash, password_algo, role, is_active)
+        VALUES
+            (%s, %s, %s, %s, %s)
+        """,
+        (email, password_hash, password_algo, role, 1 if is_active else 0),
+        )
+        return cur.lastrowid or 0
+    except pymysql.MySQLError as exc:
+        if getattr(exc, "errno", None) == ER.DUP_ENTRY:
+            raise ServiceUserAlreadyExists("User already exists.") from exc
+        raise
     finally:
         cur.close()

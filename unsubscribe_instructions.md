@@ -15,7 +15,7 @@
 5. DreamHost creates `/home/<dhuser>/unsubscribe.casadelpollo.com/` as the doc root.
 
 ## 2) Upload the service files
-From your local repo root, copy these items into the subdomain’s doc root:
+From your local repo root, copy these items into the subdomain’s doc root. **Do not** upload `.env`, log files, or any hidden files:
 
 - `unsubscribe_service/index.php`
 - `unsubscribe_service/.htaccess` (routes `/unsubscribe`, `/resubscribe`, `/healthz`)
@@ -28,20 +28,31 @@ Example (replace `dhuser` and server name as needed):
 scp -r unsubscribe_service vendor composer.* dhuser@server.dreamhost.com:/home/dhuser/unsubscribe.casadelpollo.com
 ```
 
-## 3) Configure environment
-Create `/home/<dhuser>/unsubscribe.casadelpollo.com/.env` with your production DB values:
+## 3) Configure environment (outside the docroot)
+1. Create a private directory outside the web root to hold secrets, e.g. `/home/<dhuser>/config`.
+2. Copy `.env.example` to `/home/<dhuser>/config/cdp-unsubscribe.env` and fill in the DB credentials (same values the Flask console uses):
 ```ini
+APP_ENV=production
 DB_HOST=mysql.casadelpollo.com
 DB_PORT=3306
 DB_USER=your_mysql_user
-DB_PASS=your_mysql_password   # DB_PASSWORD also works if you prefer
+DB_PASS=rotate_me_now
 DB_NAME=restaurant_db
 ```
+3. Tell Apache/PHP where to find that file by editing `/home/<dhuser>/unsubscribe.casadelpollo.com/.htaccess` (uncomment and update the provided line):
+   ```
+   SetEnv CDP_UNSUB_ENV_FILE /home/<dhuser>/config/cdp-unsubscribe.env
+   ```
+4. (Optional) To keep audit/error logs in a different private folder, set `CDP_UNSUB_STORAGE_DIR` in the same manner.
+5. Never place `.env` inside the docroot; the bundled `.htaccess` blocks dotfiles/logs, but keeping them outside removes the risk entirely.
+
+Run `scripts/preflight.sh` locally before every deploy to confirm `.env` stays untracked and that no `.log` files sneak into `unsubscribe_service/`.
 
 ## 4) Test on the server
 - Health check: `https://unsubscribe.casadelpollo.com/healthz` should return `ok`.
 - Unsubscribe flow: `https://unsubscribe.casadelpollo.com/unsubscribe?token=TESTTOKEN`
 - Resubscribe flow: `https://unsubscribe.casadelpollo.com/resubscribe?token=TESTTOKEN`
+- Confirm hardening: `curl -i https://unsubscribe.casadelpollo.com/.env` and `curl -i https://unsubscribe.casadelpollo.com/php-error.log` should both return `403`/`404`.
 
 If you change files, re-upload them; no Passenger restart is needed for PHP.
 

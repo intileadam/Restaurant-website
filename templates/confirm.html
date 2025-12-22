@@ -1,140 +1,188 @@
 {% extends 'base.html' %} {% block content %}
-<h2>Confirm Send</h2>
-<p><strong>Campaign:</strong> {{ file }}</p>
-<p><strong>Subject:</strong> {{ subject }}</p>
-<p><strong>Recipients:</strong> {{ recipient_count }}</p>
-<section class="card preview-panel confirm-preview">
-  <div class="preview-header">
-    <div>
-      <p class="eyebrow">Campaign preview</p>
-      <h3>{{ file }}</h3>
+{% set resolved_recipient_count = recipient_count if recipient_count is not none else (recipients|length if recipients else 0) %}
+<div class="confirm-page" data-confirm-page>
+  <section class="hero hero-utility confirm-hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Live send</p>
+      <h2>Confirm campaign</h2>
+      <p>Review the content, pacing, and recipients before launching the send.</p>
     </div>
-  </div>
-  {% if preview_html %}
-  <iframe id="confirmPreviewFrame" class="preview-frame" title="Email preview"></iframe>
-  {% else %}
-  <div class="preview-error card muted">
-    {{ preview_error or "Preview unavailable. Return to the dashboard to reload the preview." }}
-  </div>
-  {% endif %}
-</section>
-<section class="lint-summary card soft">
-  <h3>Lint report</h3>
-  {% if lint_has_errors %}
-  <p class="lint-summary__status lint-summary__status--error">
-    Sending is blocked until the following lint errors are fixed.
-  </p>
-  {% elif lint_has_warnings %}
-  <p class="lint-summary__status lint-summary__status--warning">
-    Warnings were found. Review them below, but you may proceed with the send.
-  </p>
-  {% else %}
-  <p class="lint-summary__status lint-summary__status--ok">No lint issues detected.</p>
-  {% endif %}
-  {% if lint_report.errors %}
-  <h4>Errors</h4>
-  <ul>
-    {% for err in lint_report.errors %}
-    <li>{{ err }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  {% if lint_report.warnings %}
-  <h4>Warnings</h4>
-  <ul>
-    {% for warning in lint_report.warnings %}
-    <li>{{ warning }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  {% if lint_report.notes %}
-  <h4>Notes</h4>
-  <ul>
-    {% for note in lint_report.notes %}
-    <li>{{ note }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-</section>
-{% if recipients %}
-{% set preview_limit = 5 %}
-<div class="recipient-list">
-  <div class="recipient-list__header">
-    <h3>Recipient Preview</h3>
-    {% if recipients|length > preview_limit %}
-    <button
-      id="recipient-toggle"
-      type="button"
-      class="recipient-list__toggle"
-      aria-expanded="false"
-    >
-      Show all recipients ({{ recipients|length - preview_limit }} more)
-    </button>
+    <div class="confirm-meta">
+      <div class="confirm-meta__item">
+        <p class="eyebrow">Campaign</p>
+        <p class="confirm-meta__value">{{ file }}</p>
+      </div>
+      <div class="confirm-meta__item">
+        <p class="eyebrow">Subject</p>
+        <p class="confirm-meta__value">{{ subject }}</p>
+      </div>
+      <div class="confirm-meta__item">
+        <p class="eyebrow">Recipients</p>
+        <p class="confirm-meta__value">{{ resolved_recipient_count }}</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="confirm-grid">
+    <section class="card preview-panel confirm-preview">
+      <header class="card-header">
+        <div>
+          <p class="eyebrow">Campaign preview</p>
+          <h3>{{ file }}</h3>
+        </div>
+      </header>
+      {% if preview_html %}
+      <iframe id="confirmPreviewFrame" class="preview-frame" title="Email preview"></iframe>
+      {% else %}
+      <div class="preview-error card muted">
+        {{ preview_error or "Preview unavailable. Return to the dashboard to reload the preview." }}
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="lint-summary card soft confirm-lint-summary">
+      <h3>Lint report</h3>
+      {% if lint_has_errors %}
+      <p class="lint-summary__status lint-summary__status--error">
+        Sending is blocked until the following lint errors are fixed.
+      </p>
+      {% elif lint_has_warnings %}
+      <p class="lint-summary__status lint-summary__status--warning">
+        Warnings were found. Review them below, but you may proceed with the send.
+      </p>
+      {% else %}
+      <p class="lint-summary__status lint-summary__status--ok">No lint issues detected.</p>
+      {% endif %}
+      {% if lint_report.errors %}
+      <h4>Errors</h4>
+      <ul>
+        {% for err in lint_report.errors %}
+        <li>{{ err }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% if lint_report.warnings %}
+      <h4>Warnings</h4>
+      <ul>
+        {% for warning in lint_report.warnings %}
+        <li>{{ warning }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% if lint_report.notes %}
+      <h4>Notes</h4>
+      <ul>
+        {% for note in lint_report.notes %}
+        <li>{{ note }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </section>
+
+    {% if recipients %}
+    {% set preview_limit = 5 %}
+    <section class="card confirm-recipients">
+      <header class="card-header">
+        <div>
+          <p class="eyebrow">Recipients</p>
+          <h3>Recipient preview</h3>
+        </div>
+      </header>
+      <div class="recipient-list">
+        <div class="recipient-list__header">
+          <p class="muted">Showing up to {{ preview_limit }} rows by default</p>
+          {% if recipients|length > preview_limit %}
+          <button
+            id="recipient-toggle"
+            type="button"
+            class="button ghost recipient-list__toggle"
+            aria-expanded="false"
+          >
+            Show all recipients ({{ recipients|length - preview_limit }} more)
+          </button>
+          {% endif %}
+        </div>
+        <div class="recipient-table-scroll">
+          <table id="recipient-table" data-preview-limit="{{ preview_limit }}">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">First name</th>
+                <th scope="col">Last name</th>
+                <th scope="col">Email</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for customer in recipients %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ customer["FIRSTNAME"] }}</td>
+                <td>{{ customer["LASTNAME"] }}</td>
+                <td>{{ customer["EMAIL"] }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    {% else %}
+    <section class="card confirm-recipients">
+      <p>No subscribed customers are available to receive this campaign.</p>
+    </section>
+    {% endif %}
+
+    <section class="card confirm-send">
+      <header class="card-header">
+        <div>
+          <h3>Send to customers</h3>
+        </div>
+      </header>
+      <form method="post" action="/send">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="file" value="{{ file }}" />
+        <input type="hidden" name="subject" value="{{ subject }}" />
+
+        <div class="confirm-form-grid">
+          <label>
+            <span>Batch size</span>
+            <input type="number" name="batch_size" min="1" value="{{ batch_size }}" />
+          </label>
+          <label>
+            <span>Delay (ms)</span>
+            <input type="number" name="delay_ms" min="0" value="{{ delay_ms }}" />
+          </label>
+        </div>
+
+        {% if lint_has_errors %}
+        <p class="lint-blocker">Fix the lint errors above to enable the send button.</p>
+        {% elif lint_has_warnings %}
+        <p class="lint-warning">Warnings were detected, but sending is still allowed.</p>
+        {% endif %}
+
+        <button
+          type="submit"
+          class="button accent full-width"
+          {% if lint_has_errors or sending %}disabled aria-disabled="true"{% endif %}
+        >
+          {% if sending %}Sending...{% else %}Yes, send to customers{% endif %}
+        </button>
+      </form>
+    </section>
+
+    {% if sending %}
+    <section id="sendLogSection" class="card send-log confirm-send-log">
+      <h3>Send log</h3>
+      <p class="eyebrow">Campaign: {{ file }}{% if subject %} · Subject: {{ subject }}{% endif %}</p>
+      <pre id="confirmSendLog" tabindex="-1" class="send-log__output"></pre>
+      <p class="muted">Keep this page open to monitor progress.</p>
+    </section>
     {% endif %}
   </div>
-  <table id="recipient-table" data-preview-limit="{{ preview_limit }}">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>First name</th>
-        <th>Last name</th>
-        <th>Email</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for customer in recipients %}
-      <tr>
-        <td>{{ loop.index }}</td>
-        <td>{{ customer["FIRSTNAME"] }}</td>
-        <td>{{ customer["LASTNAME"] }}</td>
-        <td>{{ customer["EMAIL"] }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="confirm-footer card soft">
+    <a href="{{ url_for('index') }}" class="button ghost full-width">Return to homepage</a>
+  </div>
 </div>
-{% else %}
-<p>No subscribed customers are available to receive this campaign.</p>
-{% endif %}
-<form method="post" action="/send">
-  <input type="hidden" name="file" value="{{ file }}" />
-  <input type="hidden" name="subject" value="{{ subject }}" />
-<label
-    >Batch size:
-    <input type="number" name="batch_size" min="1" value="{{ batch_size }}" />
-  </label>
-<label
-    >Delay (ms):
-    <input type="number" name="delay_ms" min="0" value="{{ delay_ms }}" />
-  </label>
-{% if lint_has_errors %}
-  <p class="lint-blocker">Fix the lint errors above to enable the send button.</p>
-{% elif lint_has_warnings %}
-  <p class="lint-warning">Warnings were detected, but sending is still allowed.</p>
-{% endif %}
-<button type="submit" {% if lint_has_errors or sending %}disabled aria-disabled="true"{% endif %}>
-    {% if sending %}Sending...{% else %}Yes, send to customers{% endif %}
-  </button>
-</form>
-{% if sending %}
-<section id="sendLogSection" class="card send-log">
-  <h3>Send log</h3>
-  <p class="eyebrow">Campaign: {{ file }}{% if subject %} · Subject: {{ subject }}{% endif %}</p>
-  <pre
-    id="confirmSendLog"
-    tabindex="-1"
-    style="
-      background: #111;
-      color: #eee;
-      padding: 1rem;
-      min-height: 40vh;
-      max-height: 60vh;
-      overflow: auto;
-    "
-  ></pre>
-  <p class="muted">Keep this page open to monitor progress.</p>
-</section>
-{% endif %}
 {% if recipients and recipients|length > preview_limit %}
 <script>
   (function () {
@@ -211,13 +259,66 @@
       setTimeout(focusLog, 0);
     }
 
-    const es = new EventSource("/logs/stream");
-    es.onmessage = (event) => {
+    const appendLog = (text) => {
+      if (!text) return;
       const needsNewline = log.textContent && !log.textContent.endsWith("\n");
-      log.textContent += (needsNewline ? "\n" : "") + event.data + "\n";
+      log.textContent += (needsNewline ? "\n" : "") + text + "\n";
       log.scrollTop = log.scrollHeight;
     };
+
+    const logStreamToken = {{ log_stream_token|tojson }};
+    if (!logStreamToken) {
+      appendLog("⚠ Live log stream unavailable. Reload this page to retry the connection.");
+      return;
+    }
+    const baseStreamUrl = {{ url_for("logs_stream")|tojson }};
+    const streamUrl =
+      baseStreamUrl + (baseStreamUrl.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(logStreamToken);
+    const es = new EventSource(streamUrl);
+    let loggedError = false;
+
+    es.onmessage = (event) => {
+      appendLog(event.data);
+    };
+
+    es.onerror = () => {
+      if (loggedError) {
+        return;
+      }
+      loggedError = true;
+      appendLog("⚠ Lost the live log connection. Please reload the page to reconnect.");
+      try {
+        es.close();
+      } catch (err) {}
+    };
+
+    window.addEventListener("beforeunload", () => {
+      try {
+        es.close();
+      } catch (err) {}
+    });
   })();
 </script>
 {% endif %}
+<script>
+  (function () {
+    const root = document.querySelector("[data-confirm-page]");
+    if (!root) return;
+    let reloadRequested = false;
+    window.addEventListener("db-mode-changed", (event) => {
+      if (reloadRequested) return;
+      reloadRequested = true;
+      const modeLabel = event?.detail?.mode === "test" ? "test" : "production";
+      try {
+        const notice = document.createElement("p");
+        notice.className = "lint-warning";
+        notice.textContent = `Reloading confirmation for ${modeLabel} mode…`;
+        root.prepend(notice);
+      } catch (err) {
+        /* ignore */
+      }
+      window.setTimeout(() => window.location.reload(), 200);
+    });
+  })();
+</script>
 {% endblock %}

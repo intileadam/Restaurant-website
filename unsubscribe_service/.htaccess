@@ -1,3 +1,13 @@
+Options -Indexes
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "\.(?:log|bak|old)$">
+    Require all denied
+</FilesMatch>
+
 RewriteEngine On
 
 # Redirect bare domain to the canonical www hostname.
@@ -11,6 +21,9 @@ RewriteRule ^templates/ - [F,L]
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
+
+# Example: uncomment and update the absolute path below once you copy your env file outside the docroot.
+# SetEnv CDP_UNSUB_ENV_FILE /home/dhuser/config/cdp-unsubscribe.env
 
 # Route app endpoints to the PHP front controller.
 RewriteRule ^(unsubscribe|resubscribe|healthz)/?$ index.php [QSA,L]

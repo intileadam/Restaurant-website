@@ -6,7 +6,7 @@
     <div>
       <p class="eyebrow">Subscribers</p>
       <h2>Customer Directory</h2>
-      <p class="muted">Tap any row to edit. Changes save instantly.</p>
+      <p class="muted">Click a row to preview details. Use the Edit button to update subscribers instantly.</p>
     </div>
     <button type="button" class="btn primary" data-add-customer>
       <span>+ Add customer</span>
@@ -77,46 +77,88 @@
       </div>
       <button type="button" class="icon-button" aria-label="Close dialog" data-modal-close>&times;</button>
     </header>
-    <form class="customer-form" data-customer-form>
-      <div class="form-alert" data-form-alert hidden></div>
-      <div class="form-grid">
-        <label>
-          <span>Email <span class="required">*</span></span>
-          <input type="email" name="email" data-field-email required />
-        </label>
-        <label>
-          <span>First name</span>
-          <input type="text" name="firstname" data-field-firstname />
-        </label>
-        <label>
-          <span>Last name</span>
-          <input type="text" name="lastname" data-field-lastname />
-        </label>
-        <label>
-          <span>Company</span>
-          <input type="text" name="company" data-field-company />
-        </label>
-        <label>
-          <span>Phone</span>
-          <input type="text" name="phone" data-field-phone />
-        </label>
-        <label class="textarea-field">
-          <span>Comments</span>
-          <textarea name="comments" rows="3" data-field-comments></textarea>
-        </label>
-        <label class="checkbox-field">
-          <input type="checkbox" name="is_subscribed" data-field-subscribed checked />
-          <span>Subscribed</span>
-        </label>
+    <div class="customer-modal__body">
+      <div data-form-view>
+        <form class="customer-form" data-customer-form>
+          <div class="form-alert" data-form-alert hidden></div>
+          <div class="form-grid">
+            <label>
+              <span>Email <span class="required">*</span></span>
+              <input type="email" name="email" data-field-email required />
+            </label>
+            <label>
+              <span>First name</span>
+              <input type="text" name="firstname" data-field-firstname />
+            </label>
+            <label>
+              <span>Last name</span>
+              <input type="text" name="lastname" data-field-lastname />
+            </label>
+            <label>
+              <span>Company</span>
+              <input type="text" name="company" data-field-company />
+            </label>
+            <label>
+              <span>Phone</span>
+              <input type="text" name="phone" data-field-phone />
+            </label>
+            <label class="textarea-field">
+              <span>Comments</span>
+              <textarea name="comments" rows="3" data-field-comments></textarea>
+            </label>
+            <label class="checkbox-field">
+              <input type="checkbox" name="is_subscribed" data-field-subscribed checked />
+              <span>Subscribed</span>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn danger" data-modal-delete hidden>Delete customer</button>
+            <div class="form-actions__group">
+              <button type="button" class="btn ghost" data-modal-cancel>Cancel</button>
+              <button type="button" class="btn ghost" data-modal-send-email hidden disabled>Send email</button>
+              <button type="submit" class="btn primary" data-modal-save>Save changes</button>
+            </div>
+          </div>
+        </form>
       </div>
-      <div class="form-actions">
-        <button type="button" class="btn danger" data-modal-delete hidden>Delete customer</button>
-        <div class="form-actions__group">
-          <button type="button" class="btn ghost" data-modal-cancel>Cancel</button>
-          <button type="submit" class="btn primary" data-modal-save>Save changes</button>
+      <div class="individual-email-view" data-email-view hidden>
+        <header class="individual-email-panel__header">
+          <div>
+            <p class="eyebrow">Individual email</p>
+            <h3 data-email-recipient>Select recipient</h3>
+            <p class="muted" data-email-recipient-note></p>
+          </div>
+        </header>
+        <div class="individual-email-placeholder" data-email-placeholder>
+          <p data-email-placeholder-text>
+            Select a subscribed customer with an email address to send an individual message.
+          </p>
         </div>
+        <section class="individual-email-panel" data-email-panel hidden>
+          <div class="individual-email-grid">
+            <label>
+              <span>Email template</span>
+              <select data-email-template></select>
+            </label>
+            <label>
+              <span>Subject</span>
+              <input type="text" data-email-subject placeholder="Subject line" />
+            </label>
+          </div>
+          <div class="individual-email-preview">
+            <div class="preview-placeholder" data-email-preview-placeholder>
+              Select a template to generate an email preview.
+            </div>
+            <iframe title="Individual email preview" loading="lazy" data-email-preview-frame hidden></iframe>
+          </div>
+          <div class="individual-email-actions">
+            <button type="button" class="btn ghost" data-email-back>Cancel</button>
+            <button type="button" class="btn primary" data-email-send>Send selected email</button>
+          </div>
+          <p class="form-status" data-email-status hidden></p>
+        </section>
       </div>
-    </form>
+    </div>
   </div>
 </div>
 
@@ -136,6 +178,8 @@
       addBtn: root.querySelector("[data-add-customer]"),
       container: root.querySelector(".customer-table-container"),
       modal: document.querySelector("[data-customer-modal]"),
+      formView: document.querySelector("[data-form-view]"),
+      emailView: document.querySelector("[data-email-view]"),
       form: document.querySelector("[data-customer-form]"),
       alert: document.querySelector("[data-form-alert]"),
       modeLabel: document.querySelector("[data-modal-mode-label]"),
@@ -144,46 +188,94 @@
       cancelBtn: document.querySelector("[data-modal-cancel]"),
       closeBtn: document.querySelector("[data-modal-close]"),
       deleteBtn: document.querySelector("[data-modal-delete]"),
+      sendEmailBtn: document.querySelector("[data-modal-send-email]"),
       searchInput: root.querySelector("[data-customers-search]"),
       pageSizeSelect: root.querySelector("[data-customers-page-size]"),
       pagination: root.querySelector("[data-pagination]"),
       paginationInfo: root.querySelector("[data-pagination-info]"),
       prevBtn: root.querySelector("[data-pagination-prev]"),
       nextBtn: root.querySelector("[data-pagination-next]"),
+      emailPanel: document.querySelector("[data-email-panel]"),
+      emailPlaceholder: document.querySelector("[data-email-placeholder]"),
+      emailPlaceholderText: document.querySelector("[data-email-placeholder-text]"),
+      emailTemplateSelect: document.querySelector("[data-email-template]"),
+      emailSubjectInput: document.querySelector("[data-email-subject]"),
+      emailPreviewFrame: document.querySelector("[data-email-preview-frame]"),
+      emailPreviewPlaceholder: document.querySelector("[data-email-preview-placeholder]"),
+      emailSendBtn: document.querySelector("[data-email-send]"),
+      emailStatus: document.querySelector("[data-email-status]"),
+      emailRecipient: document.querySelector("[data-email-recipient]"),
+      emailRecipientNote: document.querySelector("[data-email-recipient-note]"),
+      emailBackBtns: document.querySelectorAll("[data-email-back]"),
     };
 
     if (!elements.tableBody || !elements.modal || !elements.form) return;
 
     const defaultEmptyMessage = elements.empty ? elements.empty.textContent : "No customers yet.";
+    const defaultEmailPlaceholderText = elements.emailPlaceholderText
+      ? elements.emailPlaceholderText.textContent.trim()
+      : "Select a subscribed customer with an email address to send an individual message.";
     const SEARCH_DELAY = 300;
     let searchTimer;
+    let emailTemplatesPromise = null;
 
     const state = {
       customers: [],
       mode: "create",
       activeId: null,
+      currentCustomer: null,
       page: 1,
       perPage: Number(elements.pageSizeSelect?.value) || 25,
       totalPages: 1,
       totalCount: 0,
       search: elements.searchInput ? elements.searchInput.value.trim() : "",
+      emailTemplates: [],
+      activeEmailTemplate: "",
+      emailSubjectTouched: false,
+      emailPreviewToken: 0,
+      emailCustomerId: null,
+      viewMode: "form",
     };
 
+    function authorizedFetch(input, init = {}) {
+      const headers = new Headers(init.headers || {});
+      const csrfToken = window.getCsrfToken ? window.getCsrfToken() : "";
+      if (csrfToken && !headers.has("X-CSRF-Token")) {
+        headers.set("X-CSRF-Token", csrfToken);
+      }
+      return fetch(input, { credentials: "same-origin", ...init, headers });
+    }
+
+    function setModalView(mode) {
+      state.viewMode = mode;
+      if (elements.formView) {
+        elements.formView.hidden = mode !== "form";
+      }
+      if (elements.emailView) {
+        elements.emailView.hidden = mode !== "email";
+      }
+    }
+
     function setLoading(isLoading) {
-      elements.loading.hidden = !isLoading;
+      if (elements.loading) {
+        elements.loading.hidden = !isLoading;
+      }
       if (elements.container) {
         elements.container.classList.toggle("is-loading", isLoading);
       }
     }
 
     function showError(message) {
+      if (!elements.error || !elements.errorMessage || !elements.shell) return;
       elements.error.hidden = false;
       elements.errorMessage.textContent = message;
       elements.shell.hidden = true;
     }
 
     function hideError() {
+      if (!elements.error || !elements.shell) return;
       elements.error.hidden = true;
+      elements.shell.hidden = false;
     }
 
     function renderCustomers() {
@@ -201,9 +293,8 @@
         const row = document.createElement("tr");
         row.dataset.id = customer.id;
 
-        function addCell(text, className) {
+        function addCell(text) {
           const td = document.createElement("td");
-          if (className) td.className = className;
           td.textContent = text || "";
           row.appendChild(td);
         }
@@ -259,7 +350,11 @@
       return text.slice(0, limit - 3) + "...";
     }
 
-    async function loadCustomers() {
+    const MAX_AUTO_RETRIES = 3;
+    const AUTO_RETRY_DELAY_MS = 750;
+
+    async function loadCustomers(options = {}) {
+      const { allowRetry = false, retryCount = 0 } = options;
       setLoading(true);
       hideError();
       try {
@@ -270,7 +365,7 @@
           params.set("search", state.search);
         }
 
-        const response = await fetch(`/api/customers?${params.toString()}`);
+        const response = await authorizedFetch(`/api/customers?${params.toString()}`);
         if (!response.ok) {
           throw new Error("Server returned an error.");
         }
@@ -309,19 +404,50 @@
         renderCustomers();
         renderPagination();
       } catch (error) {
+        console.error("loadCustomers failed:", error);
+        const nextRetry = retryCount + 1;
+        if (allowRetry && nextRetry <= MAX_AUTO_RETRIES) {
+          if (elements.loading) {
+            elements.loading.hidden = false;
+            elements.loading.textContent = `Loading customers… (retry ${nextRetry}/${MAX_AUTO_RETRIES})`;
+          }
+          window.setTimeout(() => loadCustomers({ allowRetry: true, retryCount: nextRetry }), AUTO_RETRY_DELAY_MS);
+          return;
+        }
         showError("Unable to load customers. Please try again.");
-        console.error(error);
       } finally {
         setLoading(false);
+        if (elements.loading) {
+          elements.loading.textContent = "Loading customers…";
+        }
       }
+    }
+
+    function updateSendEmailButton(customer) {
+      if (!elements.sendEmailBtn) return;
+      if (state.mode !== "edit" || !customer) {
+        elements.sendEmailBtn.hidden = true;
+        elements.sendEmailBtn.disabled = true;
+        elements.sendEmailBtn.title = "";
+        return;
+      }
+      const canSend = Boolean(customer.email && customer.is_subscribed);
+      elements.sendEmailBtn.hidden = false;
+      elements.sendEmailBtn.disabled = !canSend;
+      elements.sendEmailBtn.title = canSend
+        ? ""
+        : "Add an email address and ensure the customer is subscribed to send an individual message.";
     }
 
     function openModal(mode, customer) {
       state.mode = mode;
       state.activeId = customer ? customer.id : null;
+      state.currentCustomer = customer || null;
       elements.form.reset();
       elements.alert.hidden = true;
       elements.alert.textContent = "";
+      setModalView("form");
+      resetEmailPanel();
 
       if (elements.modeLabel) {
         elements.modeLabel.textContent = mode === "create" ? "New customer" : "Editing customer";
@@ -362,6 +488,8 @@
         delete elements.deleteBtn.dataset.loading;
       }
 
+      updateSendEmailButton(customer);
+
       elements.modal.hidden = false;
       document.body.classList.add("modal-open");
       formFields.email.focus();
@@ -378,9 +506,235 @@
         delete elements.deleteBtn.dataset.loading;
       }
       state.activeId = null;
+      state.currentCustomer = null;
+      setModalView("form");
+      resetEmailPanel();
     }
 
-    async function handleSubmit(event) {
+    function resetEmailPanel(message) {
+      state.emailCustomerId = null;
+      state.emailSubjectTouched = false;
+      state.emailPreviewToken += 1;
+      setEmailStatus();
+      if (elements.emailPlaceholder && elements.emailPlaceholderText) {
+        elements.emailPlaceholder.hidden = false;
+        elements.emailPlaceholderText.textContent = message || defaultEmailPlaceholderText;
+      }
+      if (elements.emailPanel) {
+        elements.emailPanel.hidden = true;
+      }
+      if (elements.emailSendBtn) {
+        elements.emailSendBtn.disabled = true;
+      }
+    }
+
+    function setEmailStatus(message = "", type = "info") {
+      if (!elements.emailStatus) return;
+      elements.emailStatus.textContent = message;
+      elements.emailStatus.hidden = !message;
+      elements.emailStatus.classList.remove("error", "success");
+      if (message) {
+        if (type === "error") {
+          elements.emailStatus.classList.add("error");
+        } else if (type === "success") {
+          elements.emailStatus.classList.add("success");
+        }
+      }
+    }
+
+    async function ensureEmailTemplates() {
+      if (emailTemplatesPromise) return emailTemplatesPromise;
+      emailTemplatesPromise = (async () => {
+        const response = await authorizedFetch("/api/individual-emails");
+        if (!response.ok) {
+          throw new Error("Unable to load templates.");
+        }
+        const data = await response.json();
+        state.emailTemplates = Array.isArray(data.templates) ? data.templates : [];
+        updateEmailTemplateOptions();
+        return state.emailTemplates;
+      })().catch((error) => {
+        emailTemplatesPromise = null;
+        throw error;
+      });
+      return emailTemplatesPromise;
+    }
+
+    function updateEmailTemplateOptions() {
+      if (!elements.emailTemplateSelect) return;
+      elements.emailTemplateSelect.innerHTML = "";
+      if (!state.emailTemplates.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No templates available";
+        option.disabled = true;
+        option.selected = true;
+        elements.emailTemplateSelect.appendChild(option);
+        elements.emailTemplateSelect.disabled = true;
+        return;
+      }
+      elements.emailTemplateSelect.disabled = false;
+      state.emailTemplates.forEach((template) => {
+        const option = document.createElement("option");
+        option.value = template.file;
+        option.textContent = template.label;
+        elements.emailTemplateSelect.appendChild(option);
+      });
+      const hasActive = state.activeEmailTemplate && state.emailTemplates.some((item) => item.file === state.activeEmailTemplate);
+      if (!hasActive) {
+        state.activeEmailTemplate = state.emailTemplates[0].file;
+      }
+      if (elements.emailTemplateSelect && state.activeEmailTemplate) {
+        elements.emailTemplateSelect.value = state.activeEmailTemplate;
+      }
+    }
+
+    function applyTemplateSubject(templateFile, fallbackSubject) {
+      if (!elements.emailSubjectInput) return;
+      state.emailSubjectTouched = false;
+      const meta = state.emailTemplates.find((item) => item.file === templateFile);
+      const nextSubject = fallbackSubject || meta?.subject || meta?.label || "";
+      elements.emailSubjectInput.value = nextSubject;
+    }
+
+    async function prepareEmailPanel(customer) {
+      if (!customer) {
+        resetEmailPanel();
+        return;
+      }
+      state.emailCustomerId = customer.id;
+      setEmailStatus();
+      state.emailSubjectTouched = false;
+      if (elements.emailRecipient) {
+        const fullName = [customer.firstname, customer.lastname].filter(Boolean).join(" " ).trim();
+        elements.emailRecipient.textContent = fullName || customer.email || "Customer";
+      }
+      if (elements.emailRecipientNote) {
+        elements.emailRecipientNote.textContent = customer.email ? `Sending to ${customer.email}` : "No email on file.";
+      }
+      if (!customer.email) {
+        resetEmailPanel("Add an email address to send individual messages.");
+        return;
+      }
+      if (!customer.is_subscribed) {
+        resetEmailPanel("This customer unsubscribed and cannot receive email.");
+        return;
+      }
+
+      try {
+        await ensureEmailTemplates();
+      } catch (error) {
+        console.error(error);
+        resetEmailPanel("Unable to load templates. Please try again later.");
+        return;
+      }
+
+      if (!state.emailTemplates.length) {
+        resetEmailPanel("Add HTML files to individual_emails/ to enable sending.");
+        return;
+      }
+
+      updateEmailTemplateOptions();
+      if (elements.emailPlaceholder) {
+        elements.emailPlaceholder.hidden = true;
+      }
+      if (elements.emailPanel) {
+        elements.emailPanel.hidden = false;
+      }
+      if (elements.emailSendBtn) {
+        elements.emailSendBtn.disabled = false;
+      }
+
+      loadEmailPreview(state.activeEmailTemplate);
+    }
+
+    async function loadEmailPreview(templateFile) {
+      if (!elements.emailPreviewFrame || !elements.emailPreviewPlaceholder || !state.emailCustomerId) {
+        return;
+      }
+      const token = ++state.emailPreviewToken;
+      elements.emailPreviewPlaceholder.hidden = false;
+      elements.emailPreviewPlaceholder.textContent = "Rendering preview…";
+      elements.emailPreviewFrame.hidden = true;
+      try {
+        const params = new URLSearchParams();
+        params.set("template", templateFile);
+        const response = await authorizedFetch(`/api/customers/${encodeURIComponent(state.emailCustomerId)}/individual-emails/preview?${params.toString()}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to load preview.");
+        }
+        if (token !== state.emailPreviewToken) return;
+        elements.emailPreviewPlaceholder.hidden = true;
+        elements.emailPreviewFrame.hidden = false;
+        elements.emailPreviewFrame.srcdoc = data.html || "";
+        if (!state.emailSubjectTouched) {
+          applyTemplateSubject(templateFile, data.subject);
+        }
+      } catch (error) {
+        if (token !== state.emailPreviewToken) return;
+        elements.emailPreviewPlaceholder.hidden = false;
+        elements.emailPreviewPlaceholder.textContent = error.message;
+        elements.emailPreviewFrame.hidden = true;
+        console.error(error);
+      }
+    }
+
+    async function handleSendIndividualEmail() {
+      if (!state.emailCustomerId || !state.activeEmailTemplate || !elements.emailSendBtn) return;
+      setEmailStatus();
+      const payload = { template: state.activeEmailTemplate };
+      const subjectValue = elements.emailSubjectInput ? elements.emailSubjectInput.value.trim() : "";
+      if (subjectValue) {
+        payload.subject = subjectValue;
+      }
+      elements.emailSendBtn.disabled = true;
+      elements.emailSendBtn.dataset.loading = "true";
+      try {
+        const response = await authorizedFetch(`/api/customers/${encodeURIComponent(state.emailCustomerId)}/individual-emails/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to send email.");
+        }
+        setEmailStatus(`Sent to ${data.email} with subject "${data.subject}".`, "success");
+      } catch (error) {
+        setEmailStatus(error.message, "error");
+        console.error(error);
+      } finally {
+        elements.emailSendBtn.disabled = false;
+        delete elements.emailSendBtn.dataset.loading;
+      }
+    }
+
+    function goToPage(targetPage) {
+      const maxPage = Math.max(1, state.totalPages || 1);
+      const nextPage = Math.min(Math.max(1, targetPage), maxPage);
+      if (nextPage === state.page) return;
+      state.page = nextPage;
+      loadCustomers();
+    }
+
+    elements.tableBody.addEventListener("click", (event) => {
+      const row = event.target.closest("tr");
+      if (!row) return;
+      const id = Number(row.dataset.id);
+      const customer = state.customers.find((item) => item.id === id);
+      if (customer) {
+        openModal("edit", customer);
+      }
+    });
+
+    if (elements.addBtn) {
+      elements.addBtn.addEventListener("click", () => openModal("create"));
+    }
+    if (elements.reloadBtn) {
+      elements.reloadBtn.addEventListener("click", () => loadCustomers({ allowRetry: true }));
+    }
+    elements.form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const formData = new FormData(elements.form);
       const valueFor = (field) => {
@@ -407,7 +761,7 @@
           state.mode === "create"
             ? "/api/customers"
             : `/api/customers/${encodeURIComponent(state.activeId)}`;
-        const response = await fetch(url, {
+        const response = await authorizedFetch(url, {
           method: state.mode === "create" ? "POST" : "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -435,82 +789,98 @@
         elements.saveBtn.disabled = false;
         delete elements.saveBtn.dataset.loading;
       }
-    }
-
-    async function handleDelete() {
-      if (!state.activeId || !elements.deleteBtn) return;
-      if (!window.confirm("Delete this customer permanently?")) {
-        return;
-      }
-
-      elements.alert.hidden = true;
-      elements.alert.textContent = "";
-      elements.deleteBtn.disabled = true;
-      elements.deleteBtn.dataset.loading = "true";
-
-      try {
-        const response = await fetch(`/api/customers/${encodeURIComponent(state.activeId)}`, {
-          method: "DELETE",
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(data.error || "Unable to delete customer.");
-        }
-        closeModal();
-        loadCustomers();
-      } catch (error) {
-        elements.alert.textContent = error.message;
-        elements.alert.hidden = false;
-        console.error(error);
-      } finally {
-        elements.deleteBtn.disabled = false;
-        delete elements.deleteBtn.dataset.loading;
-      }
-    }
-
-    elements.tableBody.addEventListener("click", (event) => {
-      const row = event.target.closest("tr");
-      if (!row) return;
-      const id = Number(row.dataset.id);
-      const customer = state.customers.find((item) => item.id === id);
-      if (customer) {
-        openModal("edit", customer);
-      }
     });
 
-    if (elements.addBtn) {
-      elements.addBtn.addEventListener("click", () => openModal("create"));
+    if (elements.deleteBtn) {
+      elements.deleteBtn.addEventListener("click", async () => {
+        if (!state.activeId) return;
+        if (!window.confirm("Delete this customer permanently?")) {
+          return;
+        }
+
+        elements.alert.hidden = true;
+        elements.alert.textContent = "";
+        elements.deleteBtn.disabled = true;
+        elements.deleteBtn.dataset.loading = "true";
+
+        try {
+          const response = await authorizedFetch(`/api/customers/${encodeURIComponent(state.activeId)}`, {
+            method: "DELETE",
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(data.error || "Unable to delete customer.");
+          }
+          closeModal();
+          loadCustomers();
+        } catch (error) {
+          elements.alert.textContent = error.message;
+          elements.alert.hidden = false;
+          console.error(error);
+        } finally {
+          elements.deleteBtn.disabled = false;
+          delete elements.deleteBtn.dataset.loading;
+        }
+      });
     }
-    if (elements.reloadBtn) {
-      elements.reloadBtn.addEventListener("click", loadCustomers);
-    }
-    elements.form.addEventListener("submit", handleSubmit);
+
     if (elements.cancelBtn) {
       elements.cancelBtn.addEventListener("click", closeModal);
     }
     if (elements.closeBtn) {
       elements.closeBtn.addEventListener("click", closeModal);
     }
-    if (elements.deleteBtn) {
-      elements.deleteBtn.addEventListener("click", handleDelete);
+
+    if (elements.sendEmailBtn) {
+      elements.sendEmailBtn.addEventListener("click", () => {
+        if (!state.currentCustomer) return;
+        setModalView("email");
+        prepareEmailPanel(state.currentCustomer);
+      });
     }
 
-    function goToPage(targetPage) {
-      const maxPage = Math.max(1, state.totalPages || 1);
-      const nextPage = Math.min(Math.max(1, targetPage), maxPage);
-      if (nextPage === state.page) return;
-      state.page = nextPage;
-      loadCustomers();
-    }
-
-    elements.modal.addEventListener("click", (event) => {
-      if (event.target === elements.modal) {
-        closeModal();
-      }
+    elements.emailBackBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        setModalView("form");
+        resetEmailPanel();
+      });
     });
+
+    if (elements.emailTemplateSelect) {
+      elements.emailTemplateSelect.addEventListener("change", (event) => {
+        const value = event.target.value;
+        if (!value) return;
+        state.activeEmailTemplate = value;
+        applyTemplateSubject(value);
+        loadEmailPreview(value);
+      });
+    }
+
+    if (elements.emailSubjectInput) {
+      elements.emailSubjectInput.addEventListener("input", () => {
+        state.emailSubjectTouched = true;
+      });
+    }
+
+    if (elements.emailSendBtn) {
+      elements.emailSendBtn.addEventListener("click", handleSendIndividualEmail);
+    }
+
+    if (elements.modal) {
+      elements.modal.addEventListener("click", (event) => {
+        if (event.target === elements.modal) {
+          closeModal();
+        }
+      });
+    }
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !elements.modal.hidden) {
+        if (state.viewMode === "email") {
+          setModalView("form");
+          resetEmailPanel();
+          return;
+        }
         closeModal();
       }
     });
@@ -544,12 +914,21 @@
     if (elements.prevBtn) {
       elements.prevBtn.addEventListener("click", () => goToPage(state.page - 1));
     }
-
     if (elements.nextBtn) {
       elements.nextBtn.addEventListener("click", () => goToPage(state.page + 1));
     }
 
-    loadCustomers();
+    window.addEventListener("db-mode-changed", (event) => {
+      state.page = 1;
+      if (elements.loading) {
+        const modeLabel = event?.detail?.mode === "test" ? "test" : "production";
+        elements.loading.hidden = false;
+        elements.loading.textContent = `Loading ${modeLabel} customers…`;
+      }
+      loadCustomers({ allowRetry: true });
+    });
+
+    loadCustomers({ allowRetry: true });
   })();
 </script>
 {% endblock %}

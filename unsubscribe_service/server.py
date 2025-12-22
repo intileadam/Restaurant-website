@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 from flask import Flask, request, render_template
 from dotenv import load_dotenv
-import mysql.connector as mysql
+import pymysql
 
 
 load_dotenv()
@@ -13,7 +13,7 @@ app = Flask(__name__)
 
 
 def get_conn():
-    return mysql.connect(
+    return pymysql.connect(
     host=os.getenv("DB_HOST", "localhost"),
     port=int(os.getenv("DB_PORT", "3306")),
     user=os.getenv("DB_USER"),
