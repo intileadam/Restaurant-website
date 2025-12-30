@@ -3,6 +3,9 @@ set -euo pipefail
 
 APP_NAME="Casa del Pollo Campaign Runner"
 REPO_NAME="Restaurant-website"
+APP_SUBDIR="apps/campaign_console"
+APP_ENTRY_FILE="$APP_SUBDIR/app.py"
+APP_REQUIREMENTS_FILE="$APP_SUBDIR/requirements.txt"
 DEFAULT_HOST="${FLASK_HOST:-127.0.0.1}"
 DEFAULT_PORT="${FLASK_PORT:-8080}"
 CONFIG_DIR="$HOME/Library/Application Support/CasaDelPolloCampaign"
@@ -90,7 +93,7 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd -P)"
 
 is_repo_dir() {
     local dir="$1"
-    [ -d "$dir" ] && [ -f "$dir/app.py" ] && [ -f "$dir/requirements.txt" ]
+    [ -d "$dir" ] && [ -f "$dir/$APP_ENTRY_FILE" ] && [ -f "$dir/$APP_REQUIREMENTS_FILE" ]
 }
 
 try_repo_dir() {
@@ -116,7 +119,7 @@ prompt_for_repo() {
         selected="$(osascript <<'APPLESCRIPT'
             with timeout of 300 seconds
                 try
-                    set chosenFolder to choose folder with prompt "Select the Restaurant-website folder (the one containing app.py)."
+                    set chosenFolder to choose folder with prompt "Select the Restaurant-website folder (the one containing apps/campaign_console/app.py)."
                     POSIX path of chosenFolder
                 on error number -128
                     return ""
@@ -235,6 +238,10 @@ handle_existing_instance
 
 if try_repo_dir "$SCRIPT_DIR"; then
     :
+elif try_repo_dir "$(dirname "$SCRIPT_DIR")"; then
+    :
+elif try_repo_dir "$(dirname "$(dirname "$SCRIPT_DIR")")"; then
+    :
 elif [ -f "$CONFIG_FILE" ]; then
     if read -r stored_path < "$CONFIG_FILE"; then
         try_repo_dir "$stored_path" || true
@@ -281,6 +288,11 @@ fi
 
 log "Using project folder: $REPO_DIR"
 cd "$REPO_DIR"
+APP_DIR="$REPO_DIR/$APP_SUBDIR"
+
+if [ ! -d "$APP_DIR" ]; then
+    fatal "Missing $APP_SUBDIR inside $REPO_DIR."
+fi
 
 if ! command -v python3 >/dev/null 2>&1; then
     fatal "python3 is required. Install it from https://www.python.org/downloads/."
@@ -295,7 +307,7 @@ if [ ! -d "$VENV_DIR" ]; then
     "$PYTHON3" -m venv "$VENV_DIR"
 fi
 
-REQ_FILE="$REPO_DIR/requirements.txt"
+REQ_FILE="$APP_DIR/requirements.txt"
 CURRENT_HASH=""
 if [ -f "$REQ_FILE" ]; then
     CURRENT_HASH="$(REQ_FILE="$REQ_FILE" "$PY_BIN" - <<'PY'
@@ -325,6 +337,7 @@ else
 fi
 
 export FLASK_APP=app.py
+cd "$APP_DIR"
 
 FLASK_PID=""
 cleanup() {

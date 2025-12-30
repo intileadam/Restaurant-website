@@ -23,13 +23,17 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from itsdangerous import URLSafeTimedSerializer, BadData
 
+APP_ROOT = pathlib.Path(__file__).resolve().parent
+if str(APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_ROOT))
+
+load_dotenv(APP_ROOT / ".env")  # Load app-specific .env
+
 from mailer import db as dbmod
 from mailer.smtp import SmtpClient
 from mailer.lint import lint_html
 from mailer.render import load_campaign_html, ensure_unsubscribe, render_for_recipient, render_for_test
 from mailer.sse import GLOBAL_BUS
-
-load_dotenv() # Load .env at startup
 
 def _normalized_app_env() -> str:
     value = os.getenv("APP_ENV", "development") or "development"
@@ -88,8 +92,8 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = _is_production_env()
 app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 
-CAMPAIGNS_DIR = pathlib.Path(__file__).parent / "campaigns"
-INDIVIDUAL_EMAILS_DIR = pathlib.Path(__file__).parent / "individual_emails"
+CAMPAIGNS_DIR = APP_ROOT / "campaigns"
+INDIVIDUAL_EMAILS_DIR = APP_ROOT / "individual_emails"
 ALLOWED_CAMPAIGN_EXTS = {".html", ".htm"}
 INDIVIDUAL_EMAIL_EXTS = {".html", ".htm"}
 DEFAULT_INDIVIDUAL_EMAIL_TEMPLATE = os.getenv("WELCOME_EMAIL_TEMPLATE", "welcome.html")
@@ -266,6 +270,11 @@ def _ensure_customer_mode() -> str:
     if stored != normalized:
         session[CUSTOMER_MODE_SESSION_KEY] = normalized
     return normalized
+
+
+def _current_customer_mode() -> str:
+    """Return the active customer-table mode for this request context."""
+    return getattr(g, "db_mode", CUSTOMER_MODE_DEFAULT)
 
 
 def _log_stream_serializer() -> URLSafeTimedSerializer:
@@ -597,17 +606,35 @@ def resolve_individual_email_path(file_field: str) -> pathlib.Path:
     return candidate
 
 
-def _prepare_individual_email(row: dict, template_file: str, subject_override: str | None = None):
+def _prepare_individual_email(
+    row: dict,
+    template_file: str,
+    subject_override: str | None = None,
+    *,
+    mode: str | None = None,
+):
     path = resolve_individual_email_path(template_file)
     raw_html = load_campaign_html(path)
     ensured = ensure_unsubscribe(raw_html)
     token = dbmod.ensure_unsubscribe_token(row.get("CUSTID"), row.get("UNSUBSCRIBE_TOKEN"))
-    html = render_for_recipient(ensured, row.get("FIRSTNAME"), row.get("LASTNAME"), token)
+    html = render_for_recipient(
+    ensured,
+    row.get("FIRSTNAME"),
+    row.get("LASTNAME"),
+    token,
+    mode=mode,
+    )
     subject = (subject_override or _extract_subject_from_html(raw_html) or _humanize_filename(path.stem)).strip()
     return subject, html
 
 
-def send_individual_email(cust_id: int, template_file: str, subject_override: str | None = None):
+def send_individual_email(
+    cust_id: int,
+    template_file: str,
+    subject_override: str | None = None,
+    *,
+    mode: str | None = None,
+):
     """Send a one-off email to the specified subscriber."""
     row = dbmod.fetch_customer_by_id(cust_id)
     if not row:
@@ -617,7 +644,13 @@ def send_individual_email(cust_id: int, template_file: str, subject_override: st
         raise ValueError("Customer does not have an email address.")
     if not _bool_from_db(row.get("IS_SUBSCRIBED")):
         raise ValueError("Customer is currently unsubscribed.")
-    subject, html = _prepare_individual_email(row, template_file, subject_override)
+    active_mode = mode or _current_customer_mode()
+    subject, html = _prepare_individual_email(
+    row,
+    template_file,
+    subject_override,
+    mode=active_mode,
+    )
     smtp = SmtpClient()
     msg = smtp.build_message(email, subject, html)
     smtp.send(msg)
@@ -627,7 +660,7 @@ def send_individual_email(cust_id: int, template_file: str, subject_override: st
 def _send_individual_email_worker(cust_id: int, template_file: str, subject_override: str | None = None, mode: str = CUSTOMER_MODE_DEFAULT):
     try:
         dbmod.set_customer_table_mode(mode)
-        send_individual_email(cust_id, template_file, subject_override)
+        send_individual_email(cust_id, template_file, subject_override, mode=mode)
     except Exception as exc:
         app.logger.warning("Failed to send individual email to %s: %s", cust_id, exc)
     finally:
@@ -857,7 +890,7 @@ def preview():
         campaign_path = resolve_campaign_path(file_field)
         html = load_campaign_html(campaign_path)
         html_with_unsub = ensure_unsubscribe(html)
-        rendered = render_for_test(html_with_unsub)
+        rendered = render_for_test(html_with_unsub, mode=_current_customer_mode())
         lint_report = lint_html(html)
     except FileNotFoundError:
         return jsonify({"error": "Campaign file not found."}), 404
@@ -957,15 +990,17 @@ def send_test():
 
     try:
         raw_html = ensure_unsubscribe(campaign_html)
+        active_mode = _current_customer_mode()
         if subscriber and subscriber_token:
             html = render_for_recipient(
             raw_html,
             subscriber.get("FIRSTNAME"),
             subscriber.get("LASTNAME"),
             subscriber_token,
+            mode=active_mode,
             )
         else:
-            html = render_for_test(raw_html)
+            html = render_for_test(raw_html, mode=active_mode)
     except Exception as e:
         return error_response(f"Error preparing campaign HTML: {e}")
 
@@ -1212,7 +1247,7 @@ def preview_individual_email_api(cust_id: int):
     if not row:
         return jsonify({"error": "Customer not found."}), 404
     try:
-        subject, html = _prepare_individual_email(row, template_name, None)
+        subject, html = _prepare_individual_email(row, template_name, None, mode=_current_customer_mode())
     except FileNotFoundError:
         return jsonify({"error": "Email template not found."}), 404
     except dbmod.CustomerNotFoundError:
@@ -1233,7 +1268,12 @@ def send_individual_email_api(cust_id: int):
         return jsonify({"error": "Select an email template."}), 400
     subject_override = _optional_field(payload, "subject")
     try:
-        result = send_individual_email(cust_id, template_name, subject_override)
+        result = send_individual_email(
+        cust_id,
+        template_name,
+        subject_override,
+        mode=_current_customer_mode(),
+        )
     except FileNotFoundError:
         return jsonify({"error": "Email template not found."}), 404
     except dbmod.CustomerNotFoundError:
@@ -1257,7 +1297,7 @@ def _build_confirm_context(file: str, subject: str | None, batch_size: int, dela
     preview_html = None
     preview_error = None
     try:
-        preview_html = render_for_test(ensure_unsubscribe(raw_html))
+        preview_html = render_for_test(ensure_unsubscribe(raw_html), mode=_current_customer_mode())
     except Exception as e:
         preview_error = f"Unable to render campaign preview: {e}"
 
@@ -1374,7 +1414,13 @@ def _send_worker(file: str, subject: str, batch_size: int, delay_ms: int, mode: 
                     GLOBAL_BUS.emit(f"✖ Missing unsubscribe token for {to_addr}: {e}")
                     continue
 
-                html = render_for_recipient(raw_html, r.get("FIRSTNAME"), r.get("LASTNAME"), token)
+                html = render_for_recipient(
+                raw_html,
+                r.get("FIRSTNAME"),
+                r.get("LASTNAME"),
+                token,
+                mode=mode,
+                )
                 try:
                     msg = smtp.build_message(to_addr, subject, html)
                     smtp.send(msg, delay_ms=delay_ms)

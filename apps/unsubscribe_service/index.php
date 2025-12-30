@@ -12,6 +12,7 @@ ini_set('error_log', storage_path('php-error.log'));
 $autoloadPaths = [
     __DIR__ . '/vendor/autoload.php',
     __DIR__ . '/../vendor/autoload.php',
+    dirname(__DIR__, 2) . '/vendor/autoload.php',
 ];
 foreach ($autoloadPaths as $autoload) {
     if (file_exists($autoload)) {
@@ -85,6 +86,7 @@ function resolveEnvFile(): ?string
     if ($explicit) {
         $candidates[] = $explicit;
     }
+    $candidates[] = __DIR__ . '/.env';
     $candidates[] = dirname(__DIR__) . '/config/unsubscribe.env';
     $candidates[] = dirname(__DIR__) . '/.env';
     foreach ($candidates as $candidate) {
@@ -117,6 +119,44 @@ function db(): mysqli
     $conn = new mysqli($host, $user, $pass, $name, $port);
     $conn->set_charset('utf8mb4');
     return $conn;
+}
+
+function sanitize_table(string $table, string $fallback): string
+{
+    $trimmed = trim($table);
+    if ($trimmed === '' || !preg_match('/^[A-Za-z0-9_]+$/', $trimmed)) {
+        return $fallback;
+    }
+    return $trimmed;
+}
+
+function production_table(): string
+{
+    static $table = null;
+    if ($table !== null) {
+        return $table;
+    }
+    $table = sanitize_table((string) envValue('DB_CUSTOMER_TABLE', 'CUSTOMERS'), 'CUSTOMERS');
+    return $table;
+}
+
+function test_table(): string
+{
+    static $table = null;
+    if ($table !== null) {
+        return $table;
+    }
+    $table = sanitize_table((string) envValue('DB_TEST_CUSTOMER_TABLE', 'TESTCUSTOMERS'), 'TESTCUSTOMERS');
+    return $table;
+}
+
+function resolve_table_for_request(): string
+{
+    $mode = isset($_GET['mode']) ? strtolower(trim((string) $_GET['mode'])) : '';
+    if ($mode === 'test') {
+        return test_table();
+    }
+    return production_table();
 }
 
 function render(string $template, array $data = [], int $status = 200): void
@@ -179,7 +219,9 @@ function handleUnsubscribe(): void
 
     try {
         $conn = db();
-        $statusStmt = $conn->prepare('SELECT IS_SUBSCRIBED FROM CUSTOMERS WHERE UNSUBSCRIBE_TOKEN = ? LIMIT 1');
+        $table = resolve_table_for_request();
+        $escapedTable = '`' . $table . '`';
+        $statusStmt = $conn->prepare("SELECT IS_SUBSCRIBED FROM {$escapedTable} WHERE UNSUBSCRIBE_TOKEN = ? LIMIT 1");
         $statusStmt->bind_param('s', $token);
         $statusStmt->execute();
         $statusStmt->bind_result($currentStatus);
@@ -200,7 +242,7 @@ function handleUnsubscribe(): void
             ]);
         }
 
-        $stmt = $conn->prepare('UPDATE CUSTOMERS SET IS_SUBSCRIBED = 0 WHERE UNSUBSCRIBE_TOKEN = ?');
+        $stmt = $conn->prepare("UPDATE {$escapedTable} SET IS_SUBSCRIBED = 0 WHERE UNSUBSCRIBE_TOKEN = ?");
         $stmt->bind_param('s', $token);
         $stmt->execute();
 
@@ -232,7 +274,9 @@ function handleResubscribe(): void
 
     try {
         $conn = db();
-        $stmt = $conn->prepare('UPDATE CUSTOMERS SET IS_SUBSCRIBED = 1 WHERE UNSUBSCRIBE_TOKEN = ?');
+        $table = resolve_table_for_request();
+        $escapedTable = '`' . $table . '`';
+        $stmt = $conn->prepare("UPDATE {$escapedTable} SET IS_SUBSCRIBED = 1 WHERE UNSUBSCRIBE_TOKEN = ?");
         $stmt->bind_param('s', $token);
         $stmt->execute();
 

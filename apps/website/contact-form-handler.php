@@ -1,5 +1,22 @@
 <?php
-require 'vendor/autoload.php';
+$autoloadPaths = [
+    __DIR__ . '/vendor/autoload.php',
+    dirname(__DIR__) . '/vendor/autoload.php',
+    dirname(__DIR__, 2) . '/vendor/autoload.php',
+];
+$autoloadLoaded = false;
+foreach ($autoloadPaths as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        $autoloadLoaded = true;
+        break;
+    }
+}
+if (!$autoloadLoaded) {
+    http_response_code(500);
+    echo "Missing Composer autoloader.";
+    exit;
+}
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -10,7 +27,7 @@ $dotenv->load();
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
-    $recaptchaSecret = $_ENV['RECAPTCHA_SECRET_KEY'];
+    $recaptchaSecret = $_ENV['RECAPTCHA_SECRET_KEY'] ?? '';
     $recaptchaResponse = $_POST['g-recaptcha-response'];
 
     $verifyResponse = file_get_contents(
@@ -46,15 +63,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     try {
         // Server settings
         $mail->isSMTP();
-        $mail->Host       = 'smtp.dreamhost.com';
+        $mail->Host       = $_ENV['SMTP_HOST'] ?? 'smtp.dreamhost.com';
         $mail->SMTPAuth   = true;
-        $mail->Username   = $_ENV['EMAIL_USER'];
-        $mail->Password   = $_ENV['EMAIL_PASSWORD'];
-        $mail->Port       = $_ENV['SMTP_PORT'];
+        $mail->Username   = $_ENV['EMAIL_USER'] ?? '';
+        $mail->Password   = $_ENV['EMAIL_PASSWORD'] ?? '';
+        $mail->Port       = (int) ($_ENV['SMTP_PORT'] ?? 587);
 
         // Recipients
-        $mail->setFrom('mario@casadelpollo.com', 'Contact request from casadelpollo.com'); // the address sending the email
-        $mail->addAddress('mario@casadelpollo.com'); // the recipient
+        $fromEmail = $_ENV['FROM_EMAIL'] ?? 'no-reply@casadelpollo.com';
+        $fromName = $_ENV['FROM_NAME'] ?? 'Casa del Pollo';
+        $mail->setFrom($fromEmail, $fromName);
+        $recipient = $_ENV['FORM_RECIPIENT'] ?? $fromEmail;
+        $mail->addAddress($recipient);
         $mail->addReplyTo($email, $name); // the customer's address
 
 

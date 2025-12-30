@@ -4,12 +4,52 @@
 - Subject is provided in UI, not derived from HTML title.
 """
 from __future__ import annotations
-import os, re
+import os
+from urllib.parse import urlparse, urlunparse, urlencode
 from jinja2 import Environment, BaseLoader
 
 
 BASE_URL = os.getenv("BASE_URL_PUBLIC", "https://casadelpollo.com")
 UNSUB_PATH = os.getenv("UNSUBSCRIBE_PATH", "/unsubscribe")
+
+
+def _normalize_base_url(url: str) -> str:
+    url = (url or "").strip()
+    if not url:
+        return "https://casadelpollo.com"
+    if "://" not in url:
+        url = f"https://{url}"
+    return url.rstrip("/")
+
+
+def _normalize_unsubscribe_path(path: str) -> str:
+    path = (path or "").strip() or "/unsubscribe"
+    return path if path.startswith("/") else f"/{path}"
+
+
+def _unsubscribe_base_url(base_url: str) -> str:
+    normalized = _normalize_base_url(base_url)
+    parsed = urlparse(normalized)
+    scheme = parsed.scheme or "https"
+    netloc = parsed.netloc or parsed.path
+    if not netloc:
+        netloc = "casadelpollo.com"
+    if not netloc.startswith("unsubscribe."):
+        netloc = f"unsubscribe.{netloc}"
+    return urlunparse((scheme, netloc, "", "", "", ""))
+
+
+UNSUBSCRIBE_BASE_URL = _unsubscribe_base_url(BASE_URL)
+UNSUB_PATH = _normalize_unsubscribe_path(UNSUB_PATH)
+
+
+def _build_unsubscribe_url(token: str, mode: str | None = None) -> str:
+    params = {"token": token}
+    normalized_mode = (mode or "").strip().lower()
+    if normalized_mode == "test":
+        params["mode"] = normalized_mode
+    query = urlencode(params)
+    return f"{UNSUBSCRIBE_BASE_URL}{UNSUB_PATH}?{query}"
 
 
 _jinja = Environment(loader=BaseLoader(), autoescape=False)
@@ -56,8 +96,15 @@ def ensure_unsubscribe(html: str) -> str:
 
 
 
-def render_for_recipient(html: str, first_name: str | None, last_name: str | None, token: str) -> str:
-    unsubscribe_url = f"{BASE_URL}{UNSUB_PATH}?token={token}"
+def render_for_recipient(
+    html: str,
+    first_name: str | None,
+    last_name: str | None,
+    token: str,
+    *,
+    mode: str | None = None,
+) -> str:
+    unsubscribe_url = _build_unsubscribe_url(token, mode)
     template = _jinja.from_string(html)
     # Accept both lowercase and uppercase keys by duplicating.
     ctx = {
@@ -73,9 +120,15 @@ def render_for_recipient(html: str, first_name: str | None, last_name: str | Non
 
 
 
-def render_for_test(html: str) -> str:
+def render_for_test(html: str, mode: str | None = None) -> str:
     # For tests, use a dummy, clearly-labeled unsubscribe URL
     template = _jinja.from_string(html)
-    unsubscribe_url = f"{BASE_URL}{UNSUB_PATH}?token=TEST_NOT_ACTIVE"
-    return template.render(first_name="Test", last_name="Recipient", unsubscribe_url=unsubscribe_url,
-                           FIRSTNAME="Test", LASTNAME="Recipient", UNSUBSCRIBE_URL=unsubscribe_url)
+    unsubscribe_url = _build_unsubscribe_url("TEST_NOT_ACTIVE", mode)
+    return template.render(
+        first_name="Test",
+        last_name="Recipient",
+        unsubscribe_url=unsubscribe_url,
+        FIRSTNAME="Test",
+        LASTNAME="Recipient",
+        UNSUBSCRIBE_URL=unsubscribe_url,
+    )
