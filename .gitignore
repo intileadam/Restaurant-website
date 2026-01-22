@@ -2,5 +2,7 @@
 *.env
 security_findings.md
 scripts/
+!scripts/
+!scripts/preflight.sh
 REMEDIATION_SUMMARY.md
 DEPLOY_NOTES_DREAMHOST.md
