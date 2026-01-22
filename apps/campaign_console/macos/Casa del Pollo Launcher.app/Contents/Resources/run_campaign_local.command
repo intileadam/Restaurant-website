@@ -3,6 +3,7 @@ set -euo pipefail
 
 APP_NAME="Casa del Pollo Campaign Runner"
 REPO_NAME="Restaurant-website"
+APP_SUBDIR="apps/campaign_console"
 DEFAULT_HOST="${FLASK_HOST:-127.0.0.1}"
 DEFAULT_PORT="${FLASK_PORT:-8080}"
 CONFIG_DIR="$HOME/Library/Application Support/CasaDelPolloCampaign"
@@ -13,6 +14,7 @@ SERVER_PID_FILE="$CONFIG_DIR/flask.pid"
 STATE_DIR=""
 REQ_HASH_FILE=""
 LOG_FILE=""
+APP_DIR=""
 
 log() {
     printf '[%s] %s\n' "$APP_NAME" "$1"
@@ -90,7 +92,28 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd -P)"
 
 is_repo_dir() {
     local dir="$1"
+    [ -d "$dir" ] && [ -f "$dir/$APP_SUBDIR/app.py" ] && [ -f "$dir/$APP_SUBDIR/requirements.txt" ]
+}
+
+is_app_dir() {
+    local dir="$1"
     [ -d "$dir" ] && [ -f "$dir/app.py" ] && [ -f "$dir/requirements.txt" ]
+}
+
+set_repo_dir() {
+    REPO_DIR="$(cd "$1" && pwd -P)"
+    APP_DIR="$REPO_DIR/$APP_SUBDIR"
+}
+
+set_app_dir() {
+    APP_DIR="$(cd "$1" && pwd -P)"
+    local repo_guess=""
+    repo_guess="$(cd "$APP_DIR/../.." && pwd -P)"
+    if is_repo_dir "$repo_guess"; then
+        REPO_DIR="$repo_guess"
+    else
+        REPO_DIR="$APP_DIR"
+    fi
 }
 
 try_repo_dir() {
@@ -104,9 +127,25 @@ try_repo_dir() {
     esac
 
     if is_repo_dir "$candidate"; then
-        REPO_DIR="$(cd "$candidate" && pwd -P)"
+        set_repo_dir "$candidate"
         return 0
     fi
+    if is_app_dir "$candidate"; then
+        set_app_dir "$candidate"
+        return 0
+    fi
+    return 1
+}
+
+find_repo_from_path() {
+    local current="$1"
+    while [ -n "$current" ] && [ "$current" != "/" ]; do
+        if is_repo_dir "$current"; then
+            set_repo_dir "$current"
+            return 0
+        fi
+        current="$(dirname "$current")"
+    done
     return 1
 }
 
@@ -116,7 +155,7 @@ prompt_for_repo() {
         selected="$(osascript <<'APPLESCRIPT'
             with timeout of 300 seconds
                 try
-                    set chosenFolder to choose folder with prompt "Select the Restaurant-website folder (the one containing app.py)."
+                    set chosenFolder to choose folder with prompt "Select the Restaurant-website folder (the one containing apps/campaign_console/app.py)."
                     POSIX path of chosenFolder
                 on error number -128
                     return ""
@@ -233,7 +272,7 @@ REPO_DIR=""
 
 handle_existing_instance
 
-if try_repo_dir "$SCRIPT_DIR"; then
+if find_repo_from_path "$SCRIPT_DIR"; then
     :
 elif [ -f "$CONFIG_FILE" ]; then
     if read -r stored_path < "$CONFIG_FILE"; then
@@ -259,7 +298,7 @@ if [ -z "$REPO_DIR" ]; then
     selection="$(prompt_for_repo)"
     if [ -z "$selection" ]; then
         if [ -t 0 ]; then
-            read -r -p "Path to the Restaurant-website folder: " selection
+            read -r -p "Path to the Restaurant-website folder (with apps/campaign_console/app.py): " selection
         else
             if command -v osascript >/dev/null 2>&1; then
                 osascript <<'APPLESCRIPT' >/dev/null 2>&1 || true
@@ -280,6 +319,7 @@ if ! printf '%s\n' "$REPO_DIR" > "$CONFIG_FILE"; then
 fi
 
 log "Using project folder: $REPO_DIR"
+log "Using campaign console folder: $APP_DIR"
 cd "$REPO_DIR"
 
 if ! command -v python3 >/dev/null 2>&1; then
@@ -295,7 +335,7 @@ if [ ! -d "$VENV_DIR" ]; then
     "$PYTHON3" -m venv "$VENV_DIR"
 fi
 
-REQ_FILE="$REPO_DIR/requirements.txt"
+REQ_FILE="$APP_DIR/requirements.txt"
 CURRENT_HASH=""
 if [ -f "$REQ_FILE" ]; then
     CURRENT_HASH="$(REQ_FILE="$REQ_FILE" "$PY_BIN" - <<'PY'
@@ -340,6 +380,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
+cd "$APP_DIR"
 log "Starting Flask on $STATUS_URL ..."
 "$PY_BIN" -m flask run --host "$DEFAULT_HOST" --port "$DEFAULT_PORT" &
 FLASK_PID=$!

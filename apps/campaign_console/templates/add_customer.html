@@ -248,6 +248,9 @@
 
     function setModalView(mode) {
       state.viewMode = mode;
+      if (elements.modal) {
+        elements.modal.classList.toggle("email-mode", mode === "email");
+      }
       if (elements.formView) {
         elements.formView.hidden = mode !== "form";
       }
@@ -610,7 +613,7 @@
         elements.emailRecipient.textContent = fullName || customer.email || "Customer";
       }
       if (elements.emailRecipientNote) {
-        elements.emailRecipientNote.textContent = customer.email ? `Sending to ${customer.email}` : "No email on file.";
+        elements.emailRecipientNote.textContent = customer.email || "No email on file.";
       }
       if (!customer.email) {
         resetEmailPanel("Add an email address to send individual messages.");
