@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: campaign-console
+    runtime: python
+    rootDir: apps/campaign_console
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: APP_ENV
+        value: production
+      - key: FLASK_ENV
+        value: production
+      # All secrets below should be set via Render dashboard, not committed
+      - key: APP_SECRET_KEY
+        sync: false
+      - key: LOG_STREAM_TOKEN_SECRET
+        sync: false
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASS
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: FROM_NAME
+        sync: false
+      - key: BASE_URL_PUBLIC
+        sync: false
+      - key: UNSUBSCRIBE_PATH
+        sync: false
