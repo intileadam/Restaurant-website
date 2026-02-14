@@ -637,7 +637,10 @@ a {
 /* ── manage-campaigns modal ───────────────────────────────── */
 
 .manage-card {
+  position: relative;
+  width: min(680px, 100%);
   gap: 1rem;
+  overflow: visible;
 }
 
 .manage-section {
@@ -790,6 +793,42 @@ a {
 .manage-card input[type="file"]::file-selector-button:hover,
 .manage-card input[type="file"]::-webkit-file-upload-button:hover {
   background: var(--card-soft);
+}
+
+.manage-file-item__name {
+  cursor: default;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--border-strong);
+}
+
+.manage-preview-tooltip {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 12px);
+  width: 380px;
+  height: 420px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 48px rgba(35, 29, 22, 0.18);
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.manage-preview-tooltip__frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+@media (max-width: 1100px) {
+  .manage-preview-tooltip {
+    display: none;
+  }
 }
 
 .workflow-modal-backdrop {

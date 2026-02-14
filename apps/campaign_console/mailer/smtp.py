@@ -9,7 +9,8 @@ from email.utils import formatdate, make_msgid
 from typing import Iterable
 
 
-RETIES = 2
+RETRIES = 2
+CONNECT_TIMEOUT = 10  # seconds per connection attempt
 
 
 class SmtpClient:
@@ -21,10 +22,15 @@ class SmtpClient:
         self.from_name = os.getenv("FROM_NAME", "Casa del Pollo")
         self.from_email = os.getenv("FROM_EMAIL")
 
+        if not self.host:
+            raise RuntimeError(
+                "SMTP_HOST is not configured. Set the SMTP_HOST environment variable."
+            )
+
 
     def _connect(self):
         local_hostname = self.from_email.split("@")[-1] if self.from_email else None
-        server = smtplib.SMTP(self.host, self.port, timeout=30, local_hostname=local_hostname)
+        server = smtplib.SMTP(self.host, self.port, timeout=CONNECT_TIMEOUT, local_hostname=local_hostname)
         server.ehlo()
         server.starttls()
         server.ehlo()  # Refresh capabilities after STARTTLS
@@ -50,7 +56,7 @@ class SmtpClient:
 
     def send(self, msg: EmailMessage, delay_ms: int = 0):
         last_err = None
-        for attempt in range(RETIES + 1):
+        for attempt in range(RETRIES + 1):
             try:
                 with self._connect() as server:
                     refused = server.send_message(msg)

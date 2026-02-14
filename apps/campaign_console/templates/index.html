@@ -257,6 +257,13 @@
       <div id="manageFileList" class="manage-file-list">
         <p class="manage-file-list__loading">Loading...</p>
       </div>
+      <div id="managePreviewTooltip" class="manage-preview-tooltip" hidden>
+        <iframe
+          id="managePreviewFrame"
+          class="manage-preview-tooltip__frame"
+          title="Campaign preview"
+        ></iframe>
+      </div>
       <p
         id="manageDeleteStatus"
         class="manage-status"
@@ -335,10 +342,14 @@
     const manageUploadForm = document.getElementById("manageUploadForm");
     const manageUploadStatus = document.getElementById("manageUploadStatus");
     const manageDeleteStatus = document.getElementById("manageDeleteStatus");
+    const previewTooltip = document.getElementById("managePreviewTooltip");
+    const previewTooltipFrame = document.getElementById("managePreviewFrame");
 
     let controller = null;
     let lintReport = null;
     let lintStatusMessage = "";
+    let hoverPreviewFile = null;
+    let hoverTimer = null;
 
     /* ── helpers ─────────────────────────────────────────────── */
 
@@ -363,6 +374,43 @@
       if (state === "error") el.classList.add("manage-status--error");
       else if (state === "success") el.classList.add("manage-status--success");
       else el.classList.add("manage-status--info");
+    }
+
+    /* ── hover preview ───────────────────────────────────────── */
+
+    function showPreviewTooltip(filename, anchorEl) {
+      if (hoverPreviewFile === filename && !previewTooltip.hidden) return;
+      hoverPreviewFile = filename;
+
+      const rect = anchorEl.getBoundingClientRect();
+      const modalRect = manageModal.querySelector(".workflow-modal").getBoundingClientRect();
+      previewTooltip.style.top = `${rect.top - modalRect.top}px`;
+      previewTooltip.style.left = `${modalRect.width + 12}px`;
+
+      previewTooltipFrame.srcdoc = "";
+      previewTooltip.hidden = false;
+
+      fetch(`/preview?file=${encodeURIComponent(filename)}`, {
+        headers: { Accept: "application/json" },
+      })
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((data) => {
+          if (hoverPreviewFile === filename) {
+            previewTooltipFrame.srcdoc = data.html || "";
+          }
+        })
+        .catch(() => {
+          if (hoverPreviewFile === filename) {
+            previewTooltipFrame.srcdoc =
+              "<p style='padding:1rem;color:#888;font-family:sans-serif'>Preview unavailable</p>";
+          }
+        });
+    }
+
+    function hidePreviewTooltip() {
+      hoverPreviewFile = null;
+      previewTooltip.hidden = true;
+      previewTooltipFrame.srcdoc = "";
     }
 
     /* ── campaign select sync ────────────────────────────────── */
@@ -413,8 +461,15 @@
       }
     }
 
+    previewTooltip.addEventListener("mouseenter", () => clearTimeout(hoverTimer));
+    previewTooltip.addEventListener("mouseleave", () => {
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(hidePreviewTooltip, 200);
+    });
+
     function renderFileList(files) {
       manageFileList.innerHTML = "";
+      hidePreviewTooltip();
       if (!files.length) {
         const p = document.createElement("p");
         p.className = "manage-file-list__empty";
@@ -429,6 +484,14 @@
         const nameSpan = document.createElement("span");
         nameSpan.className = "manage-file-item__name";
         nameSpan.textContent = filename;
+        nameSpan.addEventListener("mouseenter", () => {
+          clearTimeout(hoverTimer);
+          hoverTimer = setTimeout(() => showPreviewTooltip(filename, row), 300);
+        });
+        nameSpan.addEventListener("mouseleave", () => {
+          clearTimeout(hoverTimer);
+          hoverTimer = setTimeout(hidePreviewTooltip, 200);
+        });
         row.appendChild(nameSpan);
 
         const deleteBtn = document.createElement("button");
@@ -522,7 +585,7 @@
       document.body.classList.toggle("modal-open", Boolean(anyOpen));
     };
 
-    const setupModal = (backdrop, trigger, focusSelector, { onOpen } = {}) => {
+    const setupModal = (backdrop, trigger, focusSelector, { onOpen, onClose } = {}) => {
       if (!backdrop || !trigger) return;
       const closeButtons = backdrop.querySelectorAll("[data-close-modal]");
       const focusTarget = focusSelector
@@ -537,6 +600,7 @@
         } else {
           backdrop.setAttribute("hidden", "");
           syncModalBodyState();
+          if (onClose) onClose();
         }
       };
       trigger.addEventListener("click", () => toggle(true));
@@ -555,7 +619,10 @@
       });
     };
 
-    setupModal(manageModal, manageTrigger, null, { onOpen: loadCampaignList });
+    setupModal(manageModal, manageTrigger, null, {
+      onOpen: loadCampaignList,
+      onClose: hidePreviewTooltip,
+    });
     setupModal(userModal, userTrigger, "#operator_email");
 
     /* ── preview / lint / test (unchanged logic) ─────────────── */

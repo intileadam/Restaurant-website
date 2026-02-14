@@ -6,3 +6,4 @@ scripts/
 !scripts/preflight.sh
 REMEDIATION_SUMMARY.md
 DEPLOY_NOTES_DREAMHOST.md
+apps/campaign_console/campaigns/*.html
