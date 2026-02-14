@@ -257,13 +257,6 @@
       <div id="manageFileList" class="manage-file-list">
         <p class="manage-file-list__loading">Loading...</p>
       </div>
-      <div id="managePreviewTooltip" class="manage-preview-tooltip" hidden>
-        <iframe
-          id="managePreviewFrame"
-          class="manage-preview-tooltip__frame"
-          title="Campaign preview"
-        ></iframe>
-      </div>
       <p
         id="manageDeleteStatus"
         class="manage-status"
@@ -312,6 +305,14 @@
       </form>
     </section>
   </div>
+</div>
+
+<div id="managePreviewTooltip" class="manage-preview-tooltip" hidden>
+  <iframe
+    id="managePreviewFrame"
+    class="manage-preview-tooltip__frame"
+    title="Campaign preview"
+  ></iframe>
 </div>
 
 <script>
@@ -382,10 +383,26 @@
       if (hoverPreviewFile === filename && !previewTooltip.hidden) return;
       hoverPreviewFile = filename;
 
-      const rect = anchorEl.getBoundingClientRect();
-      const modalRect = manageModal.querySelector(".workflow-modal").getBoundingClientRect();
-      previewTooltip.style.top = `${rect.top - modalRect.top}px`;
-      previewTooltip.style.left = `${modalRect.width + 12}px`;
+      const rowRect = anchorEl.getBoundingClientRect();
+      const modalEl = manageModal.querySelector(".workflow-modal");
+      const modalRect = modalEl.getBoundingClientRect();
+
+      /* Position fixed: to the right of the modal, vertically aligned with the row */
+      let top = rowRect.top;
+      let left = modalRect.right + 12;
+
+      /* If it would overflow the right edge, flip to the left side */
+      if (left + 380 > window.innerWidth) {
+        left = modalRect.left - 380 - 12;
+      }
+      /* Keep it within the viewport vertically */
+      if (top + 420 > window.innerHeight) {
+        top = window.innerHeight - 420 - 8;
+      }
+      if (top < 8) top = 8;
+
+      previewTooltip.style.top = `${top}px`;
+      previewTooltip.style.left = `${left}px`;
 
       previewTooltipFrame.srcdoc = "";
       previewTooltip.hidden = false;

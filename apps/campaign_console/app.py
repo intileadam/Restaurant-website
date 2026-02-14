@@ -1,5 +1,5 @@
 from __future__ import annotations
-import math, os, pathlib, re, secrets, sys, threading
+import csv, io, math, os, pathlib, re, secrets, sys, threading
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
@@ -1203,6 +1203,103 @@ def create_customer_api():
     _maybe_send_welcome_email(row["CUSTID"], is_subscribed=is_subscribed)
 
     return jsonify({"customer": _serialize_customer(row)}), 201
+
+
+@app.post("/api/customers/import")
+def import_customers_csv():
+    """Bulk-import customers from an uploaded CSV file."""
+    uploaded = request.files.get("file")
+    if not uploaded or not uploaded.filename:
+        return jsonify({"error": "No file provided."}), 400
+
+    filename = secure_filename(uploaded.filename)
+    if not filename.lower().endswith(".csv"):
+        return jsonify({"error": "Only .csv files are accepted."}), 400
+
+    try:
+        raw = uploaded.stream.read()
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return jsonify({"error": "File is not valid UTF-8 text."}), 400
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        return jsonify({"error": "CSV file is empty or has no header row."}), 400
+
+    # Build a case-insensitive mapping from the CSV headers to canonical names.
+    canonical = {
+        "email": "email",
+        "firstname": "firstname",
+        "first_name": "firstname",
+        "first name": "firstname",
+        "lastname": "lastname",
+        "last_name": "lastname",
+        "last name": "lastname",
+        "company": "company",
+        "phone": "phone",
+        "comments": "comments",
+    }
+    header_map: dict[str, str] = {}
+    for field in reader.fieldnames:
+        key = field.strip().lower()
+        if key in canonical:
+            header_map[field] = canonical[key]
+
+    # Ensure the required 'email' column is present.
+    if "email" not in header_map.values():
+        return jsonify({
+            "error": "CSV is missing the required 'email' column.",
+            "found_columns": list(reader.fieldnames),
+        }), 400
+
+    created = 0
+    skipped = 0
+    errors: list[dict] = []
+
+    for row_num, row in enumerate(reader, start=2):  # row 1 is the header
+        # Remap CSV columns to canonical field names.
+        mapped: dict[str, str] = {}
+        for csv_col, canon in header_map.items():
+            value = (row.get(csv_col) or "").strip()
+            if value:
+                mapped[canon] = value
+
+        email_raw = mapped.get("email", "")
+        if not email_raw:
+            skipped += 1
+            errors.append({"row": row_num, "email": "", "reason": "Missing email."})
+            continue
+
+        try:
+            email = validate_email(email_raw).email
+        except EmailNotValidError as exc:
+            skipped += 1
+            errors.append({"row": row_num, "email": email_raw, "reason": f"Invalid email: {exc}"})
+            continue
+
+        try:
+            dbmod.create_customer(
+                email=email,
+                firstname=mapped.get("firstname"),
+                lastname=mapped.get("lastname"),
+                company=mapped.get("company"),
+                phone=mapped.get("phone"),
+                comments=mapped.get("comments"),
+            )
+            created += 1
+        except dbmod.DuplicateCustomerError:
+            skipped += 1
+            errors.append({"row": row_num, "email": email, "reason": "Duplicate email."})
+        except Exception as exc:
+            app.logger.exception("CSV import row %d failed", row_num)
+            skipped += 1
+            errors.append({"row": row_num, "email": email, "reason": str(exc)})
+
+    return jsonify({
+        "created": created,
+        "skipped": skipped,
+        "errors": errors,
+    }), 200
 
 
 @app.put("/api/customers/<int:cust_id>")

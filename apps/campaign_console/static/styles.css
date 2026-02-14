@@ -637,10 +637,8 @@ a {
 /* ── manage-campaigns modal ───────────────────────────────── */
 
 .manage-card {
-  position: relative;
   width: min(680px, 100%);
   gap: 1rem;
-  overflow: visible;
 }
 
 .manage-section {
@@ -804,9 +802,7 @@ a {
 }
 
 .manage-preview-tooltip {
-  position: absolute;
-  top: 0;
-  left: calc(100% + 12px);
+  position: fixed;
   width: 380px;
   height: 420px;
   border-radius: 14px;
@@ -814,7 +810,7 @@ a {
   background: #fff;
   border: 1px solid var(--border);
   box-shadow: 0 16px 48px rgba(35, 29, 22, 0.18);
-  z-index: 10;
+  z-index: 1700;
   pointer-events: auto;
 }
 
@@ -1597,6 +1593,125 @@ button:focus-visible,
   justify-content: center;
   font-weight: 600;
   color: var(--muted);
+}
+
+/* CSV Import */
+.customer-manager__actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.import-modal {
+  max-width: 540px;
+}
+
+.import-instructions {
+  margin: 0 0 1rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.import-instructions code {
+  background: var(--bg-muted, rgba(0, 0, 0, 0.05));
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.import-file-area {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+  margin-bottom: 1rem;
+}
+
+.import-file-area.drag-over {
+  border-color: var(--accent, #4a7c59);
+  background: rgba(74, 124, 89, 0.06);
+}
+
+.import-file-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+}
+
+.import-file-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.import-file-placeholder p {
+  margin: 0;
+}
+
+.import-file-selected {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.import-file-name {
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent, #4a7c59);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link-button:hover {
+  opacity: 0.8;
+}
+
+.link-button.danger {
+  color: var(--danger, #c0392b);
+}
+
+.import-summary {
+  margin-bottom: 1rem;
+  line-height: 1.6;
+}
+
+.import-errors {
+  margin-bottom: 1rem;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.import-errors__title {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.import-errors ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.import-errors li + li {
+  margin-top: 0.25rem;
 }
 
 .btn[data-loading="true"] {

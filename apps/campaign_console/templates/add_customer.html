@@ -8,9 +8,14 @@
       <h2>Customer Directory</h2>
       <p class="muted">Click a row to preview details. Use the Edit button to update subscribers instantly.</p>
     </div>
-    <button type="button" class="btn primary" data-add-customer>
-      <span>+ Add customer</span>
-    </button>
+    <div class="customer-manager__actions">
+      <button type="button" class="btn ghost" data-import-csv>
+        <span>Import CSV</span>
+      </button>
+      <button type="button" class="btn primary" data-add-customer>
+        <span>+ Add customer</span>
+      </button>
+    </div>
   </header>
 
   <div class="customer-table-container">
@@ -162,6 +167,56 @@
   </div>
 </div>
 
+<div class="customer-modal-backdrop" data-import-modal hidden>
+  <div class="customer-modal import-modal" role="dialog" aria-modal="true" aria-labelledby="importModalTitle">
+    <header class="customer-modal__header">
+      <div>
+        <p class="eyebrow">Bulk import</p>
+        <h3 id="importModalTitle">Import customers from CSV</h3>
+      </div>
+      <button type="button" class="icon-button" aria-label="Close dialog" data-import-close>&times;</button>
+    </header>
+    <div class="customer-modal__body">
+      <div data-import-form-view>
+        <p class="import-instructions">
+          Upload a <strong>.csv</strong> file with a header row. The <strong>email</strong> column is required.
+          Optional columns: <code>firstname</code>, <code>lastname</code>, <code>company</code>, <code>phone</code>, <code>comments</code>.
+        </p>
+        <div class="import-file-area" data-import-drop-zone>
+          <input type="file" accept=".csv" data-import-file hidden />
+          <div class="import-file-placeholder" data-import-placeholder>
+            <span class="import-file-icon">&#128196;</span>
+            <p>Drag &amp; drop a CSV file here, or <button type="button" class="link-button" data-import-browse>browse</button></p>
+          </div>
+          <div class="import-file-selected" data-import-selected hidden>
+            <span class="import-file-name" data-import-filename></span>
+            <button type="button" class="link-button danger" data-import-clear>Remove</button>
+          </div>
+        </div>
+        <div class="form-alert" data-import-alert hidden></div>
+        <div class="form-actions">
+          <div class="form-actions__group">
+            <button type="button" class="btn ghost" data-import-cancel>Cancel</button>
+            <button type="button" class="btn primary" data-import-upload disabled>Upload &amp; import</button>
+          </div>
+        </div>
+      </div>
+      <div data-import-results hidden>
+        <div class="import-summary" data-import-summary></div>
+        <div class="import-errors" data-import-errors hidden>
+          <p class="import-errors__title">Skipped rows:</p>
+          <ul data-import-error-list></ul>
+        </div>
+        <div class="form-actions">
+          <div class="form-actions__group">
+            <button type="button" class="btn primary" data-import-done>Done</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   (() => {
     const root = document.querySelector("[data-customers-page]");
@@ -207,6 +262,25 @@
       emailRecipient: document.querySelector("[data-email-recipient]"),
       emailRecipientNote: document.querySelector("[data-email-recipient-note]"),
       emailBackBtns: document.querySelectorAll("[data-email-back]"),
+      importBtn: root.querySelector("[data-import-csv]"),
+      importModal: document.querySelector("[data-import-modal]"),
+      importClose: document.querySelector("[data-import-close]"),
+      importCancel: document.querySelector("[data-import-cancel]"),
+      importFileInput: document.querySelector("[data-import-file]"),
+      importDropZone: document.querySelector("[data-import-drop-zone]"),
+      importBrowse: document.querySelector("[data-import-browse]"),
+      importPlaceholder: document.querySelector("[data-import-placeholder]"),
+      importSelected: document.querySelector("[data-import-selected]"),
+      importFilename: document.querySelector("[data-import-filename]"),
+      importClear: document.querySelector("[data-import-clear]"),
+      importAlert: document.querySelector("[data-import-alert]"),
+      importUpload: document.querySelector("[data-import-upload]"),
+      importFormView: document.querySelector("[data-import-form-view]"),
+      importResults: document.querySelector("[data-import-results]"),
+      importSummary: document.querySelector("[data-import-summary]"),
+      importErrors: document.querySelector("[data-import-errors]"),
+      importErrorList: document.querySelector("[data-import-error-list]"),
+      importDone: document.querySelector("[data-import-done]"),
     };
 
     if (!elements.tableBody || !elements.modal || !elements.form) return;
@@ -919,6 +993,226 @@
     }
     if (elements.nextBtn) {
       elements.nextBtn.addEventListener("click", () => goToPage(state.page + 1));
+    }
+
+    // ── CSV Import ──────────────────────────────────────────────
+    let importFile = null;
+
+    function parseCSVHeader(text) {
+      const firstLine = text.split(/\r?\n/)[0] || "";
+      return firstLine.split(",").map((h) => h.trim().replace(/^"|"$/g, "").trim().toLowerCase());
+    }
+
+    function validateImportFile(file) {
+      return new Promise((resolve, reject) => {
+        if (!file) return reject(new Error("No file selected."));
+        if (!file.name.toLowerCase().endsWith(".csv")) {
+          return reject(new Error("Only .csv files are accepted."));
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const headers = parseCSVHeader(reader.result);
+          if (!headers.includes("email")) {
+            return reject(new Error(
+              "CSV is missing the required 'email' column. Found: " + headers.join(", ")
+            ));
+          }
+          resolve(headers);
+        };
+        reader.onerror = () => reject(new Error("Unable to read the file."));
+        reader.readAsText(file.slice(0, 4096));
+      });
+    }
+
+    function openImportModal() {
+      importFile = null;
+      if (elements.importFileInput) elements.importFileInput.value = "";
+      if (elements.importPlaceholder) elements.importPlaceholder.hidden = false;
+      if (elements.importSelected) elements.importSelected.hidden = true;
+      if (elements.importAlert) {
+        elements.importAlert.hidden = true;
+        elements.importAlert.textContent = "";
+        elements.importAlert.className = "form-alert";
+      }
+      if (elements.importUpload) {
+        elements.importUpload.disabled = true;
+        delete elements.importUpload.dataset.loading;
+      }
+      if (elements.importFormView) elements.importFormView.hidden = false;
+      if (elements.importResults) elements.importResults.hidden = true;
+      if (elements.importModal) {
+        elements.importModal.hidden = false;
+        document.body.classList.add("modal-open");
+      }
+    }
+
+    function closeImportModal() {
+      if (elements.importModal) {
+        elements.importModal.hidden = true;
+        document.body.classList.remove("modal-open");
+      }
+      importFile = null;
+    }
+
+    async function handleImportFileSelect(file) {
+      if (elements.importAlert) {
+        elements.importAlert.hidden = true;
+        elements.importAlert.textContent = "";
+        elements.importAlert.className = "form-alert";
+      }
+      try {
+        await validateImportFile(file);
+        importFile = file;
+        if (elements.importPlaceholder) elements.importPlaceholder.hidden = true;
+        if (elements.importSelected) elements.importSelected.hidden = false;
+        if (elements.importFilename) elements.importFilename.textContent = file.name;
+        if (elements.importUpload) elements.importUpload.disabled = false;
+      } catch (err) {
+        importFile = null;
+        if (elements.importFileInput) elements.importFileInput.value = "";
+        if (elements.importPlaceholder) elements.importPlaceholder.hidden = false;
+        if (elements.importSelected) elements.importSelected.hidden = true;
+        if (elements.importUpload) elements.importUpload.disabled = true;
+        if (elements.importAlert) {
+          elements.importAlert.textContent = err.message;
+          elements.importAlert.hidden = false;
+        }
+      }
+    }
+
+    async function handleImportUpload() {
+      if (!importFile || !elements.importUpload) return;
+      elements.importUpload.disabled = true;
+      elements.importUpload.dataset.loading = "true";
+      if (elements.importAlert) {
+        elements.importAlert.hidden = true;
+        elements.importAlert.textContent = "";
+        elements.importAlert.className = "form-alert";
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append("file", importFile);
+        const response = await authorizedFetch("/api/customers/import", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Import failed.");
+        }
+
+        // Show results view.
+        if (elements.importFormView) elements.importFormView.hidden = true;
+        if (elements.importResults) elements.importResults.hidden = false;
+
+        const created = data.created || 0;
+        const skipped = data.skipped || 0;
+        const errors = Array.isArray(data.errors) ? data.errors : [];
+
+        if (elements.importSummary) {
+          elements.importSummary.innerHTML = "";
+          const msg = document.createElement("p");
+          msg.innerHTML =
+            `<strong>${created}</strong> customer${created !== 1 ? "s" : ""} imported successfully.` +
+            (skipped > 0 ? ` <strong>${skipped}</strong> row${skipped !== 1 ? "s" : ""} skipped.` : "");
+          elements.importSummary.appendChild(msg);
+        }
+
+        if (elements.importErrors && elements.importErrorList) {
+          if (errors.length) {
+            elements.importErrors.hidden = false;
+            elements.importErrorList.innerHTML = "";
+            errors.forEach((err) => {
+              const li = document.createElement("li");
+              li.textContent = `Row ${err.row}: ${err.email ? err.email + " — " : ""}${err.reason}`;
+              elements.importErrorList.appendChild(li);
+            });
+          } else {
+            elements.importErrors.hidden = true;
+          }
+        }
+
+        // Refresh the table to include newly imported customers.
+        if (created > 0) {
+          state.page = 1;
+          loadCustomers();
+        }
+      } catch (err) {
+        if (elements.importAlert) {
+          elements.importAlert.textContent = err.message;
+          elements.importAlert.hidden = false;
+        }
+      } finally {
+        elements.importUpload.disabled = false;
+        delete elements.importUpload.dataset.loading;
+      }
+    }
+
+    if (elements.importBtn) {
+      elements.importBtn.addEventListener("click", openImportModal);
+    }
+    if (elements.importClose) {
+      elements.importClose.addEventListener("click", closeImportModal);
+    }
+    if (elements.importCancel) {
+      elements.importCancel.addEventListener("click", closeImportModal);
+    }
+    if (elements.importDone) {
+      elements.importDone.addEventListener("click", closeImportModal);
+    }
+    if (elements.importModal) {
+      elements.importModal.addEventListener("click", (event) => {
+        if (event.target === elements.importModal) closeImportModal();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && elements.importModal && !elements.importModal.hidden) {
+          closeImportModal();
+        }
+      });
+    }
+    if (elements.importBrowse) {
+      elements.importBrowse.addEventListener("click", () => {
+        if (elements.importFileInput) elements.importFileInput.click();
+      });
+    }
+    if (elements.importFileInput) {
+      elements.importFileInput.addEventListener("change", (event) => {
+        const file = event.target.files?.[0];
+        if (file) handleImportFileSelect(file);
+      });
+    }
+    if (elements.importClear) {
+      elements.importClear.addEventListener("click", () => {
+        importFile = null;
+        if (elements.importFileInput) elements.importFileInput.value = "";
+        if (elements.importPlaceholder) elements.importPlaceholder.hidden = false;
+        if (elements.importSelected) elements.importSelected.hidden = true;
+        if (elements.importUpload) elements.importUpload.disabled = true;
+        if (elements.importAlert) {
+          elements.importAlert.hidden = true;
+          elements.importAlert.textContent = "";
+          elements.importAlert.className = "form-alert";
+        }
+      });
+    }
+    if (elements.importDropZone) {
+      elements.importDropZone.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        elements.importDropZone.classList.add("drag-over");
+      });
+      elements.importDropZone.addEventListener("dragleave", () => {
+        elements.importDropZone.classList.remove("drag-over");
+      });
+      elements.importDropZone.addEventListener("drop", (event) => {
+        event.preventDefault();
+        elements.importDropZone.classList.remove("drag-over");
+        const file = event.dataTransfer?.files?.[0];
+        if (file) handleImportFileSelect(file);
+      });
+    }
+    if (elements.importUpload) {
+      elements.importUpload.addEventListener("click", handleImportUpload);
     }
 
     window.addEventListener("db-mode-changed", (event) => {
