@@ -579,3 +579,52 @@ def create_service_user(
         raise
     finally:
         cur.close()
+
+
+def list_service_users():
+    """Return all service users (safe columns only)."""
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        cur.execute(
+        """
+        SELECT
+            id,
+            username,
+            role,
+            is_active,
+            last_login_at
+        FROM service_users
+        ORDER BY username ASC
+        """,
+        )
+        return cur.fetchall()
+    finally:
+        cur.close()
+
+
+def update_service_user_password(
+    user_id: int,
+    *,
+    password_hash: str,
+    password_algo: str = "pbkdf2_sha256",
+):
+    """Update the password for a service user and clear force-reset flag."""
+    if not user_id:
+        return
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+        """
+        UPDATE service_users
+        SET
+            password_hash = %s,
+            password_algo = %s,
+            force_password_reset = 0
+        WHERE id = %s
+        """,
+        (password_hash, password_algo, user_id),
+        )
+    finally:
+        cur.close()

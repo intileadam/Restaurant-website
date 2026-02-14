@@ -794,37 +794,55 @@ a {
 }
 
 .manage-file-item__name {
-  cursor: default;
+  cursor: pointer;
   text-decoration: underline;
   text-decoration-style: dotted;
   text-underline-offset: 3px;
   text-decoration-color: var(--border-strong);
+  transition: color 0.15s ease;
 }
 
-.manage-preview-tooltip {
-  position: fixed;
-  width: 380px;
-  height: 420px;
-  border-radius: 14px;
+.manage-file-item__name:hover {
+  color: var(--accent);
+}
+
+.file-preview-modal {
+  width: min(900px, calc(100vw - 3rem));
+  height: calc(100vh - 4rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.file-preview-modal__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   overflow: hidden;
   background: #fff;
-  border: 1px solid var(--border);
-  box-shadow: 0 16px 48px rgba(35, 29, 22, 0.18);
-  z-index: 1700;
-  pointer-events: auto;
 }
 
-.manage-preview-tooltip__frame {
+.file-preview-modal__frame {
   width: 100%;
-  height: 100%;
+  flex: 1;
   border: none;
   display: block;
 }
 
-@media (max-width: 1100px) {
-  .manage-preview-tooltip {
-    display: none;
-  }
+.file-preview-modal__loading,
+.file-preview-modal__error {
+  margin: 0;
+  padding: 2rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.file-preview-modal__error {
+  color: #b91c1c;
 }
 
 .workflow-modal-backdrop {
@@ -1823,6 +1841,73 @@ button:focus-visible,
   margin: 0.5rem 0 0;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+/* ── admin modal ─────────────────────────────────────────── */
+
+.admin-card.workflow-modal {
+  width: min(560px, 100%);
+}
+
+.admin-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--card-soft);
+}
+
+.admin-user-list__loading,
+.admin-user-list__empty {
+  margin: 0;
+  padding: 1rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.admin-table thead {
+  background: var(--card-soft);
+}
+
+.admin-table th {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-table .status-active {
+  color: var(--success, #2e7d32);
+}
+
+.admin-table .status-inactive {
+  color: var(--error, #c62828);
+}
+
+.admin-table .text-muted {
+  color: var(--muted);
 }
 
 @media (max-width: 900px) {

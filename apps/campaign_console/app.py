@@ -844,6 +844,108 @@ def add_operator():
     return redirect(redirect_target)
 
 
+@app.get("/users")
+def list_operators():
+    """Return the list of operator accounts as JSON."""
+    try:
+        rows = dbmod.list_service_users()
+    except Exception as exc:
+        app.logger.exception("Unable to list operators: %s", exc)
+        return jsonify({"ok": False, "message": "Unable to load admin list."}), 500
+
+    users = []
+    for row in rows:
+        last_login = row.get("last_login_at")
+        users.append({
+            "id": row["id"],
+            "username": row["username"],
+            "role": row.get("role", "admin"),
+            "is_active": bool(row.get("is_active")),
+            "last_login_at": last_login.isoformat() if last_login else None,
+        })
+    return jsonify({"ok": True, "users": users})
+
+
+@app.post("/users/password")
+def change_own_password():
+    """Change the current user's password."""
+    redirect_target = url_for("index")
+    wants_json = _wants_json_response()
+
+    current_password = request.form.get("current_password") or ""
+    new_password = request.form.get("new_password") or ""
+    new_password_confirm = request.form.get("new_password_confirm") or ""
+
+    if not current_password or not new_password:
+        msg = "All password fields are required."
+        if wants_json:
+            return jsonify({"ok": False, "message": msg}), 400
+        flash(msg, "error")
+        return redirect(redirect_target)
+
+    if new_password != new_password_confirm:
+        msg = "New passwords do not match."
+        if wants_json:
+            return jsonify({"ok": False, "message": msg}), 400
+        flash(msg, "error")
+        return redirect(redirect_target)
+
+    if len(new_password) < MIN_PASSWORD_LENGTH:
+        msg = f"Password must be at least {MIN_PASSWORD_LENGTH} characters long."
+        if wants_json:
+            return jsonify({"ok": False, "message": msg}), 400
+        flash(msg, "error")
+        return redirect(redirect_target)
+
+    # Re-fetch the full user row (with password hash) to verify current password.
+    try:
+        user_row = dbmod.fetch_user_by_username(g.user["username"])
+    except Exception as exc:
+        app.logger.exception("Unable to fetch user for password change: %s", exc)
+        msg = "Unable to change password right now. Please try again."
+        if wants_json:
+            return jsonify({"ok": False, "message": msg}), 500
+        flash(msg, "error")
+        return redirect(redirect_target)
+
+    if not user_row or not _password_matches(user_row, current_password):
+        msg = "Current password is incorrect."
+        if wants_json:
+            return jsonify({"ok": False, "message": msg}), 403
+        flash(msg, "error")
+        return redirect(redirect_target)
+
+    try:
+        hashed = generate_password_hash(new_password, method="pbkdf2:sha256", salt_length=16)
+    except Exception as exc:
+        app.logger.exception("Failed to hash new password: %s", exc)
+        msg = "Unable to hash password."
+        if wants_json:
+            return jsonify({"ok": False, "message": msg}), 500
+        flash(msg, "error")
+        return redirect(redirect_target)
+
+    try:
+        dbmod.update_service_user_password(
+            g.user["id"],
+            password_hash=hashed,
+            password_algo="pbkdf2_sha256",
+        )
+    except Exception as exc:
+        app.logger.exception("Unable to update password: %s", exc)
+        msg = "Unable to change password right now. Please try again."
+        if wants_json:
+            return jsonify({"ok": False, "message": msg}), 500
+        flash(msg, "error")
+        return redirect(redirect_target)
+
+    msg = "Password changed successfully."
+    if wants_json:
+        return jsonify({"ok": True, "message": msg})
+    flash(msg, "success")
+    return redirect(redirect_target)
+
+
 @app.post("/campaigns/upload")
 def upload_campaign():
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
