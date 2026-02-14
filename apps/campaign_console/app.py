@@ -92,7 +92,8 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = _is_production_env()
 app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 
-CAMPAIGNS_DIR = APP_ROOT / "campaigns"
+CAMPAIGNS_DIR = pathlib.Path(os.getenv("CAMPAIGNS_DIR", str(APP_ROOT / "campaigns")))
+CAMPAIGNS_DIR.mkdir(parents=True, exist_ok=True)
 INDIVIDUAL_EMAILS_DIR = APP_ROOT / "individual_emails"
 ALLOWED_CAMPAIGN_EXTS = {".html", ".htm"}
 INDIVIDUAL_EMAIL_EXTS = {".html", ".htm"}

@@ -5,7 +5,13 @@ services:
     rootDir: apps/campaign_console
     buildCommand: pip install -r requirements.txt
     startCommand: python -c "import app; print('Flask app imported OK')" && gunicorn app:app --bind 0.0.0.0:$PORT --log-level debug
+    disk:
+      name: campaign-data
+      mountPath: /data/campaigns
+      sizeGB: 1
     envVars:
+      - key: CAMPAIGNS_DIR
+        value: /data/campaigns
       - key: PYTHON_VERSION
         value: "3.12.8"
       - key: APP_ENV
