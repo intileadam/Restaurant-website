@@ -14,9 +14,9 @@
     <button
       type="button"
       class="button outline hero-upload-button"
-      id="openUploadModal"
+      id="openManageModal"
     >
-      Upload HTML
+      Manage campaigns
     </button>
   </div>
 </section>
@@ -228,71 +228,89 @@
   </div>
 </div>
 
-<div class="workflow-modal-backdrop" id="uploadModal" hidden>
+<div class="workflow-modal-backdrop" id="manageModal" hidden>
   <div
-    class="workflow-modal card upload-card"
+    class="workflow-modal card manage-card"
     role="dialog"
     aria-modal="true"
-    aria-labelledby="uploadModalTitle"
+    aria-labelledby="manageModalTitle"
   >
     <button
       type="button"
       class="workflow-modal__close"
       data-close-modal
-      aria-label="Close upload dialog"
+      aria-label="Close manage campaigns dialog"
     >
       &times;
     </button>
     <header class="card-header">
       <div>
-        <h2 id="uploadModalTitle">Upload a campaign</h2>
+        <h2 id="manageModalTitle">Manage campaigns</h2>
       </div>
-      <span class="badge">Optional</span>
     </header>
-    <p class="upload-card__lead">
-      Drop a fresh HTML export here so preview, lint, and send actions all stay
-      synced. Files are stored in <code>campaigns/</code>.
-    </p>
-    <form
-      method="post"
-      action="{{ url_for('upload_campaign') }}"
-      class="upload-card__form form-grid"
-      enctype="multipart/form-data"
-    >
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-      <label for="campaign_file">HTML file</label>
-      <input
-        type="file"
-        id="campaign_file"
-        name="campaign_file"
-        accept=".html,text/html"
-        required
-      />
 
-      <label for="campaign_filename">Save as (optional)</label>
-      <input
-        type="text"
-        id="campaign_filename"
-        name="filename"
-        placeholder="my-email.html"
-        inputmode="text"
-      />
-
-      <button type="submit" class="button secondary full-width">
-        Upload HTML
-      </button>
-      <p class="upload-card__note">
-        Existing names stay protected, so choose a unique filename when keeping
-        previous drafts.
+    <section class="manage-section">
+      <h3 class="manage-section__title">Campaign files</h3>
+      <p class="manage-section__lead">
+        Files stored in <code>campaigns/</code>. Delete any file you no longer need.
       </p>
-    </form>
+      <div id="manageFileList" class="manage-file-list">
+        <p class="manage-file-list__loading">Loading...</p>
+      </div>
+      <p
+        id="manageDeleteStatus"
+        class="manage-status"
+        aria-live="polite"
+        hidden
+      ></p>
+    </section>
+
+    <hr class="manage-divider" />
+
+    <section class="manage-section">
+      <h3 class="manage-section__title">Upload new file</h3>
+      <form
+        id="manageUploadForm"
+        class="upload-card__form form-grid"
+        enctype="multipart/form-data"
+      >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <label for="campaign_file">HTML file</label>
+        <input
+          type="file"
+          id="campaign_file"
+          name="campaign_file"
+          accept=".html,text/html"
+          required
+        />
+
+        <label for="campaign_filename">Save as (optional)</label>
+        <input
+          type="text"
+          id="campaign_filename"
+          name="filename"
+          placeholder="my-email.html"
+          inputmode="text"
+        />
+
+        <button type="submit" class="button secondary full-width">
+          Upload HTML
+        </button>
+        <p
+          id="manageUploadStatus"
+          class="manage-status"
+          aria-live="polite"
+          hidden
+        ></p>
+      </form>
+    </section>
   </div>
 </div>
 
 <script>
   (() => {
-    const uploadModal = document.getElementById("uploadModal");
-    const uploadTrigger = document.getElementById("openUploadModal");
+    const manageModal = document.getElementById("manageModal");
+    const manageTrigger = document.getElementById("openManageModal");
     const userModal = document.getElementById("userModal");
     const userTrigger = document.querySelector("[data-open-user-modal]");
     const select = document.getElementById("campaignSelect");
@@ -312,9 +330,190 @@
     const lintStatusTargets = document.querySelectorAll("[data-lint-status]");
     const testForm = document.getElementById("testEmailForm");
     const testStatus = document.getElementById("testEmailStatus");
+
+    const manageFileList = document.getElementById("manageFileList");
+    const manageUploadForm = document.getElementById("manageUploadForm");
+    const manageUploadStatus = document.getElementById("manageUploadStatus");
+    const manageDeleteStatus = document.getElementById("manageDeleteStatus");
+
     let controller = null;
     let lintReport = null;
     let lintStatusMessage = "";
+
+    /* ── helpers ─────────────────────────────────────────────── */
+
+    function csrfHeaders(extra = {}) {
+      const headers = { "X-Requested-With": "XMLHttpRequest", Accept: "application/json", ...extra };
+      const token = window.getCsrfToken ? window.getCsrfToken() : "";
+      if (token) headers["X-CSRF-Token"] = token;
+      return headers;
+    }
+
+    function setManageStatus(el, state, message) {
+      if (!el) return;
+      if (!message) {
+        el.hidden = true;
+        el.textContent = "";
+        el.className = "manage-status";
+        return;
+      }
+      el.hidden = false;
+      el.textContent = message;
+      el.className = "manage-status";
+      if (state === "error") el.classList.add("manage-status--error");
+      else if (state === "success") el.classList.add("manage-status--success");
+      else el.classList.add("manage-status--info");
+    }
+
+    /* ── campaign select sync ────────────────────────────────── */
+
+    function syncSelectOptions(files) {
+      const previousValue = select.value;
+      const placeholder = select.querySelector("option[value='']");
+      select.innerHTML = "";
+      if (placeholder) {
+        select.appendChild(placeholder);
+      } else {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "Select a campaign...";
+        select.appendChild(opt);
+      }
+      files.forEach((f) => {
+        const opt = document.createElement("option");
+        opt.value = f;
+        opt.textContent = f;
+        select.appendChild(opt);
+      });
+      if (files.includes(previousValue)) {
+        select.value = previousValue;
+      } else {
+        select.value = "";
+        select.dispatchEvent(new Event("change"));
+      }
+    }
+
+    /* ── manage modal: file list ─────────────────────────────── */
+
+    async function loadCampaignList() {
+      manageFileList.innerHTML = '<p class="manage-file-list__loading">Loading...</p>';
+      setManageStatus(manageDeleteStatus, null, "");
+      try {
+        const resp = await fetch("/api/campaigns", { headers: csrfHeaders() });
+        if (!resp.ok) throw new Error("Unable to load campaign list.");
+        const files = await resp.json();
+        renderFileList(files);
+        syncSelectOptions(files);
+      } catch (err) {
+        manageFileList.innerHTML = "";
+        const p = document.createElement("p");
+        p.className = "manage-file-list__empty";
+        p.textContent = err.message || "Unable to load files.";
+        manageFileList.appendChild(p);
+      }
+    }
+
+    function renderFileList(files) {
+      manageFileList.innerHTML = "";
+      if (!files.length) {
+        const p = document.createElement("p");
+        p.className = "manage-file-list__empty";
+        p.textContent = "No campaign files found.";
+        manageFileList.appendChild(p);
+        return;
+      }
+      files.forEach((filename) => {
+        const row = document.createElement("div");
+        row.className = "manage-file-item";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "manage-file-item__name";
+        nameSpan.textContent = filename;
+        row.appendChild(nameSpan);
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "button manage-file-item__delete";
+        deleteBtn.textContent = "Delete";
+        deleteBtn.addEventListener("click", () => handleDelete(filename, deleteBtn));
+        row.appendChild(deleteBtn);
+
+        manageFileList.appendChild(row);
+      });
+    }
+
+    async function handleDelete(filename, btn) {
+      if (btn.dataset.confirming !== "true") {
+        btn.dataset.confirming = "true";
+        btn.textContent = "Confirm?";
+        btn.classList.add("manage-file-item__delete--confirm");
+        setTimeout(() => {
+          if (btn.dataset.confirming === "true") {
+            btn.dataset.confirming = "";
+            btn.textContent = "Delete";
+            btn.classList.remove("manage-file-item__delete--confirm");
+          }
+        }, 3000);
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Deleting...";
+      setManageStatus(manageDeleteStatus, "info", `Deleting ${filename}...`);
+      try {
+        const resp = await fetch(`/api/campaigns/${encodeURIComponent(filename)}`, {
+          method: "DELETE",
+          headers: csrfHeaders(),
+        });
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok || payload.ok === false) {
+          throw new Error(payload.message || "Unable to delete file.");
+        }
+        setManageStatus(manageDeleteStatus, "success", payload.message || `Deleted ${filename}.`);
+        await loadCampaignList();
+      } catch (err) {
+        setManageStatus(manageDeleteStatus, "error", err.message || "Unable to delete file.");
+        btn.disabled = false;
+        btn.textContent = "Delete";
+        btn.dataset.confirming = "";
+        btn.classList.remove("manage-file-item__delete--confirm");
+      }
+    }
+
+    /* ── manage modal: upload ────────────────────────────────── */
+
+    if (manageUploadForm) {
+      manageUploadForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!manageUploadForm.reportValidity()) return;
+
+        const submitBtn = manageUploadForm.querySelector("button[type='submit']");
+        if (submitBtn) submitBtn.disabled = true;
+        setManageStatus(manageUploadStatus, "info", "Uploading...");
+
+        try {
+          const formData = new FormData(manageUploadForm);
+          const resp = await fetch("{{ url_for('upload_campaign') }}", {
+            method: "POST",
+            body: formData,
+            headers: csrfHeaders({ Accept: "application/json" }),
+          });
+          const payload = await resp.json().catch(() => ({}));
+          if (!resp.ok || payload.ok === false) {
+            throw new Error(payload.message || "Upload failed.");
+          }
+          setManageStatus(manageUploadStatus, "success", payload.message || "Upload successful.");
+          manageUploadForm.reset();
+          await loadCampaignList();
+        } catch (err) {
+          setManageStatus(manageUploadStatus, "error", err.message || "Upload failed.");
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+
+    /* ── modal framework ─────────────────────────────────────── */
 
     const syncModalBodyState = () => {
       const anyOpen = document.querySelector(
@@ -323,7 +522,7 @@
       document.body.classList.toggle("modal-open", Boolean(anyOpen));
     };
 
-    const setupModal = (backdrop, trigger, focusSelector) => {
+    const setupModal = (backdrop, trigger, focusSelector, { onOpen } = {}) => {
       if (!backdrop || !trigger) return;
       const closeButtons = backdrop.querySelectorAll("[data-close-modal]");
       const focusTarget = focusSelector
@@ -333,6 +532,7 @@
         if (shouldOpen) {
           backdrop.removeAttribute("hidden");
           syncModalBodyState();
+          if (onOpen) onOpen();
           requestAnimationFrame(() => focusTarget?.focus());
         } else {
           backdrop.setAttribute("hidden", "");
@@ -355,8 +555,10 @@
       });
     };
 
-    setupModal(uploadModal, uploadTrigger, "#campaign_file");
+    setupModal(manageModal, manageTrigger, null, { onOpen: loadCampaignList });
     setupModal(userModal, userTrigger, "#operator_email");
+
+    /* ── preview / lint / test (unchanged logic) ─────────────── */
 
     function setLoading(isLoading) {
       reloadButton.textContent = isLoading ? "Loading..." : "Reload preview";

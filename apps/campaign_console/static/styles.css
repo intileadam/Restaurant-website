@@ -634,6 +634,164 @@ a {
   line-height: 1.4;
 }
 
+/* ── manage-campaigns modal ───────────────────────────────── */
+
+.manage-card {
+  gap: 1rem;
+}
+
+.manage-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.manage-section__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.manage-section__lead {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.manage-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.25rem 0;
+}
+
+.manage-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card-soft);
+}
+
+.manage-file-list__loading,
+.manage-file-list__empty {
+  margin: 0;
+  padding: 1rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.manage-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.85rem;
+}
+
+.manage-file-item + .manage-file-item {
+  border-top: 1px solid var(--border);
+}
+
+.manage-file-item__name {
+  font-size: 0.9rem;
+  word-break: break-all;
+  min-width: 0;
+}
+
+.manage-file-item__delete {
+  flex-shrink: 0;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.manage-file-item__delete:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+.manage-file-item__delete--confirm {
+  background: #b91c1c;
+  color: #fff;
+  border-color: #b91c1c;
+}
+
+.manage-file-item__delete--confirm:hover {
+  background: #991b1b;
+  border-color: #991b1b;
+  color: #fff;
+}
+
+.manage-status {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  padding: 0.4rem 0.65rem;
+  border-radius: 8px;
+}
+
+.manage-status--info {
+  color: var(--muted);
+  background: var(--card-soft);
+}
+
+.manage-status--success {
+  color: #15803d;
+  background: #f0fdf4;
+}
+
+.manage-status--error {
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
+.manage-card .upload-card__form {
+  margin-top: 0;
+  gap: 0.85rem;
+}
+
+.manage-card input[type="file"] {
+  border: 1.5px dashed var(--border-strong);
+  padding: 1rem;
+  border-radius: 12px;
+  background: var(--card-soft);
+  cursor: pointer;
+}
+
+.manage-card input[type="file"]:focus {
+  border-color: var(--accent);
+  background: #fff;
+}
+
+.manage-card input[type="file"]::file-selector-button,
+.manage-card input[type="file"]::-webkit-file-upload-button {
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid var(--border-strong);
+  padding: 0.55rem 0.9rem;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.manage-card input[type="file"]::file-selector-button:hover,
+.manage-card input[type="file"]::-webkit-file-upload-button:hover {
+  background: var(--card-soft);
+}
+
 .workflow-modal-backdrop {
   position: fixed;
   inset: 0;

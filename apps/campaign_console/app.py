@@ -846,38 +846,85 @@ def add_operator():
 
 @app.post("/campaigns/upload")
 def upload_campaign():
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     upload = request.files.get("campaign_file")
     desired_name = (request.form.get("filename") or "").strip()
 
     if not upload or not upload.filename:
-        flash("Choose an HTML file to upload.", "error")
+        msg = "Choose an HTML file to upload."
+        if is_ajax:
+            return jsonify({"ok": False, "message": msg}), 400
+        flash(msg, "error")
         return redirect(url_for("index"))
 
     try:
         filename = _sanitize_campaign_filename(desired_name or upload.filename)
     except ValueError as e:
+        if is_ajax:
+            return jsonify({"ok": False, "message": str(e)}), 400
         flash(str(e), "error")
         return redirect(url_for("index"))
 
     target_path = (CAMPAIGNS_DIR / filename).resolve()
     base = CAMPAIGNS_DIR.resolve()
     if base not in target_path.parents:
-        flash("Invalid upload path.", "error")
+        msg = "Invalid upload path."
+        if is_ajax:
+            return jsonify({"ok": False, "message": msg}), 400
+        flash(msg, "error")
         return redirect(url_for("index"))
 
     if target_path.exists():
-        flash("A campaign with that name already exists.", "error")
+        msg = "A campaign with that name already exists."
+        if is_ajax:
+            return jsonify({"ok": False, "message": msg}), 409
+        flash(msg, "error")
         return redirect(url_for("index"))
 
     try:
         CAMPAIGNS_DIR.mkdir(parents=True, exist_ok=True)
         upload.save(target_path)
     except Exception as e:
-        flash(f"Unable to save campaign: {e}", "error")
+        msg = f"Unable to save campaign: {e}"
+        if is_ajax:
+            return jsonify({"ok": False, "message": msg}), 500
+        flash(msg, "error")
         return redirect(url_for("index"))
 
-    flash(f"Uploaded {filename}. It is now available in the campaign list.", "success")
+    msg = f"Uploaded {filename}. It is now available in the campaign list."
+    if is_ajax:
+        return jsonify({"ok": True, "message": msg, "filename": filename})
+    flash(msg, "success")
     return redirect(url_for("index"))
+
+
+@app.get("/api/campaigns")
+def api_list_campaigns():
+    return jsonify(list_campaign_files())
+
+
+@app.delete("/api/campaigns/<filename>")
+def api_delete_campaign(filename):
+    filename = (filename or "").strip()
+    if not filename:
+        return jsonify({"ok": False, "message": "No filename provided."}), 400
+
+    base = CAMPAIGNS_DIR.resolve()
+    target_path = (CAMPAIGNS_DIR / filename).resolve()
+
+    if base not in target_path.parents:
+        return jsonify({"ok": False, "message": "Invalid file path."}), 400
+
+    if not target_path.is_file():
+        return jsonify({"ok": False, "message": "File not found."}), 404
+
+    try:
+        target_path.unlink()
+    except Exception as e:
+        app.logger.exception("Unable to delete campaign %s: %s", filename, e)
+        return jsonify({"ok": False, "message": f"Unable to delete file: {e}"}), 500
+
+    return jsonify({"ok": True, "message": f"Deleted {filename}."})
 
 
 @app.get("/preview")
