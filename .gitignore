@@ -7,3 +7,4 @@ scripts/
 REMEDIATION_SUMMARY.md
 DEPLOY_NOTES_DREAMHOST.md
 apps/campaign_console/campaigns/*.html
+apps/campaign_console/individual_emails/*.html

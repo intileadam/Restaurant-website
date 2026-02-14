@@ -9,6 +9,9 @@
       <p class="muted">Click a row to preview details. Use the Edit button to update subscribers instantly.</p>
     </div>
     <div class="customer-manager__actions">
+      <button type="button" class="btn ghost" data-manage-templates>
+        <span>Manage Templates</span>
+      </button>
       <button type="button" class="btn ghost" data-import-csv>
         <span>Import CSV</span>
       </button>
@@ -217,6 +220,47 @@
   </div>
 </div>
 
+<div class="customer-modal-backdrop" data-manage-templates-modal hidden>
+  <div class="customer-modal manage-card" role="dialog" aria-modal="true" aria-labelledby="manageTemplatesTitle">
+    <header class="customer-modal__header">
+      <div>
+        <p class="eyebrow">Email templates</p>
+        <h3 id="manageTemplatesTitle">Manage individual email templates</h3>
+      </div>
+      <button type="button" class="icon-button" aria-label="Close dialog" data-manage-tpl-close>&times;</button>
+    </header>
+    <div class="customer-modal__body">
+      <section class="manage-section">
+        <h3 class="manage-section__title">Template files</h3>
+        <p class="manage-section__lead">
+          HTML files stored in <code>individual_emails/</code>. Delete any file you no longer need.
+        </p>
+        <div class="manage-file-list" data-manage-tpl-file-list>
+          <p class="manage-file-list__loading">Loading...</p>
+        </div>
+        <p class="manage-status" data-manage-tpl-delete-status aria-live="polite" hidden></p>
+      </section>
+
+      <hr class="manage-divider" />
+
+      <section class="manage-section">
+        <h3 class="manage-section__title">Upload new template</h3>
+        <form class="upload-card__form form-grid" data-manage-tpl-upload-form enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <label for="tpl_file">HTML file</label>
+          <input type="file" id="tpl_file" name="template_file" accept=".html,text/html" required />
+
+          <label for="tpl_filename">Save as (optional)</label>
+          <input type="text" id="tpl_filename" name="filename" placeholder="welcome.html" inputmode="text" />
+
+          <button type="submit" class="button secondary full-width">Upload HTML</button>
+          <p class="manage-status" data-manage-tpl-upload-status aria-live="polite" hidden></p>
+        </form>
+      </section>
+    </div>
+  </div>
+</div>
+
 <script>
   (() => {
     const root = document.querySelector("[data-customers-page]");
@@ -281,6 +325,13 @@
       importErrors: document.querySelector("[data-import-errors]"),
       importErrorList: document.querySelector("[data-import-error-list]"),
       importDone: document.querySelector("[data-import-done]"),
+      manageTplBtn: root.querySelector("[data-manage-templates]"),
+      manageTplModal: document.querySelector("[data-manage-templates-modal]"),
+      manageTplClose: document.querySelector("[data-manage-tpl-close]"),
+      manageTplFileList: document.querySelector("[data-manage-tpl-file-list]"),
+      manageTplDeleteStatus: document.querySelector("[data-manage-tpl-delete-status]"),
+      manageTplUploadForm: document.querySelector("[data-manage-tpl-upload-form]"),
+      manageTplUploadStatus: document.querySelector("[data-manage-tpl-upload-status]"),
     };
 
     if (!elements.tableBody || !elements.modal || !elements.form) return;
@@ -1213,6 +1264,170 @@
     }
     if (elements.importUpload) {
       elements.importUpload.addEventListener("click", handleImportUpload);
+    }
+
+    /* ── manage templates modal ──────────────────────────────── */
+
+    function setManageTplStatus(el, type, msg) {
+      if (!el) return;
+      if (!type || !msg) {
+        el.hidden = true;
+        el.textContent = "";
+        el.className = "manage-status";
+        return;
+      }
+      el.textContent = msg;
+      el.className = `manage-status manage-status--${type}`;
+      el.hidden = false;
+    }
+
+    function openManageTplModal() {
+      if (elements.manageTplModal) {
+        elements.manageTplModal.hidden = false;
+        document.body.classList.add("modal-open");
+        loadTemplateList();
+      }
+    }
+
+    function closeManageTplModal() {
+      if (elements.manageTplModal) {
+        elements.manageTplModal.hidden = true;
+        document.body.classList.remove("modal-open");
+      }
+    }
+
+    async function loadTemplateList() {
+      if (!elements.manageTplFileList) return;
+      elements.manageTplFileList.innerHTML = '<p class="manage-file-list__loading">Loading...</p>';
+      setManageTplStatus(elements.manageTplDeleteStatus, null, "");
+      try {
+        const resp = await authorizedFetch("/api/individual-emails");
+        if (!resp.ok) throw new Error("Unable to load template list.");
+        const data = await resp.json();
+        renderTemplateList(data.templates || []);
+      } catch (err) {
+        elements.manageTplFileList.innerHTML = "";
+        const p = document.createElement("p");
+        p.className = "manage-file-list__empty";
+        p.textContent = err.message || "Unable to load files.";
+        elements.manageTplFileList.appendChild(p);
+      }
+    }
+
+    function renderTemplateList(templates) {
+      if (!elements.manageTplFileList) return;
+      elements.manageTplFileList.innerHTML = "";
+      if (!templates.length) {
+        const p = document.createElement("p");
+        p.className = "manage-file-list__empty";
+        p.textContent = "No template files found.";
+        elements.manageTplFileList.appendChild(p);
+        return;
+      }
+      templates.forEach((tpl) => {
+        const row = document.createElement("div");
+        row.className = "manage-file-item";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "manage-file-item__name";
+        nameSpan.textContent = tpl.file;
+        row.appendChild(nameSpan);
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "button manage-file-item__delete";
+        deleteBtn.textContent = "Delete";
+        deleteBtn.addEventListener("click", () => handleTemplateDelete(tpl.file, deleteBtn));
+        row.appendChild(deleteBtn);
+
+        elements.manageTplFileList.appendChild(row);
+      });
+    }
+
+    async function handleTemplateDelete(filename, btn) {
+      if (btn.dataset.confirming !== "true") {
+        btn.dataset.confirming = "true";
+        btn.textContent = "Confirm?";
+        btn.classList.add("manage-file-item__delete--confirm");
+        setTimeout(() => {
+          if (btn.dataset.confirming === "true") {
+            btn.dataset.confirming = "";
+            btn.textContent = "Delete";
+            btn.classList.remove("manage-file-item__delete--confirm");
+          }
+        }, 3000);
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Deleting...";
+      setManageTplStatus(elements.manageTplDeleteStatus, "info", `Deleting ${filename}...`);
+      try {
+        const resp = await authorizedFetch(`/api/individual-emails/${encodeURIComponent(filename)}`, {
+          method: "DELETE",
+        });
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok || payload.ok === false) {
+          throw new Error(payload.message || "Unable to delete file.");
+        }
+        setManageTplStatus(elements.manageTplDeleteStatus, "success", payload.message || `Deleted ${filename}.`);
+        emailTemplatesPromise = null;
+        await loadTemplateList();
+      } catch (err) {
+        setManageTplStatus(elements.manageTplDeleteStatus, "error", err.message || "Unable to delete file.");
+        btn.disabled = false;
+        btn.textContent = "Delete";
+        btn.dataset.confirming = "";
+        btn.classList.remove("manage-file-item__delete--confirm");
+      }
+    }
+
+    if (elements.manageTplUploadForm) {
+      elements.manageTplUploadForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!elements.manageTplUploadForm.reportValidity()) return;
+
+        const submitBtn = elements.manageTplUploadForm.querySelector("button[type='submit']");
+        if (submitBtn) submitBtn.disabled = true;
+        setManageTplStatus(elements.manageTplUploadStatus, "info", "Uploading...");
+
+        try {
+          const formData = new FormData(elements.manageTplUploadForm);
+          const resp = await authorizedFetch("/api/individual-emails/upload", {
+            method: "POST",
+            body: formData,
+          });
+          const payload = await resp.json().catch(() => ({}));
+          if (!resp.ok || payload.ok === false) {
+            throw new Error(payload.message || "Upload failed.");
+          }
+          setManageTplStatus(elements.manageTplUploadStatus, "success", payload.message || "Upload successful.");
+          elements.manageTplUploadForm.reset();
+          emailTemplatesPromise = null;
+          await loadTemplateList();
+        } catch (err) {
+          setManageTplStatus(elements.manageTplUploadStatus, "error", err.message || "Upload failed.");
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+
+    if (elements.manageTplBtn) {
+      elements.manageTplBtn.addEventListener("click", openManageTplModal);
+    }
+    if (elements.manageTplClose) {
+      elements.manageTplClose.addEventListener("click", closeManageTplModal);
+    }
+    if (elements.manageTplModal) {
+      elements.manageTplModal.addEventListener("click", (event) => {
+        if (event.target === elements.manageTplModal) closeManageTplModal();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && elements.manageTplModal && !elements.manageTplModal.hidden) {
+          closeManageTplModal();
+        }
+      });
     }
 
     window.addEventListener("db-mode-changed", (event) => {

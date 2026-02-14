@@ -1625,6 +1625,22 @@ button:focus-visible,
   max-width: 540px;
 }
 
+.customer-modal.manage-card {
+  max-width: 540px;
+}
+
+.customer-modal.manage-card .customer-modal__body {
+  gap: 0;
+}
+
+.customer-modal.manage-card .manage-section {
+  padding: 0;
+}
+
+.customer-modal.manage-card .manage-divider {
+  margin: 1rem 0;
+}
+
 .import-instructions {
   margin: 0 0 1rem;
   line-height: 1.6;

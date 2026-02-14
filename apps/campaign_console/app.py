@@ -1485,6 +1485,62 @@ def list_individual_emails_api():
     return jsonify({"templates": templates})
 
 
+@app.post("/api/individual-emails/upload")
+def upload_individual_email():
+    upload = request.files.get("template_file")
+    desired_name = (request.form.get("filename") or "").strip()
+
+    if not upload or not upload.filename:
+        return jsonify({"ok": False, "message": "Choose an HTML file to upload."}), 400
+
+    try:
+        filename = _sanitize_campaign_filename(desired_name or upload.filename)
+    except ValueError as e:
+        return jsonify({"ok": False, "message": str(e)}), 400
+
+    INDIVIDUAL_EMAILS_DIR.mkdir(parents=True, exist_ok=True)
+    target_path = (INDIVIDUAL_EMAILS_DIR / filename).resolve()
+    base = INDIVIDUAL_EMAILS_DIR.resolve()
+    if base not in target_path.parents:
+        return jsonify({"ok": False, "message": "Invalid upload path."}), 400
+
+    if target_path.exists():
+        return jsonify({"ok": False, "message": "A template with that name already exists."}), 409
+
+    try:
+        upload.save(target_path)
+    except Exception as e:
+        app.logger.exception("Unable to save individual email template %s: %s", filename, e)
+        return jsonify({"ok": False, "message": f"Unable to save template: {e}"}), 500
+
+    return jsonify({"ok": True, "message": f"Uploaded {filename}.", "filename": filename})
+
+
+@app.delete("/api/individual-emails/<filename>")
+def api_delete_individual_email(filename):
+    filename = (filename or "").strip()
+    if not filename:
+        return jsonify({"ok": False, "message": "No filename provided."}), 400
+
+    INDIVIDUAL_EMAILS_DIR.mkdir(parents=True, exist_ok=True)
+    base = INDIVIDUAL_EMAILS_DIR.resolve()
+    target_path = (INDIVIDUAL_EMAILS_DIR / filename).resolve()
+
+    if base not in target_path.parents:
+        return jsonify({"ok": False, "message": "Invalid file path."}), 400
+
+    if not target_path.is_file():
+        return jsonify({"ok": False, "message": "File not found."}), 404
+
+    try:
+        target_path.unlink()
+    except Exception as e:
+        app.logger.exception("Unable to delete individual email template %s: %s", filename, e)
+        return jsonify({"ok": False, "message": f"Unable to delete file: {e}"}), 500
+
+    return jsonify({"ok": True, "message": f"Deleted {filename}."})
+
+
 @app.get("/api/customers/<int:cust_id>/individual-emails/preview")
 def preview_individual_email_api(cust_id: int):
     template_name = _clean_field(request.args, "template")
