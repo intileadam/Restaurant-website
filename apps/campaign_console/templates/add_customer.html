@@ -15,6 +15,9 @@
       <button type="button" class="btn ghost" data-import-csv>
         <span>Import CSV</span>
       </button>
+      <button type="button" class="btn ghost" data-clean-contacts>
+        <span>Clean Contacts</span>
+      </button>
       <button type="button" class="btn primary" data-add-customer>
         <span>+ Add customer</span>
       </button>
@@ -31,6 +34,17 @@
       <button type="button" class="btn ghost" data-reload-customers>Try again</button>
     </div>
     <div class="customer-table-shell" data-customers-shell hidden>
+      <div class="customer-stats-bar" data-customers-stats hidden>
+        <span class="customer-stat">
+          <span class="customer-stat__label">Total customers</span>
+          <span class="customer-stat__value" data-stat-total>0</span>
+        </span>
+        <span class="customer-stat-divider"></span>
+        <span class="customer-stat">
+          <span class="customer-stat__label">Subscribers</span>
+          <span class="customer-stat__value" data-stat-subscribers>0</span>
+        </span>
+      </div>
       <div class="customer-table-toolbar">
         <label class="page-size-control">
           <span>Rows per page</span>
@@ -261,6 +275,71 @@
   </div>
 </div>
 
+<div class="customer-modal-backdrop" data-clean-modal hidden>
+  <div class="customer-modal clean-modal" role="dialog" aria-modal="true" aria-labelledby="cleanModalTitle">
+    <header class="customer-modal__header">
+      <div>
+        <p class="eyebrow">Maintenance</p>
+        <h3 id="cleanModalTitle">Clean Contacts</h3>
+      </div>
+      <button type="button" class="icon-button" aria-label="Close dialog" data-clean-close>&times;</button>
+    </header>
+    <div class="customer-modal__body">
+      <div data-clean-scan-view>
+        <p class="clean-description">
+          Scan your contact list for <strong>duplicate email addresses</strong> and
+          <strong>invalid emails</strong>. You can review and choose which records to keep
+          before anything is deleted.
+        </p>
+        <div class="form-alert" data-clean-scan-alert hidden></div>
+        <div class="form-actions">
+          <div class="form-actions__group">
+            <button type="button" class="btn ghost" data-clean-cancel>Cancel</button>
+            <button type="button" class="btn primary" data-clean-scan-btn>Scan contacts</button>
+          </div>
+        </div>
+      </div>
+
+      <div data-clean-results-view hidden>
+        <div class="clean-summary" data-clean-summary></div>
+
+        <div data-clean-all-clear hidden>
+          <p class="clean-all-clear-message">All contacts are clean &mdash; no duplicates or invalid emails found.</p>
+        </div>
+
+        <div data-clean-duplicates-section hidden>
+          <h4 class="clean-section-title">Duplicate emails</h4>
+          <p class="clean-section-lead">Select which record to <strong>keep</strong> for each duplicated email. The others will be removed.</p>
+          <div class="clean-groups-scroll" data-clean-groups></div>
+        </div>
+
+        <div data-clean-invalid-section hidden>
+          <h4 class="clean-section-title">Invalid emails</h4>
+          <p class="clean-section-lead">The following contacts have malformed email addresses. Check the ones you want to <strong>delete</strong>.</p>
+          <div class="clean-invalid-scroll" data-clean-invalid-list></div>
+        </div>
+
+        <div class="form-alert" data-clean-exec-alert hidden></div>
+        <div class="form-actions">
+          <div class="form-actions__group">
+            <button type="button" class="btn ghost" data-clean-results-cancel>Cancel</button>
+            <button type="button" class="btn danger" data-clean-exec-btn disabled>Clean contacts</button>
+          </div>
+        </div>
+      </div>
+
+      <div data-clean-done-view hidden>
+        <div class="clean-done-summary" data-clean-done-summary></div>
+        <div class="form-actions">
+          <div class="form-actions__group">
+            <button type="button" class="btn primary" data-clean-done-btn>Done</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   (() => {
     const root = document.querySelector("[data-customers-page]");
@@ -288,6 +367,9 @@
       closeBtn: document.querySelector("[data-modal-close]"),
       deleteBtn: document.querySelector("[data-modal-delete]"),
       sendEmailBtn: document.querySelector("[data-modal-send-email]"),
+      statsBar: root.querySelector("[data-customers-stats]"),
+      statTotal: root.querySelector("[data-stat-total]"),
+      statSubscribers: root.querySelector("[data-stat-subscribers]"),
       searchInput: root.querySelector("[data-customers-search]"),
       pageSizeSelect: root.querySelector("[data-customers-page-size]"),
       pagination: root.querySelector("[data-pagination]"),
@@ -332,6 +414,26 @@
       manageTplDeleteStatus: document.querySelector("[data-manage-tpl-delete-status]"),
       manageTplUploadForm: document.querySelector("[data-manage-tpl-upload-form]"),
       manageTplUploadStatus: document.querySelector("[data-manage-tpl-upload-status]"),
+      cleanBtn: root.querySelector("[data-clean-contacts]"),
+      cleanModal: document.querySelector("[data-clean-modal]"),
+      cleanClose: document.querySelector("[data-clean-close]"),
+      cleanCancel: document.querySelector("[data-clean-cancel]"),
+      cleanScanView: document.querySelector("[data-clean-scan-view]"),
+      cleanScanAlert: document.querySelector("[data-clean-scan-alert]"),
+      cleanScanBtn: document.querySelector("[data-clean-scan-btn]"),
+      cleanResultsView: document.querySelector("[data-clean-results-view]"),
+      cleanSummary: document.querySelector("[data-clean-summary]"),
+      cleanAllClear: document.querySelector("[data-clean-all-clear]"),
+      cleanDuplicatesSection: document.querySelector("[data-clean-duplicates-section]"),
+      cleanGroups: document.querySelector("[data-clean-groups]"),
+      cleanInvalidSection: document.querySelector("[data-clean-invalid-section]"),
+      cleanInvalidList: document.querySelector("[data-clean-invalid-list]"),
+      cleanExecAlert: document.querySelector("[data-clean-exec-alert]"),
+      cleanExecBtn: document.querySelector("[data-clean-exec-btn]"),
+      cleanResultsCancel: document.querySelector("[data-clean-results-cancel]"),
+      cleanDoneView: document.querySelector("[data-clean-done-view]"),
+      cleanDoneSummary: document.querySelector("[data-clean-done-summary]"),
+      cleanDoneBtn: document.querySelector("[data-clean-done-btn]"),
     };
 
     if (!elements.tableBody || !elements.modal || !elements.form) return;
@@ -452,6 +554,17 @@
       elements.tableBody.appendChild(fragment);
     }
 
+    function renderStats(stats) {
+      if (!elements.statsBar || !stats) return;
+      if (elements.statTotal) {
+        elements.statTotal.textContent = Number(stats.total_customers).toLocaleString();
+      }
+      if (elements.statSubscribers) {
+        elements.statSubscribers.textContent = Number(stats.total_subscribers).toLocaleString();
+      }
+      elements.statsBar.hidden = false;
+    }
+
     function renderPagination() {
       if (!elements.pagination) return;
       const total = state.totalCount || 0;
@@ -531,6 +644,7 @@
         elements.shell.hidden = false;
         renderCustomers();
         renderPagination();
+        renderStats(data.stats);
       } catch (error) {
         console.error("loadCustomers failed:", error);
         const nextRetry = retryCount + 1;
@@ -1426,6 +1540,318 @@
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && elements.manageTplModal && !elements.manageTplModal.hidden) {
           closeManageTplModal();
+        }
+      });
+    }
+
+    /* ── Clean Contacts ──────────────────────────────────── */
+    const cleanState = {
+      duplicates: {},
+      invalidEmails: [],
+    };
+
+    function openCleanModal() {
+      if (!elements.cleanModal) return;
+      cleanState.duplicates = {};
+      cleanState.invalidEmails = [];
+      showCleanView("scan");
+      if (elements.cleanScanAlert) {
+        elements.cleanScanAlert.hidden = true;
+        elements.cleanScanAlert.textContent = "";
+      }
+      if (elements.cleanScanBtn) {
+        elements.cleanScanBtn.disabled = false;
+        elements.cleanScanBtn.textContent = "Scan contacts";
+      }
+      elements.cleanModal.hidden = false;
+    }
+
+    function closeCleanModal() {
+      if (elements.cleanModal) elements.cleanModal.hidden = true;
+    }
+
+    function showCleanView(view) {
+      if (elements.cleanScanView) elements.cleanScanView.hidden = view !== "scan";
+      if (elements.cleanResultsView) elements.cleanResultsView.hidden = view !== "results";
+      if (elements.cleanDoneView) elements.cleanDoneView.hidden = view !== "done";
+    }
+
+    function showCleanAlert(el, message, type) {
+      if (!el) return;
+      el.hidden = false;
+      el.textContent = message;
+      el.className = "form-alert" + (type === "error" ? " error" : type === "success" ? " success" : "");
+    }
+
+    async function scanContacts() {
+      if (elements.cleanScanBtn) {
+        elements.cleanScanBtn.disabled = true;
+        elements.cleanScanBtn.textContent = "Scanning…";
+      }
+      if (elements.cleanScanAlert) elements.cleanScanAlert.hidden = true;
+
+      try {
+        const resp = await authorizedFetch("/api/customers/scan", { method: "POST" });
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          throw new Error(body.error || "Scan failed.");
+        }
+        const data = await resp.json();
+        cleanState.duplicates = data.duplicates || {};
+        cleanState.invalidEmails = Array.isArray(data.invalid_emails) ? data.invalid_emails : [];
+        renderCleanResults();
+        showCleanView("results");
+      } catch (err) {
+        showCleanAlert(elements.cleanScanAlert, err.message || "Unable to scan contacts.", "error");
+        if (elements.cleanScanBtn) {
+          elements.cleanScanBtn.disabled = false;
+          elements.cleanScanBtn.textContent = "Scan contacts";
+        }
+      }
+    }
+
+    function renderCleanResults() {
+      const dupKeys = Object.keys(cleanState.duplicates);
+      const dupCount = dupKeys.length;
+      const invalidCount = cleanState.invalidEmails.length;
+      const hasDuplicates = dupCount > 0;
+      const hasInvalid = invalidCount > 0;
+      const allClear = !hasDuplicates && !hasInvalid;
+
+      if (elements.cleanSummary) {
+        const parts = [];
+        if (hasDuplicates) parts.push(`${dupCount} duplicate group${dupCount !== 1 ? "s" : ""}`);
+        if (hasInvalid) parts.push(`${invalidCount} invalid email${invalidCount !== 1 ? "s" : ""}`);
+        elements.cleanSummary.textContent = allClear ? "" : `Found ${parts.join(" and ")}.`;
+      }
+
+      if (elements.cleanAllClear) elements.cleanAllClear.hidden = !allClear;
+      if (elements.cleanDuplicatesSection) elements.cleanDuplicatesSection.hidden = !hasDuplicates;
+      if (elements.cleanInvalidSection) elements.cleanInvalidSection.hidden = !hasInvalid;
+      if (elements.cleanExecBtn) {
+        elements.cleanExecBtn.disabled = allClear;
+        elements.cleanExecBtn.textContent = allClear ? "Clean contacts" : "Clean contacts";
+      }
+      if (elements.cleanExecAlert) elements.cleanExecAlert.hidden = true;
+
+      if (hasDuplicates) renderDuplicateGroups(dupKeys);
+      if (hasInvalid) renderInvalidEmails();
+      updateCleanButtonLabel();
+    }
+
+    function renderDuplicateGroups(keys) {
+      if (!elements.cleanGroups) return;
+      elements.cleanGroups.innerHTML = "";
+
+      keys.forEach((emailKey) => {
+        const group = cleanState.duplicates[emailKey];
+        if (!group || group.length < 2) return;
+
+        const card = document.createElement("div");
+        card.className = "clean-group";
+
+        const header = document.createElement("div");
+        header.className = "clean-group__header";
+        header.textContent = emailKey;
+        card.appendChild(header);
+
+        const table = document.createElement("table");
+        table.className = "clean-group__table";
+
+        const thead = document.createElement("thead");
+        thead.innerHTML = "<tr><th>Keep</th><th>ID</th><th>Email</th><th>First</th><th>Last</th><th>Company</th><th>Status</th></tr>";
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+        group.forEach((cust, idx) => {
+          const tr = document.createElement("tr");
+
+          const radioTd = document.createElement("td");
+          const radio = document.createElement("input");
+          radio.type = "radio";
+          radio.name = `clean-dup-${emailKey}`;
+          radio.value = String(cust.id);
+          if (idx === 0) radio.checked = true;
+          radio.addEventListener("change", updateCleanButtonLabel);
+          radioTd.appendChild(radio);
+          tr.appendChild(radioTd);
+
+          function addTd(text) {
+            const td = document.createElement("td");
+            td.textContent = text || "\u2014";
+            tr.appendChild(td);
+          }
+          addTd(String(cust.id));
+          addTd(cust.email);
+          addTd(cust.firstname);
+          addTd(cust.lastname);
+          addTd(cust.company);
+
+          const statusTd = document.createElement("td");
+          const pill = document.createElement("span");
+          pill.className = cust.is_subscribed ? "status-pill success" : "status-pill muted";
+          pill.textContent = cust.is_subscribed ? "Subscribed" : "Unsubscribed";
+          statusTd.appendChild(pill);
+          tr.appendChild(statusTd);
+
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        card.appendChild(table);
+        elements.cleanGroups.appendChild(card);
+      });
+    }
+
+    function renderInvalidEmails() {
+      if (!elements.cleanInvalidList) return;
+      elements.cleanInvalidList.innerHTML = "";
+
+      cleanState.invalidEmails.forEach((entry) => {
+        const row = document.createElement("label");
+        row.className = "clean-invalid-row";
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = true;
+        cb.value = String(entry.id);
+        cb.dataset.cleanInvalidCb = "";
+        cb.addEventListener("change", updateCleanButtonLabel);
+        row.appendChild(cb);
+
+        const info = document.createElement("span");
+        info.className = "clean-invalid-info";
+        const emailSpan = document.createElement("strong");
+        emailSpan.textContent = entry.email || "(empty)";
+        info.appendChild(emailSpan);
+
+        if (entry.firstname || entry.lastname) {
+          const nameSpan = document.createElement("span");
+          nameSpan.className = "clean-invalid-name";
+          nameSpan.textContent = " \u2014 " + [entry.firstname, entry.lastname].filter(Boolean).join(" ");
+          info.appendChild(nameSpan);
+        }
+
+        const reasonSpan = document.createElement("span");
+        reasonSpan.className = "clean-invalid-reason";
+        reasonSpan.textContent = entry.reason || "Invalid email";
+        info.appendChild(reasonSpan);
+
+        row.appendChild(info);
+        elements.cleanInvalidList.appendChild(row);
+      });
+    }
+
+    function getCleanSelections() {
+      const keepIds = {};
+      const dupKeys = Object.keys(cleanState.duplicates);
+      dupKeys.forEach((emailKey) => {
+        const group = cleanState.duplicates[emailKey];
+        if (!group || group.length < 2) return;
+        const radio = document.querySelector(`input[name="clean-dup-${CSS.escape(emailKey)}"]:checked`);
+        if (radio) keepIds[emailKey] = Number(radio.value);
+      });
+
+      const deleteInvalidIds = [];
+      document.querySelectorAll("[data-clean-invalid-cb]:checked").forEach((cb) => {
+        deleteInvalidIds.push(Number(cb.value));
+      });
+
+      let totalToDelete = 0;
+      for (const emailKey of dupKeys) {
+        const group = cleanState.duplicates[emailKey];
+        if (group && group.length >= 2) totalToDelete += group.length - 1;
+      }
+      totalToDelete += deleteInvalidIds.length;
+
+      return { keepIds, deleteInvalidIds, totalToDelete };
+    }
+
+    function updateCleanButtonLabel() {
+      if (!elements.cleanExecBtn) return;
+      const { totalToDelete } = getCleanSelections();
+      if (totalToDelete > 0) {
+        elements.cleanExecBtn.disabled = false;
+        elements.cleanExecBtn.textContent = `Delete ${totalToDelete} contact${totalToDelete !== 1 ? "s" : ""}`;
+      } else {
+        elements.cleanExecBtn.disabled = true;
+        elements.cleanExecBtn.textContent = "Clean contacts";
+      }
+    }
+
+    async function executeClean() {
+      const { keepIds, deleteInvalidIds, totalToDelete } = getCleanSelections();
+      if (totalToDelete === 0) return;
+
+      if (elements.cleanExecBtn) {
+        elements.cleanExecBtn.disabled = true;
+        elements.cleanExecBtn.textContent = "Cleaning…";
+      }
+      if (elements.cleanExecAlert) elements.cleanExecAlert.hidden = true;
+
+      try {
+        const resp = await authorizedFetch("/api/customers/clean", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keep_ids: keepIds, delete_invalid_ids: deleteInvalidIds }),
+        });
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          throw new Error(body.error || "Clean operation failed.");
+        }
+        const data = await resp.json();
+        const deleted = data.deleted || 0;
+        const errors = data.errors || [];
+
+        if (elements.cleanDoneSummary) {
+          let html = `<p><strong>${deleted}</strong> contact${deleted !== 1 ? "s" : ""} deleted successfully.</p>`;
+          if (errors.length) {
+            html += `<p class="clean-done-errors-title">${errors.length} error${errors.length !== 1 ? "s" : ""} occurred:</p><ul class="clean-done-errors">`;
+            errors.forEach((e) => { html += `<li>${e}</li>`; });
+            html += "</ul>";
+          }
+          elements.cleanDoneSummary.innerHTML = html;
+        }
+        showCleanView("done");
+      } catch (err) {
+        showCleanAlert(elements.cleanExecAlert, err.message || "Unable to clean contacts.", "error");
+        if (elements.cleanExecBtn) {
+          elements.cleanExecBtn.disabled = false;
+          updateCleanButtonLabel();
+        }
+      }
+    }
+
+    if (elements.cleanBtn) {
+      elements.cleanBtn.addEventListener("click", openCleanModal);
+    }
+    if (elements.cleanClose) {
+      elements.cleanClose.addEventListener("click", closeCleanModal);
+    }
+    if (elements.cleanCancel) {
+      elements.cleanCancel.addEventListener("click", closeCleanModal);
+    }
+    if (elements.cleanResultsCancel) {
+      elements.cleanResultsCancel.addEventListener("click", closeCleanModal);
+    }
+    if (elements.cleanScanBtn) {
+      elements.cleanScanBtn.addEventListener("click", scanContacts);
+    }
+    if (elements.cleanExecBtn) {
+      elements.cleanExecBtn.addEventListener("click", executeClean);
+    }
+    if (elements.cleanDoneBtn) {
+      elements.cleanDoneBtn.addEventListener("click", () => {
+        closeCleanModal();
+        loadCustomers({ allowRetry: true });
+      });
+    }
+    if (elements.cleanModal) {
+      elements.cleanModal.addEventListener("click", (event) => {
+        if (event.target === elements.cleanModal) closeCleanModal();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && elements.cleanModal && !elements.cleanModal.hidden) {
+          closeCleanModal();
         }
       });
     }

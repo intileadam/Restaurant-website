@@ -16,6 +16,7 @@ from flask import (
     session,
     g,
     abort,
+    send_from_directory,
 )
 from dotenv import load_dotenv
 from email_validator import validate_email, EmailNotValidError
@@ -33,7 +34,12 @@ from mailer import db as dbmod
 from mailer.smtp import SmtpClient
 from mailer.lint import lint_html
 from mailer.render import load_campaign_html, ensure_unsubscribe, render_for_recipient, render_for_test
-from mailer.sse import GLOBAL_BUS
+from mailer.sse import (
+    create_send_session,
+    get_send_session,
+    get_active_send_id,
+    finish_send_session,
+)
 
 def _normalized_app_env() -> str:
     value = os.getenv("APP_ENV", "development") or "development"
@@ -97,6 +103,11 @@ CAMPAIGNS_DIR.mkdir(parents=True, exist_ok=True)
 INDIVIDUAL_EMAILS_DIR = APP_ROOT / "individual_emails"
 ALLOWED_CAMPAIGN_EXTS = {".html", ".htm"}
 INDIVIDUAL_EMAIL_EXTS = {".html", ".htm"}
+CAMPAIGN_IMAGES_DIR = pathlib.Path(os.getenv("CAMPAIGN_IMAGES_DIR", str(APP_ROOT / "campaign_images")))
+CAMPAIGN_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+MAX_IMAGE_SIZE_BYTES = int(os.getenv("MAX_IMAGE_SIZE_BYTES", str(5 * 1024 * 1024)))
+DISK_QUOTA_BYTES = int(os.getenv("DISK_QUOTA_BYTES", str(1024 * 1024 * 1024)))
 DEFAULT_INDIVIDUAL_EMAIL_TEMPLATE = os.getenv("WELCOME_EMAIL_TEMPLATE", "welcome.html")
 LOGIN_SESSION_KEY = "auth_user_id"
 MAX_FAILED_LOGIN_ATTEMPTS = int(os.getenv("AUTH_MAX_FAILED_ATTEMPTS", "5"))
@@ -104,7 +115,7 @@ LOCKOUT_MINUTES = int(os.getenv("AUTH_LOCKOUT_MINUTES", "15"))
 SESSION_LIFETIME_HOURS = int(os.getenv("AUTH_SESSION_HOURS", "12"))
 APP_PORTAL_HOSTNAME = os.getenv("APP_PORTAL_HOSTNAME", "console.casadelpollo.com")
 MIN_PASSWORD_LENGTH = int(os.getenv("AUTH_MIN_PASSWORD_LENGTH", "12"))
-PUBLIC_ENDPOINTS = {"login", "static", "logs_stream"}
+PUBLIC_ENDPOINTS = {"login", "static", "logs_stream", "campaign_images"}
 CUSTOMER_MODE_SESSION_KEY = "customer_table_mode"
 CUSTOMER_MODE_DEFAULT = "production"
 CUSTOMER_MODE_CHOICES = {"production", "test"}
@@ -154,6 +165,49 @@ def _sanitize_campaign_filename(raw_name: str) -> str:
     if ext != ".html":
         filename = f"{stem}.html"
     return filename
+
+
+def _sanitize_image_filename(raw_name: str) -> str:
+    """Normalize and validate image filenames."""
+    candidate = (raw_name or "").strip()
+    if not candidate:
+        raise ValueError("Please provide a file name.")
+    filename = secure_filename(candidate)
+    if not filename:
+        raise ValueError("Invalid file name.")
+    _stem, ext = os.path.splitext(filename)
+    ext = ext.lower()
+    if ext not in ALLOWED_IMAGE_EXTS:
+        allowed = ", ".join(sorted(ALLOWED_IMAGE_EXTS))
+        raise ValueError(f"Image must be one of: {allowed}")
+    return filename
+
+
+def _image_public_url(filename: str) -> str:
+    """Build the public URL for a campaign image."""
+    scheme = "https" if _is_production_env() else request.scheme
+    return f"{scheme}://{APP_PORTAL_HOSTNAME}/campaign-images/{filename}"
+
+
+def _dir_size_bytes(*dirs: pathlib.Path) -> int:
+    """Sum the size of all files in the given directories."""
+    total = 0
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        for f in d.iterdir():
+            if f.is_file():
+                total += f.stat().st_size
+    return total
+
+
+def _human_bytes(n: int) -> str:
+    """Format byte count as a human-readable string."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if abs(n) < 1024 or unit == "GB":
+            return f"{n:.1f} {unit}" if unit != "B" else f"{n} B"
+        n /= 1024
+    return f"{n:.1f} GB"
 
 def default_controls():
     return {
@@ -283,10 +337,11 @@ def _log_stream_serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(secret_key=secret, salt=LOG_STREAM_TOKEN_SALT)
 
 
-def _generate_log_stream_token(mode: str) -> str:
+def _generate_log_stream_token(mode: str, send_id: str) -> str:
     payload = {
         "purpose": "logs-stream",
         "mode": mode or CUSTOMER_MODE_DEFAULT,
+        "send_id": send_id,
         "nonce": secrets.token_hex(16),
     }
     serializer = _log_stream_serializer()
@@ -1030,6 +1085,109 @@ def api_delete_campaign(filename):
     return jsonify({"ok": True, "message": f"Deleted {filename}."})
 
 
+# ── campaign images ──────────────────────────────────────────────
+
+
+@app.get("/campaign-images/<filename>")
+def campaign_images(filename):
+    """Serve an uploaded campaign image (public, no auth)."""
+    safe = secure_filename(filename)
+    if not safe:
+        abort(404)
+    return send_from_directory(CAMPAIGN_IMAGES_DIR, safe, max_age=86400)
+
+
+@app.get("/api/campaign-images")
+def api_list_campaign_images():
+    images = []
+    for f in sorted(CAMPAIGN_IMAGES_DIR.iterdir(), key=lambda p: p.name.lower()):
+        if f.is_file() and f.suffix.lower() in ALLOWED_IMAGE_EXTS:
+            images.append({
+                "filename": f.name,
+                "url": _image_public_url(f.name),
+                "size_bytes": f.stat().st_size,
+            })
+    return jsonify(images)
+
+
+@app.post("/api/campaign-images/upload")
+def api_upload_campaign_image():
+    upload = request.files.get("image_file")
+    desired_name = (request.form.get("filename") or "").strip()
+
+    if not upload or not upload.filename:
+        return jsonify({"ok": False, "message": "Choose an image file to upload."}), 400
+
+    try:
+        filename = _sanitize_image_filename(desired_name or upload.filename)
+    except ValueError as e:
+        return jsonify({"ok": False, "message": str(e)}), 400
+
+    upload.seek(0, 2)
+    size = upload.tell()
+    upload.seek(0)
+    if size > MAX_IMAGE_SIZE_BYTES:
+        limit_mb = MAX_IMAGE_SIZE_BYTES / (1024 * 1024)
+        return jsonify({"ok": False, "message": f"Image exceeds {limit_mb:.0f} MB limit."}), 400
+
+    target_path = (CAMPAIGN_IMAGES_DIR / filename).resolve()
+    base = CAMPAIGN_IMAGES_DIR.resolve()
+    if base not in target_path.parents:
+        return jsonify({"ok": False, "message": "Invalid upload path."}), 400
+
+    if target_path.exists():
+        return jsonify({"ok": False, "message": "An image with that name already exists."}), 409
+
+    try:
+        upload.save(target_path)
+    except Exception as e:
+        app.logger.exception("Unable to save image %s: %s", filename, e)
+        return jsonify({"ok": False, "message": f"Unable to save image: {e}"}), 500
+
+    return jsonify({
+        "ok": True,
+        "message": f"Uploaded {filename}.",
+        "filename": filename,
+        "url": _image_public_url(filename),
+    })
+
+
+@app.delete("/api/campaign-images/<filename>")
+def api_delete_campaign_image(filename):
+    filename = (filename or "").strip()
+    if not filename:
+        return jsonify({"ok": False, "message": "No filename provided."}), 400
+
+    base = CAMPAIGN_IMAGES_DIR.resolve()
+    target_path = (CAMPAIGN_IMAGES_DIR / filename).resolve()
+
+    if base not in target_path.parents:
+        return jsonify({"ok": False, "message": "Invalid file path."}), 400
+
+    if not target_path.is_file():
+        return jsonify({"ok": False, "message": "File not found."}), 404
+
+    try:
+        target_path.unlink()
+    except Exception as e:
+        app.logger.exception("Unable to delete image %s: %s", filename, e)
+        return jsonify({"ok": False, "message": f"Unable to delete file: {e}"}), 500
+
+    return jsonify({"ok": True, "message": f"Deleted {filename}."})
+
+
+@app.get("/api/disk-usage")
+def api_disk_usage():
+    used = _dir_size_bytes(CAMPAIGNS_DIR, CAMPAIGN_IMAGES_DIR)
+    return jsonify({
+        "used_bytes": used,
+        "total_bytes": DISK_QUOTA_BYTES,
+        "used_human": _human_bytes(used),
+        "total_human": _human_bytes(DISK_QUOTA_BYTES),
+        "percent": round(used / DISK_QUOTA_BYTES * 100, 1) if DISK_QUOTA_BYTES else 0,
+    })
+
+
 @app.get("/preview")
 def preview():
     file_field = (request.args.get("file") or "").strip()
@@ -1261,7 +1419,11 @@ def list_customers_api():
     "has_next": total > 0 and page < total_pages,
     "has_prev": total > 0 and page > 1,
     }
-    return jsonify({"customers": serialized, "pagination": pagination, "search": search_term or ""})
+    try:
+        stats = dbmod.count_customer_stats()
+    except Exception:
+        stats = {"total_customers": 0, "total_subscribers": 0}
+    return jsonify({"customers": serialized, "pagination": pagination, "search": search_term or "", "stats": stats})
 
 
 @app.post("/api/customers")
@@ -1475,6 +1637,119 @@ def delete_customer_api(cust_id: int):
     return jsonify({"status": "deleted"})
 
 
+@app.post("/api/customers/scan")
+def scan_customers_api():
+    """Scan the customer table for duplicate emails and invalid addresses."""
+    try:
+        duplicate_groups = dbmod.find_duplicate_emails()
+    except Exception as e:
+        app.logger.exception("Failed to scan for duplicate emails")
+        return jsonify({"error": f"Unable to scan for duplicates: {e}"}), 500
+
+    serialized_groups: dict[str, list[dict]] = {}
+    for email_key, rows in duplicate_groups.items():
+        serialized_groups[email_key] = [_serialize_customer(r) for r in rows]
+
+    invalid_emails: list[dict] = []
+    try:
+        all_customers = dbmod.fetch_all_customers()
+    except Exception as e:
+        app.logger.exception("Failed to fetch customers for email validation")
+        return jsonify({"error": f"Unable to validate emails: {e}"}), 500
+
+    for row in all_customers:
+        email_raw = (row.get("EMAIL") or "").strip()
+        if not email_raw:
+            invalid_emails.append({
+                **_serialize_customer(row),
+                "reason": "Email address is empty.",
+            })
+            continue
+        try:
+            validate_email(email_raw)
+        except EmailNotValidError as exc:
+            invalid_emails.append({
+                **_serialize_customer(row),
+                "reason": str(exc),
+            })
+
+    return jsonify({
+        "duplicates": serialized_groups,
+        "invalid_emails": invalid_emails,
+    })
+
+
+@app.post("/api/customers/clean")
+def clean_customers_api():
+    """Delete duplicate and invalid customer records chosen by the user."""
+    payload = request.get_json(silent=True) or {}
+    keep_ids = payload.get("keep_ids") or {}
+    delete_invalid_ids = payload.get("delete_invalid_ids") or []
+
+    if not isinstance(keep_ids, dict):
+        return jsonify({"error": "keep_ids must be an object mapping email to the ID to keep."}), 400
+    if not isinstance(delete_invalid_ids, list):
+        return jsonify({"error": "delete_invalid_ids must be a list of customer IDs."}), 400
+
+    deleted = 0
+    errors: list[str] = []
+
+    # Re-fetch duplicate groups to ensure we only delete actual duplicates.
+    try:
+        duplicate_groups = dbmod.find_duplicate_emails()
+    except Exception as e:
+        app.logger.exception("Failed to re-fetch duplicates during clean")
+        return jsonify({"error": f"Unable to load duplicates: {e}"}), 500
+
+    for email_key, keep_id in keep_ids.items():
+        try:
+            keep_id = int(keep_id)
+        except (TypeError, ValueError):
+            errors.append(f"Invalid keep ID for {email_key}.")
+            continue
+
+        group = duplicate_groups.get(email_key.strip().lower(), [])
+        if not group:
+            continue
+
+        group_ids = {r["CUSTID"] for r in group}
+        if keep_id not in group_ids:
+            errors.append(f"ID {keep_id} is not part of the duplicate group for {email_key}.")
+            continue
+
+        for row in group:
+            if row["CUSTID"] == keep_id:
+                continue
+            try:
+                dbmod.delete_customer(row["CUSTID"])
+                deleted += 1
+            except dbmod.CustomerNotFoundError:
+                pass
+            except Exception as exc:
+                app.logger.exception("Failed to delete CUSTID %s during clean", row["CUSTID"])
+                errors.append(f"Failed to delete ID {row['CUSTID']}: {exc}")
+
+    for cid in delete_invalid_ids:
+        try:
+            cid = int(cid)
+        except (TypeError, ValueError):
+            errors.append(f"Invalid customer ID in delete_invalid_ids: {cid}")
+            continue
+        try:
+            dbmod.delete_customer(cid)
+            deleted += 1
+        except dbmod.CustomerNotFoundError:
+            pass
+        except Exception as exc:
+            app.logger.exception("Failed to delete invalid CUSTID %s during clean", cid)
+            errors.append(f"Failed to delete ID {cid}: {exc}")
+
+    return jsonify({
+        "deleted": deleted,
+        "errors": errors,
+    })
+
+
 @app.get("/api/individual-emails")
 def list_individual_emails_api():
     try:
@@ -1658,6 +1933,13 @@ def send_to_customers():
     if not file:
         flash("No campaign file was selected.", "error")
         return redirect(url_for("index"))
+
+    # Duplicate-send prevention
+    active_id = get_active_send_id()
+    if active_id:
+        flash("A campaign send is already in progress.", "error")
+        return redirect(url_for("send_status", send_id=active_id))
+
     try:
         context = _build_confirm_context(file, subject, batch_size, delay_ms)
     except FileNotFoundError:
@@ -1682,61 +1964,191 @@ def send_to_customers():
             )
         )
 
-    # Kick off a background thread that does the sending and emits logs.
     mode = getattr(g, "db_mode", CUSTOMER_MODE_DEFAULT)
-    threading.Thread(target=_send_worker, args=(file, subject, batch_size, delay_ms, mode), daemon=True).start()
-    log_stream_token = _generate_log_stream_token(mode)
+    total = context["recipient_count"]
+
+    sess = create_send_session(file, subject, mode, total)
+
+    try:
+        dbmod.insert_campaign_send(sess.send_id, file, subject, mode, total)
+    except Exception as exc:
+        app.logger.exception("Failed to persist campaign send row: %s", exc)
+
+    threading.Thread(
+        target=_send_worker,
+        args=(sess.send_id, file, subject, batch_size, delay_ms, mode),
+        daemon=True,
+    ).start()
+
+    return redirect(url_for("send_status", send_id=sess.send_id))
+
+
+@app.get("/send/<send_id>/status")
+def send_status(send_id: str):
+    sess = get_send_session(send_id)
+
+    if sess:
+        mode = sess.mode
+        file = sess.file
+        subject = sess.subject
+        session_status = sess.status
+    else:
+        send_row, _ = dbmod.fetch_campaign_detail(send_id)
+        if not send_row:
+            flash("Send session not found.", "error")
+            return redirect(url_for("index"))
+        mode = send_row.get("MODE", CUSTOMER_MODE_DEFAULT)
+        file = send_row["CAMPAIGN_FILE"]
+        subject = send_row.get("SUBJECT")
+        session_status = send_row.get("STATUS", "completed")
+
+    try:
+        context = _build_confirm_context(
+            file, subject,
+            default_controls()["batch_size"],
+            default_controls()["delay_ms"],
+        )
+    except Exception:
+        context = {
+            "file": file,
+            "subject": subject,
+            "recipient_count": 0,
+            "recipients": [],
+            "batch_size": default_controls()["batch_size"],
+            "delay_ms": default_controls()["delay_ms"],
+            "lint_report": {},
+            "lint_has_errors": False,
+            "lint_has_warnings": False,
+            "preview_html": None,
+            "preview_error": None,
+        }
+
+    log_stream_token = _generate_log_stream_token(mode, send_id)
     context["sending"] = True
-    return render_template("confirm.html", **context, log_stream_token=log_stream_token)
+    return render_template(
+        "confirm.html",
+        **context,
+        log_stream_token=log_stream_token,
+        send_id=send_id,
+        send_status=session_status,
+    )
 
 
-def _send_worker(file: str, subject: str, batch_size: int, delay_ms: int, mode: str):
+@app.get("/send/<send_id>/logs")
+def send_logs_json(send_id: str):
+    sess = get_send_session(send_id)
+    if sess:
+        return jsonify({
+            "status": sess.status,
+            "logs": sess.bus.history,
+            "sent": sess.sent_count,
+            "failed": sess.failed_count,
+            "total": sess.total_count,
+        })
+
+    send_row, results = dbmod.fetch_campaign_detail(send_id)
+    if not send_row:
+        return jsonify({"error": "Send session not found."}), 404
+
+    log_lines = []
+    for r in results:
+        if r["STATUS"] == "sent":
+            log_lines.append(f"✔ Sent to {r['EMAIL']}")
+        else:
+            err = r.get("ERROR_MESSAGE") or "unknown error"
+            log_lines.append(f"✖ Failed for {r['EMAIL']}: {err}")
+    sent = int(send_row.get("SENT_COUNT", 0))
+    failed = int(send_row.get("FAILED_COUNT", 0))
+    total = int(send_row.get("TOTAL_RECIPIENTS", 0))
+    log_lines.append(f"Done. Sent {sent}/{total}.")
+
+    return jsonify({
+        "status": send_row.get("STATUS", "completed"),
+        "logs": log_lines,
+        "sent": sent,
+        "failed": failed,
+        "total": total,
+    })
+
+
+def _send_worker(send_id: str, file: str, subject: str, batch_size: int, delay_ms: int, mode: str):
+    sess = get_send_session(send_id)
+    bus = sess.bus if sess else None
+
+    def emit(text: str):
+        if bus:
+            bus.emit(text)
+
     dbmod.set_customer_table_mode(mode)
+    sent = 0
+    failed = 0
     try:
         candidate = resolve_campaign_path(file)
         raw_html = load_campaign_html(candidate)
         raw_html = ensure_unsubscribe(raw_html)
         if "{{ unsubscribe_url }}" not in raw_html and "{{ UNSUBSCRIBE_URL }}" not in raw_html:
-            GLOBAL_BUS.emit("⚠ No unsubscribe placeholder present after ensure_unsubscribe()")
+            emit("⚠ No unsubscribe placeholder present after ensure_unsubscribe()")
         smtp = SmtpClient()
         rows = dbmod.fetch_subscribed_customers()
         total = len(rows)
-        GLOBAL_BUS.emit(f"Starting send: {total} recipients; batch_size={batch_size}; delay={delay_ms}ms")
+        emit(f"Starting send: {total} recipients; batch_size={batch_size}; delay={delay_ms}ms")
 
-
-        sent = 0
         idx = 0
         while idx < total:
             batch = rows[idx: idx + batch_size]
-            GLOBAL_BUS.emit(f"Batch {idx//batch_size + 1}: {len(batch)} recipients")
+            emit(f"Batch {idx // batch_size + 1}: {len(batch)} recipients")
             for r in batch:
                 to_addr = r["EMAIL"].strip()
+                firstname = r.get("FIRSTNAME")
+                lastname = r.get("LASTNAME")
                 try:
                     token = dbmod.ensure_unsubscribe_token(r.get("CUSTID"), r.get("UNSUBSCRIBE_TOKEN"))
                 except Exception as e:
-                    GLOBAL_BUS.emit(f"✖ Missing unsubscribe token for {to_addr}: {e}")
+                    emit(f"✖ Missing unsubscribe token for {to_addr}: {e}")
+                    failed += 1
+                    try:
+                        dbmod.insert_send_result(send_id, to_addr, firstname, lastname, "failed", str(e))
+                    except Exception:
+                        pass
                     continue
 
                 html = render_for_recipient(
-                raw_html,
-                r.get("FIRSTNAME"),
-                r.get("LASTNAME"),
-                token,
-                mode=mode,
+                    raw_html,
+                    firstname,
+                    lastname,
+                    token,
+                    mode=mode,
                 )
                 try:
                     msg = smtp.build_message(to_addr, subject, html)
                     smtp.send(msg, delay_ms=delay_ms)
                     sent += 1
-                    GLOBAL_BUS.emit(f"✔ Sent to {to_addr}")
+                    emit(f"✔ Sent to {to_addr}")
+                    try:
+                        dbmod.insert_send_result(send_id, to_addr, firstname, lastname, "sent")
+                    except Exception:
+                        pass
                 except Exception as e:
-                    GLOBAL_BUS.emit(f"✖ Failed for {to_addr}: {e}")
+                    failed += 1
+                    emit(f"✖ Failed for {to_addr}: {e}")
+                    try:
+                        dbmod.insert_send_result(send_id, to_addr, firstname, lastname, "failed", str(e))
+                    except Exception:
+                        pass
             idx += batch_size
-        GLOBAL_BUS.emit(f"Done. Sent {sent}/{total}.")
+        emit(f"Done. Sent {sent}/{total}.")
+        final_status = "completed"
     except Exception as e:
-        GLOBAL_BUS.emit(f"Fatal error: {e}")
+        emit(f"Fatal error: {e}")
+        final_status = "failed"
     finally:
+        finish_send_session(send_id, final_status, sent, failed)
+        try:
+            dbmod.update_campaign_send_finished(send_id, final_status, sent, failed)
+        except Exception:
+            pass
         dbmod.clear_customer_table_mode()
+
 
 @app.get("/logs/stream")
 def logs_stream():
@@ -1744,15 +2156,75 @@ def logs_stream():
     payload = _validate_log_stream_token(token)
     if not payload:
         return Response("Unauthorized", status=401)
+    send_id = payload.get("send_id")
+    if not send_id:
+        return Response("Missing send_id in token", status=400)
+    sess = get_send_session(send_id)
+    if not sess:
+        return Response("Send session not found or expired", status=404)
+    subscriber_q = sess.bus.subscribe()
     return Response(
-    stream_with_context(GLOBAL_BUS.stream()),
-    mimetype='text/event-stream',
-    headers={
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no"
-    },
-)
+        stream_with_context(sess.bus.stream(subscriber_q)),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
+
+# ── Campaign history ─────────────────────────────────────────────
+
+
+@app.get("/history")
+def campaign_history():
+    mode_filter = request.args.get("mode")
+    if mode_filter and mode_filter not in CUSTOMER_MODE_CHOICES:
+        mode_filter = None
+    try:
+        sends = dbmod.fetch_campaign_history(mode_filter=mode_filter)
+    except Exception as exc:
+        app.logger.exception("Failed to load campaign history: %s", exc)
+        sends = []
+    return render_template("history.html", sends=sends, mode_filter=mode_filter or "all")
+
+
+@app.get("/history/<send_id>")
+def campaign_history_detail(send_id: str):
+    try:
+        send_row, results = dbmod.fetch_campaign_detail(send_id)
+    except Exception as exc:
+        app.logger.exception("Failed to load campaign detail: %s", exc)
+        flash("Unable to load campaign detail.", "error")
+        return redirect(url_for("campaign_history"))
+
+    if not send_row:
+        flash("Campaign send not found.", "error")
+        return redirect(url_for("campaign_history"))
+
+    status_filter = request.args.get("status")
+    if status_filter and status_filter not in ("sent", "failed"):
+        status_filter = None
+
+    filtered_results = results
+    if status_filter:
+        filtered_results = [r for r in results if r["STATUS"] == status_filter]
+
+    return render_template(
+        "history_detail.html",
+        send=send_row,
+        results=filtered_results,
+        all_results=results,
+        status_filter=status_filter or "all",
+    )
+
+
+
+with app.app_context():
+    try:
+        dbmod.ensure_campaign_tables()
+    except Exception as exc:
+        print(f"WARNING: Could not create campaign history tables: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

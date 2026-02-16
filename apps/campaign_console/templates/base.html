@@ -44,8 +44,9 @@
           </div>
         </div>
         <div class="header-actions">
-          {% set email_tool_endpoints = ["index", "confirm", "send_to_customers"] %}
+          {% set email_tool_endpoints = ["index", "confirm", "send_to_customers", "send_status"] %}
           {% set customer_endpoints = ["new_customer"] %}
+          {% set history_endpoints = ["campaign_history", "campaign_history_detail"] %}
           <nav class="primary-nav">
             <a
               href="{{ url_for('index') }}"
@@ -58,6 +59,12 @@
               class="nav-link{% if request.endpoint in customer_endpoints %} nav-link--active{% endif %}"
             >
               Customers
+            </a>
+            <a
+              href="{{ url_for('campaign_history') }}"
+              class="nav-link{% if request.endpoint in history_endpoints %} nav-link--active{% endif %}"
+            >
+              History
             </a>
           </nav>
           {% if g.user %}

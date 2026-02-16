@@ -1,0 +1,139 @@
+{% extends 'base.html' %} {% block content %}
+{% set sent_count = send.SENT_COUNT|int %}
+{% set failed_count = send.FAILED_COUNT|int %}
+{% set total = send.TOTAL_RECIPIENTS|int %}
+<div class="history-detail">
+  <section class="hero hero-utility">
+    <div class="hero-copy">
+      <p class="eyebrow">Campaign detail</p>
+      <h2>{{ send.CAMPAIGN_FILE }}</h2>
+      {% if send.SUBJECT %}
+      <p>{{ send.SUBJECT }}</p>
+      {% endif %}
+    </div>
+    <div class="confirm-meta">
+      <div class="confirm-meta__item">
+        <p class="eyebrow">Mode</p>
+        <p class="confirm-meta__value">
+          <span class="badge badge--{{ send.MODE }}">{{ send.MODE|capitalize }}</span>
+        </p>
+      </div>
+      <div class="confirm-meta__item">
+        <p class="eyebrow">Status</p>
+        <p class="confirm-meta__value">
+          <span class="badge badge--{{ send.STATUS }}">{{ send.STATUS|capitalize }}</span>
+        </p>
+      </div>
+      <div class="confirm-meta__item">
+        <p class="eyebrow">Date</p>
+        <p class="confirm-meta__value">
+          {% if send.STARTED_AT %}
+          {{ send.STARTED_AT.strftime('%b %d, %Y at %I:%M %p') }}
+          {% else %}
+          —
+          {% endif %}
+        </p>
+      </div>
+      {% if send.FINISHED_AT and send.STARTED_AT %}
+      <div class="confirm-meta__item">
+        <p class="eyebrow">Duration</p>
+        <p class="confirm-meta__value">
+          {% set delta = (send.FINISHED_AT - send.STARTED_AT).total_seconds()|int %}
+          {% if delta >= 60 %}
+          {{ delta // 60 }}m {{ delta % 60 }}s
+          {% else %}
+          {{ delta }}s
+          {% endif %}
+        </p>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <div class="history-detail__grid">
+    <section class="card history-summary">
+      <h3>Summary</h3>
+      <div class="history-summary__stats">
+        <div class="history-summary__stat">
+          <span class="history-summary__stat-value">{{ total }}</span>
+          <span class="history-summary__stat-label">Total recipients</span>
+        </div>
+        <div class="history-summary__stat">
+          <span class="history-summary__stat-value history-summary__stat-value--sent">{{ sent_count }}</span>
+          <span class="history-summary__stat-label">Sent</span>
+        </div>
+        <div class="history-summary__stat">
+          <span class="history-summary__stat-value history-summary__stat-value--failed">{{ failed_count }}</span>
+          <span class="history-summary__stat-label">Failed</span>
+        </div>
+        {% if total > 0 %}
+        <div class="history-summary__stat">
+          <span class="history-summary__stat-value">{{ ((sent_count / total) * 100)|round(1) }}%</span>
+          <span class="history-summary__stat-label">Success rate</span>
+        </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="card history-results">
+      <header class="card-header">
+        <div>
+          <h3>Recipient results</h3>
+          <p class="muted">{{ all_results|length }} result{{ 's' if all_results|length != 1 else '' }} recorded</p>
+        </div>
+        <div class="history-results__filter" role="group" aria-label="Filter by status">
+          <a
+            href="{{ url_for('campaign_history_detail', send_id=send.SEND_ID) }}"
+            class="button {% if status_filter == 'all' %}accent{% else %}ghost{% endif %}"
+          >All</a>
+          <a
+            href="{{ url_for('campaign_history_detail', send_id=send.SEND_ID, status='sent') }}"
+            class="button {% if status_filter == 'sent' %}accent{% else %}ghost{% endif %}"
+          >Sent</a>
+          <a
+            href="{{ url_for('campaign_history_detail', send_id=send.SEND_ID, status='failed') }}"
+            class="button {% if status_filter == 'failed' %}accent{% else %}ghost{% endif %}"
+          >Failed</a>
+        </div>
+      </header>
+
+      {% if results %}
+      <div class="recipient-table-scroll">
+        <table class="history-results__table">
+          <thead>
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">Email</th>
+              <th scope="col">First name</th>
+              <th scope="col">Last name</th>
+              <th scope="col">Status</th>
+              <th scope="col">Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in results %}
+            <tr class="history-results__row--{{ r.STATUS }}">
+              <td>{{ loop.index }}</td>
+              <td>{{ r.EMAIL }}</td>
+              <td>{{ r.FIRSTNAME or '—' }}</td>
+              <td>{{ r.LASTNAME or '—' }}</td>
+              <td>
+                <span class="badge badge--{{ r.STATUS }}">{{ r.STATUS|capitalize }}</span>
+              </td>
+              <td class="history-results__error">{{ r.ERROR_MESSAGE or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="muted" style="padding: 1rem;">No results match this filter.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <div class="confirm-footer card soft">
+    <a href="{{ url_for('campaign_history') }}" class="button ghost full-width">Back to campaign history</a>
+  </div>
+</div>
+{% endblock %}

@@ -169,6 +169,56 @@ def fetch_all_customers():
     return rows
 
 
+def find_duplicate_emails() -> dict[str, list[dict]]:
+    """Return customers grouped by LOWER(EMAIL) where more than one row shares that email."""
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    table = get_customer_table_name()
+    cur.execute(
+    f"""
+    SELECT {_CUSTOMER_FIELD_SET}
+    FROM {table}
+    WHERE LOWER(EMAIL) IN (
+        SELECT LOWER(EMAIL)
+        FROM {table}
+        WHERE EMAIL IS NOT NULL AND EMAIL <> ''
+        GROUP BY LOWER(EMAIL)
+        HAVING COUNT(*) > 1
+    )
+    ORDER BY LOWER(EMAIL), CUSTID ASC
+    """
+    )
+    rows = cur.fetchall()
+    cur.close()
+
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        key = (row.get("EMAIL") or "").strip().lower()
+        if key:
+            groups.setdefault(key, []).append(row)
+    return groups
+
+
+def count_customer_stats() -> dict:
+    """Return the total number of customers and subscribers."""
+    conn = get_connection()
+    table = get_customer_table_name()
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN IS_SUBSCRIBED = 1 THEN 1 ELSE 0 END) AS subscribed
+        FROM {table}
+        """
+    )
+    row = cur.fetchone()
+    cur.close()
+    total = int(row[0]) if row else 0
+    subscribed = int(row[1]) if row and row[1] is not None else 0
+    return {"total_customers": total, "total_subscribers": subscribed}
+
+
 def fetch_customers_paginated(*, search: str | None = None, limit: int = 50, offset: int = 0):
     """Return a page of customers along with the total count."""
     conn = get_connection()
@@ -626,5 +676,170 @@ def update_service_user_password(
         """,
         (password_hash, password_algo, user_id),
         )
+    finally:
+        cur.close()
+
+
+# ── Campaign history ─────────────────────────────────────────────
+
+
+def ensure_campaign_tables():
+    """Create CAMPAIGN_SENDS and CAMPAIGN_SEND_RESULTS if they do not exist."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS CAMPAIGN_SENDS (
+            SEND_ID       VARCHAR(32)  NOT NULL PRIMARY KEY,
+            CAMPAIGN_FILE VARCHAR(255) NOT NULL,
+            SUBJECT       VARCHAR(500) NULL,
+            MODE          VARCHAR(20)  NOT NULL,
+            TOTAL_RECIPIENTS INT       NOT NULL DEFAULT 0,
+            SENT_COUNT    INT          NOT NULL DEFAULT 0,
+            FAILED_COUNT  INT          NOT NULL DEFAULT 0,
+            STATUS        VARCHAR(20)  NOT NULL DEFAULT 'running',
+            STARTED_AT    DATETIME     NOT NULL,
+            FINISHED_AT   DATETIME     NULL
+        )
+        """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS CAMPAIGN_SEND_RESULTS (
+            ID            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            SEND_ID       VARCHAR(32)  NOT NULL,
+            EMAIL         VARCHAR(320) NOT NULL,
+            FIRSTNAME     VARCHAR(255) NULL,
+            LASTNAME      VARCHAR(255) NULL,
+            STATUS        VARCHAR(20)  NOT NULL,
+            ERROR_MESSAGE TEXT         NULL,
+            SENT_AT       DATETIME     NOT NULL,
+            INDEX idx_send_id (SEND_ID)
+        )
+        """)
+    finally:
+        cur.close()
+
+
+def insert_campaign_send(
+    send_id: str,
+    campaign_file: str,
+    subject: str | None,
+    mode: str,
+    total_recipients: int,
+):
+    """Create the initial CAMPAIGN_SENDS row when a send begins."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+        """
+        INSERT INTO CAMPAIGN_SENDS
+            (SEND_ID, CAMPAIGN_FILE, SUBJECT, MODE, TOTAL_RECIPIENTS, STATUS, STARTED_AT)
+        VALUES
+            (%s, %s, %s, %s, %s, 'running', UTC_TIMESTAMP())
+        """,
+        (send_id, campaign_file, subject, mode, total_recipients),
+        )
+    finally:
+        cur.close()
+
+
+def insert_send_result(
+    send_id: str,
+    email: str,
+    firstname: str | None,
+    lastname: str | None,
+    status: str,
+    error_message: str | None = None,
+):
+    """Record the outcome of a single recipient email attempt."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+        """
+        INSERT INTO CAMPAIGN_SEND_RESULTS
+            (SEND_ID, EMAIL, FIRSTNAME, LASTNAME, STATUS, ERROR_MESSAGE, SENT_AT)
+        VALUES
+            (%s, %s, %s, %s, %s, %s, UTC_TIMESTAMP())
+        """,
+        (send_id, email, firstname, lastname, status, error_message),
+        )
+    finally:
+        cur.close()
+
+
+def update_campaign_send_finished(
+    send_id: str,
+    status: str,
+    sent_count: int,
+    failed_count: int,
+):
+    """Mark a campaign send as completed or failed."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+        """
+        UPDATE CAMPAIGN_SENDS
+        SET STATUS = %s,
+            SENT_COUNT = %s,
+            FAILED_COUNT = %s,
+            FINISHED_AT = UTC_TIMESTAMP()
+        WHERE SEND_ID = %s
+        """,
+        (status, sent_count, failed_count, send_id),
+        )
+    finally:
+        cur.close()
+
+
+def fetch_campaign_history(mode_filter: str | None = None):
+    """Return all campaign sends ordered by most recent first."""
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        if mode_filter:
+            cur.execute(
+            """
+            SELECT * FROM CAMPAIGN_SENDS
+            WHERE MODE = %s
+            ORDER BY STARTED_AT DESC
+            """,
+            (mode_filter,),
+            )
+        else:
+            cur.execute(
+            """
+            SELECT * FROM CAMPAIGN_SENDS
+            ORDER BY STARTED_AT DESC
+            """,
+            )
+        return cur.fetchall()
+    finally:
+        cur.close()
+
+
+def fetch_campaign_detail(send_id: str):
+    """Return the campaign send row and all per-recipient results."""
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        cur.execute(
+        "SELECT * FROM CAMPAIGN_SENDS WHERE SEND_ID = %s",
+        (send_id,),
+        )
+        send_row = cur.fetchone()
+        if not send_row:
+            return None, []
+        cur.execute(
+        """
+        SELECT * FROM CAMPAIGN_SEND_RESULTS
+        WHERE SEND_ID = %s
+        ORDER BY ID ASC
+        """,
+        (send_id,),
+        )
+        results = cur.fetchall()
+        return send_row, results
     finally:
         cur.close()

@@ -175,7 +175,7 @@
       <h3>Send log</h3>
       <p class="eyebrow">Campaign: {{ file }}{% if subject %} · Subject: {{ subject }}{% endif %}</p>
       <pre id="confirmSendLog" tabindex="-1" class="send-log__output"></pre>
-      <p class="muted">Keep this page open to monitor progress.</p>
+      <p id="sendLogFooter" class="muted">Keep this page open to monitor progress. You can safely reload — the send will continue in the background.</p>
     </section>
     {% endif %}
   </div>
@@ -234,7 +234,11 @@
 <script>
   (function () {
     const log = document.getElementById("confirmSendLog");
+    const footer = document.getElementById("sendLogFooter");
     if (!log) return;
+
+    const sendId = {{ (send_id or "")|tojson }};
+    const initialStatus = {{ (send_status or "running")|tojson }};
 
     const focusLog = () => {
       const section = document.getElementById("sendLogSection") || log;
@@ -266,35 +270,85 @@
       log.scrollTop = log.scrollHeight;
     };
 
+    const markComplete = () => {
+      if (footer) {
+        footer.textContent = "Send complete. You may navigate away from this page.";
+      }
+    };
+
     const logStreamToken = {{ log_stream_token|tojson }};
+
+    if (initialStatus !== "running") {
+      if (sendId) {
+        fetch("/send/" + encodeURIComponent(sendId) + "/logs")
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.logs) {
+              data.logs.forEach((line) => appendLog(line));
+            }
+            markComplete();
+          })
+          .catch(() => {
+            appendLog("Unable to load historical log data.");
+          });
+      } else {
+        appendLog("Send already finished.");
+        markComplete();
+      }
+      return;
+    }
+
     if (!logStreamToken) {
       appendLog("⚠ Live log stream unavailable. Reload this page to retry the connection.");
       return;
     }
+
     const baseStreamUrl = {{ url_for("logs_stream")|tojson }};
     const streamUrl =
-      baseStreamUrl + (baseStreamUrl.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(logStreamToken);
-    const es = new EventSource(streamUrl);
-    let loggedError = false;
+      baseStreamUrl +
+      (baseStreamUrl.includes("?") ? "&" : "?") +
+      "token=" +
+      encodeURIComponent(logStreamToken);
 
-    es.onmessage = (event) => {
-      appendLog(event.data);
+    let currentEs = null;
+    let done = false;
+    let retryDelay = 2000;
+    const MAX_RETRY_DELAY = 30000;
+
+    const connect = () => {
+      if (done) return;
+      log.textContent = "";
+      const es = new EventSource(streamUrl);
+      currentEs = es;
+
+      es.onmessage = (event) => {
+        if (event.data === "__DONE__") {
+          done = true;
+          try { es.close(); } catch (e) {}
+          markComplete();
+          return;
+        }
+        appendLog(event.data);
+        retryDelay = 2000;
+      };
+
+      es.onerror = () => {
+        try { es.close(); } catch (e) {}
+        if (done) return;
+        appendLog("⚠ Connection lost. Reconnecting in " + Math.round(retryDelay / 1000) + "s...");
+        setTimeout(() => {
+          connect();
+        }, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
+      };
     };
 
-    es.onerror = () => {
-      if (loggedError) {
-        return;
-      }
-      loggedError = true;
-      appendLog("⚠ Lost the live log connection. Please reload the page to reconnect.");
-      try {
-        es.close();
-      } catch (err) {}
-    };
+    connect();
 
     window.addEventListener("beforeunload", () => {
+      done = true;
       try {
-        es.close();
+        if (currentEs) currentEs.close();
       } catch (err) {}
     });
   })();

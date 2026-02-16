@@ -12,6 +12,8 @@ services:
     envVars:
       - key: CAMPAIGNS_DIR
         value: /data/campaigns
+      - key: CAMPAIGN_IMAGES_DIR
+        value: /data/campaigns/images
       - key: PYTHON_VERSION
         value: "3.12.8"
       - key: APP_ENV

@@ -304,6 +304,15 @@
       </div>
     </header>
 
+    <div id="diskUsageBar" class="disk-usage" hidden>
+      <div class="disk-usage__label">
+        <span id="diskUsageText">Loading...</span>
+      </div>
+      <div class="disk-usage__track">
+        <div id="diskUsageFill" class="disk-usage__fill" style="width:0%"></div>
+      </div>
+    </div>
+
     <section class="manage-section">
       <h3 class="manage-section__title">Campaign files</h3>
       <p class="manage-section__lead">
@@ -353,6 +362,65 @@
         </button>
         <p
           id="manageUploadStatus"
+          class="manage-status"
+          aria-live="polite"
+          hidden
+        ></p>
+      </form>
+    </section>
+
+    <hr class="manage-divider" />
+
+    <section class="manage-section">
+      <h3 class="manage-section__title">Campaign images</h3>
+      <p class="manage-section__lead">
+        Upload images for use in email campaigns. Copy the URL and paste it
+        into your campaign HTML.
+      </p>
+      <div id="imageFileList" class="manage-file-list">
+        <p class="manage-file-list__loading">Loading...</p>
+      </div>
+      <p
+        id="imageDeleteStatus"
+        class="manage-status"
+        aria-live="polite"
+        hidden
+      ></p>
+    </section>
+
+    <hr class="manage-divider" />
+
+    <section class="manage-section">
+      <h3 class="manage-section__title">Upload new image</h3>
+      <form
+        id="imageUploadForm"
+        class="upload-card__form form-grid"
+        enctype="multipart/form-data"
+      >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <label for="image_file">Image file</label>
+        <input
+          type="file"
+          id="image_file"
+          name="image_file"
+          accept=".jpg,.jpeg,.png,.gif,.webp,image/*"
+          required
+        />
+
+        <label for="image_filename">Save as (optional)</label>
+        <input
+          type="text"
+          id="image_filename"
+          name="filename"
+          placeholder="chicken-casado.jpg"
+          inputmode="text"
+        />
+
+        <button type="submit" class="button secondary full-width">
+          Upload Image
+        </button>
+        <p
+          id="imageUploadStatus"
           class="manage-status"
           aria-live="polite"
           hidden
@@ -429,6 +497,14 @@
     const filePreviewFrame = document.getElementById("filePreviewFrame");
     const filePreviewLoading = document.getElementById("filePreviewLoading");
     const filePreviewError = document.getElementById("filePreviewError");
+
+    const imageFileList = document.getElementById("imageFileList");
+    const imageUploadForm = document.getElementById("imageUploadForm");
+    const imageUploadStatus = document.getElementById("imageUploadStatus");
+    const imageDeleteStatus = document.getElementById("imageDeleteStatus");
+    const diskUsageBar = document.getElementById("diskUsageBar");
+    const diskUsageText = document.getElementById("diskUsageText");
+    const diskUsageFill = document.getElementById("diskUsageFill");
 
     let controller = null;
     let lintReport = null;
@@ -664,6 +740,7 @@
         }
         setManageStatus(manageDeleteStatus, "success", payload.message || `Deleted ${filename}.`);
         await loadCampaignList();
+        await loadDiskUsage();
       } catch (err) {
         setManageStatus(manageDeleteStatus, "error", err.message || "Unable to delete file.");
         btn.disabled = false;
@@ -698,12 +775,195 @@
           setManageStatus(manageUploadStatus, "success", payload.message || "Upload successful.");
           manageUploadForm.reset();
           await loadCampaignList();
+          await loadDiskUsage();
         } catch (err) {
           setManageStatus(manageUploadStatus, "error", err.message || "Upload failed.");
         } finally {
           if (submitBtn) submitBtn.disabled = false;
         }
       });
+    }
+
+    /* ── disk usage ────────────────────────────────────────────── */
+
+    async function loadDiskUsage() {
+      try {
+        const resp = await fetch("/api/disk-usage", { headers: csrfHeaders() });
+        if (!resp.ok) throw new Error("Unable to load disk usage.");
+        const data = await resp.json();
+        diskUsageText.textContent = `${data.used_human} / ${data.total_human} used`;
+        diskUsageFill.style.width = `${Math.min(data.percent, 100)}%`;
+        diskUsageFill.classList.remove("disk-usage__fill--warn", "disk-usage__fill--danger");
+        if (data.percent >= 90) {
+          diskUsageFill.classList.add("disk-usage__fill--danger");
+        } else if (data.percent >= 75) {
+          diskUsageFill.classList.add("disk-usage__fill--warn");
+        }
+        diskUsageBar.hidden = false;
+      } catch {
+        diskUsageBar.hidden = true;
+      }
+    }
+
+    /* ── campaign images: file list ───────────────────────────── */
+
+    async function loadImageList() {
+      imageFileList.innerHTML = '<p class="manage-file-list__loading">Loading...</p>';
+      setManageStatus(imageDeleteStatus, null, "");
+      try {
+        const resp = await fetch("/api/campaign-images", { headers: csrfHeaders() });
+        if (!resp.ok) throw new Error("Unable to load image list.");
+        const images = await resp.json();
+        renderImageList(images);
+      } catch (err) {
+        imageFileList.innerHTML = "";
+        const p = document.createElement("p");
+        p.className = "manage-file-list__empty";
+        p.textContent = err.message || "Unable to load images.";
+        imageFileList.appendChild(p);
+      }
+    }
+
+    function renderImageList(images) {
+      imageFileList.innerHTML = "";
+      if (!images.length) {
+        const p = document.createElement("p");
+        p.className = "manage-file-list__empty";
+        p.textContent = "No images uploaded yet.";
+        imageFileList.appendChild(p);
+        return;
+      }
+      images.forEach((img) => {
+        const row = document.createElement("div");
+        row.className = "manage-image-item";
+
+        const thumb = document.createElement("img");
+        thumb.src = img.url;
+        thumb.alt = img.filename;
+        thumb.className = "manage-image-item__thumb";
+        row.appendChild(thumb);
+
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "manage-image-item__name";
+        nameSpan.textContent = img.filename;
+        row.appendChild(nameSpan);
+
+        const actions = document.createElement("span");
+        actions.className = "manage-image-item__actions";
+
+        const copyBtn = document.createElement("button");
+        copyBtn.type = "button";
+        copyBtn.className = "button manage-image-item__copy";
+        copyBtn.textContent = "Copy URL";
+        copyBtn.addEventListener("click", () => handleCopyUrl(img.url, copyBtn));
+        actions.appendChild(copyBtn);
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "button manage-file-item__delete";
+        deleteBtn.textContent = "Delete";
+        deleteBtn.addEventListener("click", () => handleImageDelete(img.filename, deleteBtn));
+        actions.appendChild(deleteBtn);
+
+        row.appendChild(actions);
+        imageFileList.appendChild(row);
+      });
+    }
+
+    async function handleCopyUrl(url, btn) {
+      try {
+        await navigator.clipboard.writeText(url);
+        const original = btn.textContent;
+        btn.textContent = "Copied!";
+        btn.classList.add("manage-image-item__copy--success");
+        setTimeout(() => {
+          btn.textContent = original;
+          btn.classList.remove("manage-image-item__copy--success");
+        }, 2000);
+      } catch {
+        setManageStatus(imageDeleteStatus, "error", "Unable to copy URL. Please copy it manually.");
+      }
+    }
+
+    async function handleImageDelete(filename, btn) {
+      if (btn.dataset.confirming !== "true") {
+        btn.dataset.confirming = "true";
+        btn.textContent = "Confirm?";
+        btn.classList.add("manage-file-item__delete--confirm");
+        setTimeout(() => {
+          if (btn.dataset.confirming === "true") {
+            btn.dataset.confirming = "";
+            btn.textContent = "Delete";
+            btn.classList.remove("manage-file-item__delete--confirm");
+          }
+        }, 3000);
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Deleting...";
+      setManageStatus(imageDeleteStatus, "info", `Deleting ${filename}...`);
+      try {
+        const resp = await fetch(`/api/campaign-images/${encodeURIComponent(filename)}`, {
+          method: "DELETE",
+          headers: csrfHeaders(),
+        });
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok || payload.ok === false) {
+          throw new Error(payload.message || "Unable to delete image.");
+        }
+        setManageStatus(imageDeleteStatus, "success", payload.message || `Deleted ${filename}.`);
+        await loadImageList();
+        await loadDiskUsage();
+      } catch (err) {
+        setManageStatus(imageDeleteStatus, "error", err.message || "Unable to delete image.");
+        btn.disabled = false;
+        btn.textContent = "Delete";
+        btn.dataset.confirming = "";
+        btn.classList.remove("manage-file-item__delete--confirm");
+      }
+    }
+
+    /* ── campaign images: upload ──────────────────────────────── */
+
+    if (imageUploadForm) {
+      imageUploadForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!imageUploadForm.reportValidity()) return;
+
+        const submitBtn = imageUploadForm.querySelector("button[type='submit']");
+        if (submitBtn) submitBtn.disabled = true;
+        setManageStatus(imageUploadStatus, "info", "Uploading...");
+
+        try {
+          const formData = new FormData(imageUploadForm);
+          const resp = await fetch("/api/campaign-images/upload", {
+            method: "POST",
+            body: formData,
+            headers: csrfHeaders({ Accept: "application/json" }),
+          });
+          const payload = await resp.json().catch(() => ({}));
+          if (!resp.ok || payload.ok === false) {
+            throw new Error(payload.message || "Upload failed.");
+          }
+          setManageStatus(imageUploadStatus, "success", payload.message || "Upload successful.");
+          imageUploadForm.reset();
+          await loadImageList();
+          await loadDiskUsage();
+        } catch (err) {
+          setManageStatus(imageUploadStatus, "error", err.message || "Upload failed.");
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+
+    /* ── manage modal: combined open handler ──────────────────── */
+
+    function onManageModalOpen() {
+      loadCampaignList();
+      loadImageList();
+      loadDiskUsage();
     }
 
     /* ── modal framework ─────────────────────────────────────── */
@@ -750,7 +1010,7 @@
     };
 
     setupModal(manageModal, manageTrigger, null, {
-      onOpen: loadCampaignList,
+      onOpen: onManageModalOpen,
       onClose: closeFilePreview,
     });
     setupModal(adminModal, adminTrigger, null, {
