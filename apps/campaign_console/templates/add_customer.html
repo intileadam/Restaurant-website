@@ -55,6 +55,14 @@
             <option value="100">100</option>
           </select>
         </label>
+        <label class="page-size-control">
+          <span>Subscription</span>
+          <select data-customers-subscribed-filter>
+            <option value="all" selected>All</option>
+            <option value="subscribed">Subscribed</option>
+            <option value="unsubscribed">Unsubscribed</option>
+          </select>
+        </label>
         <label class="customer-search-field">
           <span>Search</span>
           <input
@@ -372,6 +380,7 @@
       statSubscribers: root.querySelector("[data-stat-subscribers]"),
       searchInput: root.querySelector("[data-customers-search]"),
       pageSizeSelect: root.querySelector("[data-customers-page-size]"),
+      subscribedFilterSelect: root.querySelector("[data-customers-subscribed-filter]"),
       pagination: root.querySelector("[data-pagination]"),
       paginationInfo: root.querySelector("[data-pagination-info]"),
       prevBtn: root.querySelector("[data-pagination-prev]"),
@@ -456,6 +465,7 @@
       totalPages: 1,
       totalCount: 0,
       search: elements.searchInput ? elements.searchInput.value.trim() : "",
+      subscribedFilter: elements.subscribedFilterSelect ? elements.subscribedFilterSelect.value : "all",
       emailTemplates: [],
       activeEmailTemplate: "",
       emailSubjectTouched: false,
@@ -604,6 +614,9 @@
         params.set("per_page", String(state.perPage));
         if (state.search) {
           params.set("search", state.search);
+        }
+        if (state.subscribedFilter && state.subscribedFilter !== "all") {
+          params.set("subscribed", state.subscribedFilter);
         }
 
         const response = await authorizedFetch(`/api/customers?${params.toString()}`);
@@ -1138,6 +1151,15 @@
           state.page = 1;
           loadCustomers();
         }, SEARCH_DELAY);
+      });
+    }
+
+    if (elements.subscribedFilterSelect) {
+      elements.subscribedFilterSelect.addEventListener("change", (event) => {
+        const value = (event.target.value || "all").toLowerCase();
+        state.subscribedFilter = value === "subscribed" || value === "unsubscribed" ? value : "all";
+        state.page = 1;
+        loadCustomers();
       });
     }
 

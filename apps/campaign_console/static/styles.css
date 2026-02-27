@@ -2365,6 +2365,41 @@ button:focus-visible,
   gap: 1.25rem;
 }
 
+.history-summary__legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.history-summary__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.history-summary__legend-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.history-summary__legend-dot--sent {
+  background: var(--success);
+}
+
+.history-summary__legend-dot--failed {
+  background: var(--danger);
+}
+
+.history-summary__legend-dot--pending {
+  background: var(--muted);
+}
+
 .history-summary__stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

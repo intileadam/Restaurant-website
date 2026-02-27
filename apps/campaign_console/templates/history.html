@@ -48,22 +48,37 @@
       </div>
     </div>
     <div class="history-card__stats">
+      {% set total = send.TOTAL_RECIPIENTS|int %}
+      {% set sent = send.SENT_COUNT|int %}
+      {% set failed = send.FAILED_COUNT|int %}
+      {% set pending = (total - sent - failed)|int %}
       <div class="history-card__stat">
-        <span class="history-card__stat-value">{{ send.TOTAL_RECIPIENTS }}</span>
+        <span class="history-card__stat-value">{{ total }}</span>
         <span class="history-card__stat-label">Recipients</span>
       </div>
       <div class="history-card__stat">
-        <span class="history-card__stat-value history-card__stat-value--sent">{{ send.SENT_COUNT }}</span>
+        <span class="history-card__stat-value history-card__stat-value--sent">{{ sent }}</span>
         <span class="history-card__stat-label">Sent</span>
       </div>
       <div class="history-card__stat">
-        <span class="history-card__stat-value history-card__stat-value--failed">{{ send.FAILED_COUNT }}</span>
+        <span class="history-card__stat-value history-card__stat-value--failed">{{ failed }}</span>
         <span class="history-card__stat-label">Failed</span>
       </div>
       <div class="history-card__stat">
-        <span class="history-card__stat-value">
+        <span class="history-card__stat-value">{{ pending if pending > 0 else 0 }}</span>
+        <span class="history-card__stat-label">Pending</span>
+      </div>
+      <div class="history-card__stat">
+        <span
+          class="history-card__stat-value"
+        >
           {% if send.STARTED_AT %}
-          {{ send.STARTED_AT.strftime('%b %d, %Y at %I:%M %p') }}
+          <time
+            class="history-card__time"
+            data-datetime="{{ send.STARTED_AT.isoformat() }}Z"
+          >
+            {{ send.STARTED_AT.strftime('%b %d, %Y at %I:%M %p') }}
+          </time>
           {% else %}
           —
           {% endif %}
@@ -79,4 +94,30 @@
   <p class="muted">No campaign sends have been recorded yet.</p>
 </div>
 {% endif %}
+<script>
+  (function () {
+    const nodes = document.querySelectorAll("[data-datetime]");
+    nodes.forEach((el) => {
+      const raw = el.getAttribute("data-datetime");
+      if (!raw) return;
+      let d = new Date(raw);
+      if (Number.isNaN(d.getTime())) {
+        // Try treating the value as UTC.
+        d = new Date(raw + "Z");
+        if (Number.isNaN(d.getTime())) return;
+      }
+      try {
+        el.textContent = d.toLocaleString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+      } catch {
+        // ignore formatting errors
+      }
+    });
+  })();
+</script>
 {% endblock %}

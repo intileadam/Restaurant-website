@@ -221,33 +221,50 @@ def count_customer_stats() -> dict:
     return {"total_customers": total, "total_subscribers": subscribed}
 
 
-def fetch_customers_paginated(*, search: str | None = None, limit: int = 50, offset: int = 0):
+def fetch_customers_paginated(
+    *,
+    search: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    subscribed: str | None = None,
+):
     """Return a page of customers along with the total count."""
     conn = get_connection()
     normalized_limit = max(1, int(limit))
     normalized_offset = max(0, int(offset))
     table = get_customer_table_name()
 
-    where_clause = ""
-    search_params: list[str] = []
+    conditions: list[str] = []
+    params: list = []
+
     if search:
         term = search.strip().lower()
         if term:
             like = f"%{term}%"
-            where_clause = """
-        WHERE
-            LOWER(FIRSTNAME) LIKE %s OR
-            LOWER(LASTNAME) LIKE %s OR
-            LOWER(EMAIL) LIKE %s OR
-            LOWER(COMPANY) LIKE %s OR
-            LOWER(PHONE) LIKE %s OR
-            LOWER(COMMENTS) LIKE %s
-        """
-            search_params = [like] * 6
+            conditions.append(
+                "("
+                "LOWER(FIRSTNAME) LIKE %s OR "
+                "LOWER(LASTNAME) LIKE %s OR "
+                "LOWER(EMAIL) LIKE %s OR "
+                "LOWER(COMPANY) LIKE %s OR "
+                "LOWER(PHONE) LIKE %s OR "
+                "LOWER(COMMENTS) LIKE %s"
+                ")"
+            )
+            params.extend([like] * 6)
+
+    if subscribed == "subscribed":
+        conditions.append("IS_SUBSCRIBED = 1")
+    elif subscribed == "unsubscribed":
+        conditions.append("IS_SUBSCRIBED = 0")
+
+    where_clause = ""
+    if conditions:
+        where_clause = "WHERE " + " AND ".join(conditions)
 
     count_sql = f"SELECT COUNT(*) AS total FROM {table} {where_clause}"
     count_cur = conn.cursor()
-    count_cur.execute(count_sql, search_params)
+    count_cur.execute(count_sql, params)
     count_row = count_cur.fetchone()
     total = int(count_row[0]) if count_row else 0
     count_cur.close()
@@ -259,10 +276,10 @@ def fetch_customers_paginated(*, search: str | None = None, limit: int = 50, off
     ORDER BY CUSTID DESC
     LIMIT %s OFFSET %s
     """
-    params = list(search_params)
-    params.extend([normalized_limit, normalized_offset])
+    data_params = list(params)
+    data_params.extend([normalized_limit, normalized_offset])
     data_cur = conn.cursor(DictCursor)
-    data_cur.execute(data_sql, params)
+    data_cur.execute(data_sql, data_params)
     rows = data_cur.fetchall()
     data_cur.close()
 

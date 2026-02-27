@@ -1402,11 +1402,14 @@ def list_customers_api():
     per_page = _parse_int(request.args.get("per_page"), 25, minimum=1, maximum=100)
     page = _parse_int(request.args.get("page"), 1, minimum=1, maximum=1000)
     offset = (page - 1) * per_page
+    raw_subscribed = (request.args.get("subscribed") or "").strip().lower()
+    subscribed_filter = raw_subscribed if raw_subscribed in {"subscribed", "unsubscribed"} else None
     try:
         rows, total = dbmod.fetch_customers_paginated(
         search=search_term,
         limit=per_page,
         offset=offset,
+        subscribed=subscribed_filter,
         )
         total = int(total or 0)
         if total <= 0:
@@ -2264,18 +2267,35 @@ def send_recipients_route(send_id: str):
 
 @app.get("/scheduler/health")
 def scheduler_health():
-    """Return scheduler heartbeat for dashboard indicator."""
+    """Return scheduler heartbeat for dashboard indicator.
+    Consider 'alive' when this process has a ticking scheduler thread, or when
+    there is an active (queued/running) send in the DB, so the indicator stays
+    green even when the health check hits a different worker than the one
+    running the scheduler.
+    """
     thread_alive = _scheduler_thread is not None and _scheduler_thread.is_alive()
     if _scheduler_last_tick is not None:
         seconds_since = time.monotonic() - _scheduler_last_tick
     else:
         seconds_since = None
-    alive = thread_alive and seconds_since is not None and seconds_since < (SCHEDULER_POLL_INTERVAL * 2)
+    thread_recent = (
+        thread_alive
+        and seconds_since is not None
+        and seconds_since < (SCHEDULER_POLL_INTERVAL * 2)
+    )
+    try:
+        active_send = dbmod.fetch_active_send()
+    except Exception:
+        active_send = None
+    has_active_campaign = active_send is not None
+    alive = thread_recent or has_active_campaign
     return jsonify({
         "alive": alive,
+        "thread_alive": thread_alive,
+        "thread_recent": thread_recent,
+        "has_active_campaign": has_active_campaign,
         "seconds_since_last_tick": round(seconds_since, 1) if seconds_since is not None else None,
         "poll_interval": SCHEDULER_POLL_INTERVAL,
-        "thread_alive": thread_alive,
     })
 
 
@@ -2487,7 +2507,7 @@ def campaign_history_detail(send_id: str):
         return redirect(url_for("campaign_history"))
 
     status_filter = request.args.get("status")
-    if status_filter and status_filter not in ("sent", "failed"):
+    if status_filter and status_filter not in ("sent", "failed", "pending"):
         status_filter = None
 
     filtered_results = results

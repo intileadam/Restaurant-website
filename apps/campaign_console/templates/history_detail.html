@@ -31,7 +31,12 @@
         <p class="eyebrow">Date</p>
         <p class="confirm-meta__value">
           {% if send.STARTED_AT %}
-          {{ send.STARTED_AT.strftime('%b %d, %Y at %I:%M %p') }}
+          <time
+            class="history-detail__time"
+            data-datetime="{{ send.STARTED_AT.isoformat() }}Z"
+          >
+            {{ send.STARTED_AT.strftime('%b %d, %Y at %I:%M %p') }}
+          </time>
           {% else %}
           —
           {% endif %}
@@ -56,6 +61,20 @@
   <div class="history-detail__grid">
     <section class="card history-summary">
       <h3>Summary</h3>
+      <div class="history-summary__legend">
+        <span class="history-summary__legend-item">
+          <span class="history-summary__legend-dot history-summary__legend-dot--sent"></span>
+          <span class="history-summary__legend-text">Sent {{ sent_count }}</span>
+        </span>
+        <span class="history-summary__legend-item">
+          <span class="history-summary__legend-dot history-summary__legend-dot--failed"></span>
+          <span class="history-summary__legend-text">Failed {{ failed_count }}</span>
+        </span>
+        <span class="history-summary__legend-item">
+          <span class="history-summary__legend-dot history-summary__legend-dot--pending"></span>
+          <span class="history-summary__legend-text">Pending {{ pending_count if pending_count > 0 else 0 }}</span>
+        </span>
+      </div>
       <div class="history-summary__stats">
         <div class="history-summary__stat">
           <span class="history-summary__stat-value">{{ total }}</span>
@@ -159,4 +178,29 @@
     <a href="{{ url_for('campaign_history') }}" class="button ghost full-width">Back to campaign history</a>
   </div>
 </div>
+<script>
+  (function () {
+    const nodes = document.querySelectorAll("[data-datetime]");
+    nodes.forEach((el) => {
+      const raw = el.getAttribute("data-datetime");
+      if (!raw) return;
+      let d = new Date(raw);
+      if (Number.isNaN(d.getTime())) {
+        d = new Date(raw + "Z");
+        if (Number.isNaN(d.getTime())) return;
+      }
+      try {
+        el.textContent = d.toLocaleString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+      } catch {
+        // ignore formatting errors
+      }
+    });
+  })();
+</script>
 {% endblock %}

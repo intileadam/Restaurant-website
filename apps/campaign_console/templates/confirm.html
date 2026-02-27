@@ -74,6 +74,9 @@
         <p class="muted" id="nextBatchInfo" style="margin-top:0.35rem;font-size:0.8rem;">
           Next batch timing will appear here when there is pending work.
         </p>
+        <p class="muted" id="etaInfo" style="margin-top:0.15rem;font-size:0.8rem;">
+          Estimated completion time will appear here while the campaign is running.
+        </p>
       </div>
 
       <div class="confirm-form-grid" id="controlsForm">
@@ -378,9 +381,20 @@
   const ctrlDelayMs = document.getElementById("ctrlDelayMs");
   const ctrlCooldown = document.getElementById("ctrlCooldown");
   const nextBatchInfo = document.getElementById("nextBatchInfo");
+  const etaInfo = document.getElementById("etaInfo");
 
   let currentStatus = {{ (send_status or "running")|tojson }};
   let pollTimer = null;
+
+  function formatDurationShort(seconds) {
+    const s = Math.max(0, Math.round(seconds || 0));
+    if (s < 60) return "under 1 minute";
+    const hours = Math.floor(s / 3600);
+    const minutes = Math.round((s % 3600) / 60);
+    if (hours && minutes) return `~${hours}h ${minutes}m`;
+    if (hours) return `~${hours}h`;
+    return `~${minutes}m`;
+  }
 
   function updateButtons(status) {
     currentStatus = status;
@@ -423,6 +437,47 @@
         ctrlDelayMs.value = Math.round(d.delay_ms / 1000);
       if (d.cooldown_seconds != null && ctrlCooldown && !ctrlCooldown.matches(":focus"))
         ctrlCooldown.value = Math.round(d.cooldown_seconds / 60);
+
+      if (etaInfo) {
+        const status = d.status || "";
+        if (
+          total > 0 &&
+          done > 0 &&
+          (status === "running" || status === "paused" || status === "queued") &&
+          !d.finished_at &&
+          d.started_at
+        ) {
+          let startedAt = new Date(d.started_at);
+          if (Number.isNaN(startedAt.getTime())) {
+            startedAt = new Date(d.started_at + "Z");
+          }
+          if (!Number.isNaN(startedAt.getTime())) {
+            const now = new Date();
+            const elapsedMs = now.getTime() - startedAt.getTime();
+            const fraction = done / total;
+            if (fraction > 0 && elapsedMs > 0) {
+              const totalMsEstimate = elapsedMs / fraction;
+              const remainingMs = Math.max(0, totalMsEstimate - elapsedMs);
+              const remainingSeconds = Math.round(remainingMs / 1000);
+              const finishTime = new Date(now.getTime() + remainingMs);
+              const finishLabel = finishTime.toLocaleTimeString(undefined, {
+                hour: "numeric",
+                minute: "2-digit",
+              });
+              const remainingLabel = formatDurationShort(remainingSeconds);
+              etaInfo.textContent = `Estimated completion around ${finishLabel} (${remainingLabel} remaining).`;
+            } else {
+              etaInfo.textContent = "";
+            }
+          } else {
+            etaInfo.textContent = "";
+          }
+        } else if (status === "completed" || status === "cancelled" || status === "failed") {
+          etaInfo.textContent = "Campaign finished.";
+        } else {
+          etaInfo.textContent = "";
+        }
+      }
 
       if (nextBatchInfo) {
         const status = d.status || "";
@@ -632,6 +687,42 @@
       }
       window.setTimeout(() => window.location.reload(), 200);
     });
+  })();
+  (function () {
+    const estimateEl = document.getElementById("estimatedSendTime");
+    const recipientCountEl = document.getElementById("estimatedRecipientCount");
+    const batchInput = document.querySelector('input[name="batch_size"]');
+    const delayInput = document.querySelector('input[name="delay_seconds"]');
+    const cooldownInput = document.querySelector('input[name="cooldown_minutes"]');
+    if (!estimateEl || !recipientCountEl || !batchInput || !delayInput || !cooldownInput) return;
+
+    const baseRecipients = parseInt(recipientCountEl.textContent || "0", 10) || 0;
+
+    function formatDuration(seconds) {
+      const s = Math.max(0, Math.round(seconds || 0));
+      if (s < 60) return "under 1 minute";
+      const hours = Math.floor(s / 3600);
+      const minutes = Math.round((s % 3600) / 60);
+      if (hours && minutes) return `~${hours}h ${minutes}m`;
+      if (hours) return `~${hours}h`;
+      return `~${minutes}m`;
+    }
+
+    function recalcEstimate() {
+      if (!baseRecipients) return;
+      const batchSize = Math.max(1, parseInt(batchInput.value, 10) || 1);
+      const delaySeconds = Math.max(0, parseInt(delayInput.value, 10) || 0);
+      const cooldownMinutes = Math.max(0, parseInt(cooldownInput.value, 10) || 0);
+      const cooldownSeconds = cooldownMinutes * 60;
+      const numBatches = Math.max(1, Math.ceil(baseRecipients / batchSize));
+      const totalCooldown = Math.max(0, numBatches - 1) * cooldownSeconds;
+      const estimatedSeconds = totalCooldown + baseRecipients * delaySeconds;
+      estimateEl.textContent = formatDuration(estimatedSeconds);
+    }
+
+    batchInput.addEventListener("input", recalcEstimate);
+    delayInput.addEventListener("input", recalcEstimate);
+    cooldownInput.addEventListener("input", recalcEstimate);
   })();
 </script>
 {% endblock %}
