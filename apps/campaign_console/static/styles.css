@@ -1513,8 +1513,8 @@ button:focus-visible,
 }
 
 .status-pill.muted {
-  background: rgba(199, 82, 82, 0.15);
-  color: var(--danger);
+  background: rgba(128, 128, 128, 0.15);
+  color: var(--muted);
 }
 
 .customer-modal-backdrop {

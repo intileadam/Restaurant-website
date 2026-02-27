@@ -44,7 +44,7 @@
       </div>
       <div class="history-card__badges">
         <span class="badge badge--{{ send.MODE }}">{{ send.MODE|capitalize }}</span>
-        <span class="badge badge--{{ send.STATUS }}">{{ send.STATUS|capitalize }}</span>
+        <span class="badge badge--{{ send.STATUS }}">{% if send.STATUS == 'running' %}In Progress{% else %}{{ send.STATUS|capitalize }}{% endif %}</span>
       </div>
     </div>
     <div class="history-card__stats">

@@ -24,7 +24,7 @@
       <div class="confirm-meta__item">
         <p class="eyebrow">Status</p>
         <p class="confirm-meta__value">
-          <span class="badge badge--{{ send.STATUS }}" id="historyDetailStatusBadge">{{ send.STATUS|capitalize }}</span>
+          <span class="badge badge--{{ send.STATUS }}" id="historyDetailStatusBadge">{% if send.STATUS == 'running' %}In Progress{% else %}{{ send.STATUS|capitalize }}{% endif %}</span>
         </p>
       </div>
       <div class="confirm-meta__item">
@@ -57,46 +57,6 @@
       {% endif %}
     </div>
   </section>
-
-  {% if send.STATUS in ('running', 'paused', 'queued') %}
-  <section class="card confirm-send" id="progressSection" style="margin-bottom:1.5rem">
-    <header class="card-header">
-      <div>
-        <h3>Send progress</h3>
-      </div>
-      <div class="confirm-controls-actions" id="sendActions">
-        {% set st = send.STATUS %}
-        <button type="button" class="button outline" id="btnPause" {% if st != 'running' %}hidden{% endif %}>Pause</button>
-        <button type="button" class="button primary" id="btnResume" {% if st != 'paused' %}hidden{% endif %}>Resume</button>
-        <button type="button" class="button" id="btnCancel" {% if st not in ('running', 'paused') %}hidden{% endif %} style="color:var(--color-error,#c0392b)">Cancel</button>
-      </div>
-    </header>
-    <p class="muted" style="font-size:0.85rem;margin:0 0 0.75rem;">
-      Pause and resume affect new batches only. Cancelling stops any further batches from starting;
-      emails already in the current batch will still finish sending or fail.
-    </p>
-    <div class="progress-bar-container" style="margin-bottom:1rem">
-      <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem">
-        <span id="progressLabel">{{ attempted }} / {{ total }}</span>
-        <span id="progressPercent">{% if total %}{{ ((attempted / total) * 100)|round(0) }}{% else %}0{% endif %}%</span>
-      </div>
-      <div style="background:var(--color-surface-alt,#eee);border-radius:4px;height:8px;overflow:hidden">
-        <div id="progressFill" style="background:var(--color-accent,#2ecc71);height:100%;width:{% if total %}{{ ((attempted / total) * 100)|round(0) }}{% else %}0{% endif %}%;transition:width 0.3s"></div>
-      </div>
-      <div style="display:flex;gap:1.5rem;font-size:0.85rem;margin-top:0.5rem;color:var(--color-muted,#888)">
-        <span>Sent: <strong id="progressSent">{{ sent_count }}</strong></span>
-        <span>Failed: <strong id="progressFailed">{{ failed_count }}</strong></span>
-        <span>Pending: <strong id="progressPending">{{ pending_count }}</strong></span>
-      </div>
-      <p class="muted" id="nextBatchInfo" style="margin-top:0.35rem;font-size:0.8rem;">
-        Next batch timing will appear here when there is pending work.
-      </p>
-      <p class="muted" id="etaInfo" style="margin-top:0.15rem;font-size:0.8rem;">
-        Estimated completion time will appear here while the campaign is running.
-      </p>
-    </div>
-  </section>
-  {% endif %}
 
   <div class="history-detail__grid">
     <section class="card history-summary">
@@ -144,6 +104,40 @@
         This send was cancelled. Some recipients may remain in a pending state because cancellation
         stops new batches from starting but does not interrupt emails already being processed.
       </p>
+      {% endif %}
+      {% if send.STATUS in ('running', 'paused', 'queued') %}
+      <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--color-surface-alt,#eee)">
+        <p class="muted" style="font-size:0.85rem;margin:0 0 0.75rem;">
+          Pause and resume affect new batches only. Cancelling stops any further batches from starting;
+          emails already in the current batch will still finish sending or fail.
+        </p>
+        <div class="confirm-controls-actions" id="sendActions" style="margin-bottom:0.75rem">
+          {% set st = send.STATUS %}
+          <button type="button" class="button outline" id="btnPause" {% if st != 'running' %}hidden{% endif %}>Pause</button>
+          <button type="button" class="button primary" id="btnResume" {% if st != 'paused' %}hidden{% endif %}>Resume</button>
+          <button type="button" class="button" id="btnCancel" {% if st not in ('running', 'paused') %}hidden{% endif %} style="color:var(--color-error,#c0392b)">Cancel</button>
+        </div>
+        <div class="progress-bar-container" style="margin-bottom:1rem">
+          <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem">
+            <span id="progressLabel">{{ attempted }} / {{ total }}</span>
+            <span id="progressPercent">{% if total %}{{ ((attempted / total) * 100)|round(0) }}{% else %}0{% endif %}%</span>
+          </div>
+          <div style="background:var(--color-surface-alt,#eee);border-radius:4px;height:8px;overflow:hidden">
+            <div id="progressFill" style="background:var(--color-accent,#2ecc71);height:100%;width:{% if total %}{{ ((attempted / total) * 100)|round(0) }}{% else %}0{% endif %}%;transition:width 0.3s"></div>
+          </div>
+          <div style="display:flex;gap:1.5rem;font-size:0.85rem;margin-top:0.5rem;color:var(--color-muted,#888)">
+            <span>Sent: <strong id="progressSent">{{ sent_count }}</strong></span>
+            <span>Failed: <strong id="progressFailed">{{ failed_count }}</strong></span>
+            <span>Pending: <strong id="progressPending">{{ pending_count }}</strong></span>
+          </div>
+          <p class="muted" id="nextBatchInfo" style="margin-top:0.35rem;font-size:0.8rem;">
+            Next batch timing will appear here when there is pending work.
+          </p>
+          <p class="muted" id="etaInfo" style="margin-top:0.15rem;font-size:0.8rem;">
+            Estimated completion time will appear here while the campaign is running.
+          </p>
+        </div>
+      </div>
       {% endif %}
     </section>
 
@@ -280,8 +274,13 @@
     return `~${minutes}m`;
   }
 
+  function displayStatus(s) {
+    if (s === "running") return "In Progress";
+    const t = (s || "").trim();
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
+  }
   function updateButtons(status) {
-    if (statusBadge) statusBadge.textContent = (status || "").charAt(0).toUpperCase() + (status || "").slice(1);
+    if (statusBadge) statusBadge.textContent = displayStatus(status);
     if (btnPause) btnPause.hidden = status !== "running";
     if (btnResume) btnResume.hidden = status !== "paused";
     if (btnCancel) btnCancel.hidden = !(status === "running" || status === "paused");

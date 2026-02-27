@@ -1362,7 +1362,8 @@
           activeSendFile.textContent = name;
           const sent = data.sent_count || 0;
           const total = data.total_recipients || 0;
-          activeSendProgress.textContent = ` — ${data.status} (${sent}/${total} sent)`;
+          const statusLabel = data.status === "running" ? "In Progress" : (data.status ? data.status.charAt(0).toUpperCase() + data.status.slice(1) : "");
+          activeSendProgress.textContent = ` — ${statusLabel} (${sent}/${total} sent)`;
           activeSendLink.href = `/history/${encodeURIComponent(data.send_id)}`;
           activeSendBanner.style.display = "";
         } else {

@@ -298,8 +298,12 @@
     }
 
     batchInput.addEventListener("input", recalcEstimate);
+    batchInput.addEventListener("change", recalcEstimate);
     delayInput.addEventListener("input", recalcEstimate);
+    delayInput.addEventListener("change", recalcEstimate);
     cooldownInput.addEventListener("input", recalcEstimate);
+    cooldownInput.addEventListener("change", recalcEstimate);
+    recalcEstimate();
   })();
 </script>
 {% endblock %}

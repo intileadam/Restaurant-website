@@ -230,7 +230,7 @@ def _human_bytes(n: int) -> str:
 def default_controls():
     return {
     "batch_size": int(os.getenv("DEFAULT_BATCH_SIZE", "25")),
-    "delay_ms": int(os.getenv("DEFAULT_BATCH_DELAY_MS", "500")),
+    "delay_ms": int(os.getenv("DEFAULT_BATCH_DELAY_MS", "1000")),
     "batch_cooldown_seconds": int(os.getenv("DEFAULT_BATCH_COOLDOWN_SECONDS", "1200")),
     }
 
@@ -2118,9 +2118,9 @@ def send_progress(send_id: str):
         "batch_size": int(row.get("BATCH_SIZE") or 0),
         "delay_ms": int(row.get("DELAY_MS") or 0),
         "cooldown_seconds": int(row.get("COOLDOWN_SECONDS") or 0),
-        "started_at": row.get("STARTED_AT").isoformat() if row.get("STARTED_AT") else None,
-        "finished_at": row.get("FINISHED_AT").isoformat() if row.get("FINISHED_AT") else None,
-        "last_batch_at": row.get("LAST_BATCH_AT").isoformat() if row.get("LAST_BATCH_AT") else None,
+        "started_at": (row.get("STARTED_AT").isoformat() + "Z") if row.get("STARTED_AT") else None,
+        "finished_at": (row.get("FINISHED_AT").isoformat() + "Z") if row.get("FINISHED_AT") else None,
+        "last_batch_at": (row.get("LAST_BATCH_AT").isoformat() + "Z") if row.get("LAST_BATCH_AT") else None,
     })
 
 
