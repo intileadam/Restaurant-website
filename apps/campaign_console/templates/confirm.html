@@ -3,9 +3,9 @@
 <div class="confirm-page" data-confirm-page>
   <section class="hero hero-utility confirm-hero">
     <div class="hero-copy">
-      <p class="eyebrow">Live send</p>
-      <h2>Confirm campaign</h2>
-      <p>Review the content, pacing, and recipients before launching the send.</p>
+      <p class="eyebrow">{% if sending %}Campaign progress{% else %}Queue campaign{% endif %}</p>
+      <h2>{% if sending %}{{ file }}{% else %}Confirm campaign{% endif %}</h2>
+      <p>{% if sending %}Track progress, adjust pacing, or pause/cancel the send.{% else %}Review the content, pacing, and recipients before queuing.{% endif %}</p>
     </div>
     <div class="confirm-meta">
       <div class="confirm-meta__item">
@@ -18,12 +18,120 @@
       </div>
       <div class="confirm-meta__item">
         <p class="eyebrow">Recipients</p>
-        <p class="confirm-meta__value">{{ resolved_recipient_count }}</p>
+        <p class="confirm-meta__value" id="metaRecipientCount">{{ resolved_recipient_count }}</p>
       </div>
+      {% if sending %}
+      <div class="confirm-meta__item">
+        <p class="eyebrow">Status</p>
+        <p class="confirm-meta__value" id="metaStatus">{{ send_status or "running" }}</p>
+      </div>
+      {% endif %}
     </div>
   </section>
 
   <div class="confirm-grid">
+
+    {% if sending %}
+    <section class="card confirm-send" id="progressSection">
+      <header class="card-header">
+        <div>
+          <h3>Send progress</h3>
+        </div>
+        <div class="confirm-controls-actions" id="sendActions">
+          {% set st = send_status or "running" %}
+          <button type="button" class="button outline" id="btnPause" {% if st != 'running' %}hidden{% endif %}>Pause</button>
+          <button type="button" class="button primary" id="btnResume" {% if st != 'paused' %}hidden{% endif %}>Resume</button>
+          <button type="button" class="button" id="btnCancel" {% if st not in ('running', 'paused') %}hidden{% endif %} style="color:var(--color-error,#c0392b)">Cancel</button>
+        </div>
+      </header>
+
+      <p class="muted" style="font-size:0.85rem;margin:0 0 0.75rem;">
+        Pause and resume affect new batches only. Cancelling stops any further batches from starting;
+        emails already in the current batch will still finish sending or fail.
+      </p>
+
+      <div class="progress-bar-container" style="margin-bottom:1rem">
+        <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem">
+          <span id="progressLabel">0 / {{ resolved_recipient_count }}</span>
+          <span id="progressPercent">0%</span>
+        </div>
+        <div style="background:var(--color-surface-alt,#eee);border-radius:4px;height:8px;overflow:hidden">
+          <div id="progressFill" style="background:var(--color-accent,#2ecc71);height:100%;width:0%;transition:width 0.3s"></div>
+        </div>
+        <div style="display:flex;gap:1.5rem;font-size:0.85rem;margin-top:0.5rem;color:var(--color-muted,#888)">
+          <span>Sent: <strong id="progressSent">{{ sent_count|default(0) }}</strong></span>
+          <span>Failed: <strong id="progressFailed">{{ failed_count|default(0) }}</strong></span>
+          <span>Pending: <strong id="progressPending">—</strong></span>
+        </div>
+      </div>
+
+      <div class="confirm-form-grid" id="controlsForm">
+        <label>
+          <span>Batch size</span>
+          <input type="number" id="ctrlBatchSize" min="1" value="{{ batch_size }}" />
+        </label>
+        <label>
+          <span>Delay per email (ms)</span>
+          <input type="number" id="ctrlDelayMs" min="0" value="{{ delay_ms }}" />
+        </label>
+        <label>
+          <span>Cooldown between batches (s)</span>
+          <input type="number" id="ctrlCooldown" min="0" value="{{ cooldown_seconds }}" />
+        </label>
+        <button type="button" class="button secondary" id="btnSaveControls" {% if (send_status or "running") in ('completed', 'failed', 'cancelled') %}disabled{% endif %}>Save controls</button>
+      </div>
+    </section>
+
+    <section id="sendLogSection" class="card send-log confirm-send-log">
+      <h3>Send log</h3>
+      <p class="eyebrow">Campaign: {{ file }}{% if subject %} · Subject: {{ subject }}{% endif %}</p>
+      <pre id="confirmSendLog" tabindex="-1" class="send-log__output"></pre>
+      <p id="sendLogFooter" class="muted">You can safely navigate away — the send continues in the background.</p>
+    </section>
+
+    <section class="card confirm-recipients" id="recipientListSection">
+      <header class="card-header">
+        <div>
+          <p class="eyebrow">Recipients</p>
+          <h3>Recipient status</h3>
+        </div>
+        <div style="display:flex;gap:0.5rem;align-items:center">
+          <select id="recipientStatusFilter" style="font-size:0.85rem">
+            <option value="">All</option>
+            <option value="pending">Pending</option>
+            <option value="sent">Sent</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+      </header>
+      <div class="recipient-table-scroll">
+        <table id="recipientTable">
+          <thead>
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">Email</th>
+              <th scope="col">First name</th>
+              <th scope="col">Last name</th>
+              <th scope="col">Status</th>
+              <th scope="col">Error</th>
+            </tr>
+          </thead>
+          <tbody id="recipientTableBody">
+            <tr><td colspan="6" class="muted" style="text-align:center">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="recipientPagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:0.75rem;font-size:0.85rem">
+        <span id="recipientPageInfo"></span>
+        <div style="display:flex;gap:0.5rem">
+          <button type="button" class="button ghost" id="recipientPrev" disabled>Previous</button>
+          <button type="button" class="button ghost" id="recipientNext" disabled>Next</button>
+        </div>
+      </div>
+    </section>
+
+    {% else %}
+
     <section class="card preview-panel confirm-preview">
       <header class="card-header">
         <div>
@@ -44,11 +152,11 @@
       <h3>Lint report</h3>
       {% if lint_has_errors %}
       <p class="lint-summary__status lint-summary__status--error">
-        Sending is blocked until the following lint errors are fixed.
+        Queuing is blocked until the following lint errors are fixed.
       </p>
       {% elif lint_has_warnings %}
       <p class="lint-summary__status lint-summary__status--warning">
-        Warnings were found. Review them below, but you may proceed with the send.
+        Warnings were found. Review them below, but you may proceed.
       </p>
       {% else %}
       <p class="lint-summary__status lint-summary__status--ok">No lint issues detected.</p>
@@ -135,10 +243,10 @@
     <section class="card confirm-send">
       <header class="card-header">
         <div>
-          <h3>Send to customers</h3>
+          <h3>Queue campaign</h3>
         </div>
       </header>
-      <form method="post" action="/send">
+      <form method="post" action="/queue">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <input type="hidden" name="file" value="{{ file }}" />
         <input type="hidden" name="subject" value="{{ subject }}" />
@@ -149,33 +257,37 @@
             <input type="number" name="batch_size" min="1" value="{{ batch_size }}" />
           </label>
           <label>
-            <span>Delay (ms)</span>
+            <span>Delay per email (ms)</span>
             <input type="number" name="delay_ms" min="0" value="{{ delay_ms }}" />
+          </label>
+          <label>
+            <span>Cooldown between batches (seconds)</span>
+            <input type="number" name="cooldown_seconds" min="0" value="{{ cooldown_seconds }}" />
           </label>
         </div>
 
+        {% if estimated_send_time %}
+        <p class="confirm-estimate muted">
+          Estimated total send time: <strong>{{ estimated_send_time }}</strong>
+          for {{ recipient_count }} recipient{{ "s" if recipient_count != 1 else "" }}.
+          The send runs in the background — you can sign out and return later.
+        </p>
+        {% endif %}
+
         {% if lint_has_errors %}
-        <p class="lint-blocker">Fix the lint errors above to enable the send button.</p>
+        <p class="lint-blocker">Fix the lint errors above to enable the queue button.</p>
         {% elif lint_has_warnings %}
-        <p class="lint-warning">Warnings were detected, but sending is still allowed.</p>
+        <p class="lint-warning">Warnings were detected, but queuing is still allowed.</p>
         {% endif %}
 
         <button
           type="submit"
           class="button accent full-width"
-          {% if lint_has_errors or sending %}disabled aria-disabled="true"{% endif %}
+          {% if lint_has_errors %}disabled aria-disabled="true"{% endif %}
         >
-          {% if sending %}Sending...{% else %}Yes, send to customers{% endif %}
+          Queue campaign
         </button>
       </form>
-    </section>
-
-    {% if sending %}
-    <section id="sendLogSection" class="card send-log confirm-send-log">
-      <h3>Send log</h3>
-      <p class="eyebrow">Campaign: {{ file }}{% if subject %} · Subject: {{ subject }}{% endif %}</p>
-      <pre id="confirmSendLog" tabindex="-1" class="send-log__output"></pre>
-      <p id="sendLogFooter" class="muted">Keep this page open to monitor progress. You can safely reload — the send will continue in the background.</p>
     </section>
     {% endif %}
   </div>
@@ -183,7 +295,8 @@
     <a href="{{ url_for('index') }}" class="button ghost full-width">Return to homepage</a>
   </div>
 </div>
-{% if recipients and recipients|length > preview_limit %}
+
+{% if not sending and recipients and recipients|length > preview_limit %}
 <script>
   (function () {
     const table = document.getElementById("recipient-table");
@@ -220,7 +333,7 @@
   })();
 </script>
 {% endif %}
-{% if preview_html %}
+{% if not sending and preview_html %}
 <script>
   (function () {
     const frame = document.getElementById("confirmPreviewFrame");
@@ -232,126 +345,284 @@
 {% endif %}
 {% if sending %}
 <script>
-  (function () {
-    const log = document.getElementById("confirmSendLog");
-    const footer = document.getElementById("sendLogFooter");
-    if (!log) return;
+(function () {
+  const sendId = {{ (send_id or "")|tojson }};
+  const csrfToken = {{ csrf_token()|tojson }};
 
-    const sendId = {{ (send_id or "")|tojson }};
-    const initialStatus = {{ (send_status or "running")|tojson }};
+  function csrfHeaders(extra) {
+    const h = { "X-Requested-With": "XMLHttpRequest", "X-CSRF-Token": csrfToken, ...extra };
+    return h;
+  }
 
-    const focusLog = () => {
-      const section = document.getElementById("sendLogSection") || log;
-      if (section.scrollIntoView) {
-        try {
-          section.scrollIntoView({ behavior: "smooth", block: "start" });
-        } catch (err) {
-          section.scrollIntoView();
-        }
-      }
-      if (log.focus) {
-        try {
-          log.focus({ preventScroll: true });
-        } catch (err) {
-          log.focus();
-        }
-      }
-    };
-    if (window.requestAnimationFrame) {
-      window.requestAnimationFrame(focusLog);
+  /* ── Progress polling ─────────────────────────────────────── */
+  const progressLabel = document.getElementById("progressLabel");
+  const progressPercent = document.getElementById("progressPercent");
+  const progressFill = document.getElementById("progressFill");
+  const progressSent = document.getElementById("progressSent");
+  const progressFailed = document.getElementById("progressFailed");
+  const progressPending = document.getElementById("progressPending");
+  const metaStatus = document.getElementById("metaStatus");
+  const btnPause = document.getElementById("btnPause");
+  const btnResume = document.getElementById("btnResume");
+  const btnCancel = document.getElementById("btnCancel");
+  const btnSaveControls = document.getElementById("btnSaveControls");
+  const ctrlBatchSize = document.getElementById("ctrlBatchSize");
+  const ctrlDelayMs = document.getElementById("ctrlDelayMs");
+  const ctrlCooldown = document.getElementById("ctrlCooldown");
+
+  let currentStatus = {{ (send_status or "running")|tojson }};
+  let pollTimer = null;
+
+  function updateButtons(status) {
+    currentStatus = status;
+    if (metaStatus) metaStatus.textContent = status;
+    const isActive = status === "running" || status === "paused" || status === "queued";
+    btnPause.hidden = status !== "running";
+    btnResume.hidden = status !== "paused";
+    btnCancel.hidden = !(status === "running" || status === "paused");
+    btnSaveControls.disabled = !isActive;
+    ctrlBatchSize.disabled = !isActive;
+    ctrlDelayMs.disabled = !isActive;
+    ctrlCooldown.disabled = !isActive;
+
+    if (!isActive && pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  async function pollProgress() {
+    try {
+      const resp = await fetch(`/send/${encodeURIComponent(sendId)}/progress`);
+      if (!resp.ok) return;
+      const d = await resp.json();
+      const sent = d.sent || 0;
+      const failed = d.failed || 0;
+      const total = d.total || 1;
+      const pending = d.pending || 0;
+      const done = sent + failed;
+      const pct = Math.round((done / total) * 100);
+      progressLabel.textContent = `${done} / ${total}`;
+      progressPercent.textContent = `${pct}%`;
+      progressFill.style.width = `${pct}%`;
+      progressSent.textContent = sent;
+      progressFailed.textContent = failed;
+      progressPending.textContent = pending;
+
+      if (d.batch_size && ctrlBatchSize && !ctrlBatchSize.matches(":focus"))
+        ctrlBatchSize.value = d.batch_size;
+      if (d.delay_ms != null && ctrlDelayMs && !ctrlDelayMs.matches(":focus"))
+        ctrlDelayMs.value = d.delay_ms;
+      if (d.cooldown_seconds != null && ctrlCooldown && !ctrlCooldown.matches(":focus"))
+        ctrlCooldown.value = d.cooldown_seconds;
+
+      updateButtons(d.status);
+    } catch (err) {
+      console.error("Progress poll failed:", err);
+    }
+  }
+
+  pollProgress();
+  pollTimer = setInterval(pollProgress, 3000);
+
+  /* ── Pause / Resume / Cancel ─────────────────────────────── */
+  async function postAction(action) {
+    try {
+      const resp = await fetch(`/send/${encodeURIComponent(sendId)}/${action}`, {
+        method: "POST",
+        headers: csrfHeaders({ "Content-Type": "application/json" }),
+      });
+      const data = await resp.json();
+      if (data.status) updateButtons(data.status);
+      pollProgress();
+    } catch (err) {
+      console.error(`${action} failed:`, err);
+    }
+  }
+
+  btnPause.addEventListener("click", () => postAction("pause"));
+  btnResume.addEventListener("click", () => postAction("resume"));
+  btnCancel.addEventListener("click", () => {
+    if (confirm("Are you sure you want to cancel this campaign send? Remaining emails will not be sent.")) {
+      postAction("cancel");
+    }
+  });
+
+  /* ── Save controls ───────────────────────────────────────── */
+  btnSaveControls.addEventListener("click", async () => {
+    try {
+      btnSaveControls.disabled = true;
+      btnSaveControls.textContent = "Saving...";
+      const body = {
+        batch_size: parseInt(ctrlBatchSize.value, 10) || 1,
+        delay_ms: parseInt(ctrlDelayMs.value, 10) || 0,
+        cooldown_seconds: parseInt(ctrlCooldown.value, 10) || 0,
+      };
+      await fetch(`/send/${encodeURIComponent(sendId)}/controls`, {
+        method: "PATCH",
+        headers: csrfHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(body),
+      });
+      btnSaveControls.textContent = "Saved!";
+      setTimeout(() => {
+        btnSaveControls.textContent = "Save controls";
+        btnSaveControls.disabled = !(currentStatus === "running" || currentStatus === "paused" || currentStatus === "queued");
+      }, 1500);
+    } catch (err) {
+      btnSaveControls.textContent = "Save controls";
+      btnSaveControls.disabled = false;
+      console.error("Save controls failed:", err);
+    }
+  });
+
+  /* ── Recipient table ─────────────────────────────────────── */
+  const recipientTableBody = document.getElementById("recipientTableBody");
+  const recipientPageInfo = document.getElementById("recipientPageInfo");
+  const recipientPrev = document.getElementById("recipientPrev");
+  const recipientNext = document.getElementById("recipientNext");
+  const recipientStatusFilter = document.getElementById("recipientStatusFilter");
+  const RECIPIENT_PAGE_SIZE = 50;
+  let recipientOffset = 0;
+  let recipientTotal = 0;
+
+  async function loadRecipients() {
+    const status = recipientStatusFilter.value;
+    const params = new URLSearchParams({ limit: RECIPIENT_PAGE_SIZE, offset: recipientOffset });
+    if (status) params.set("status", status);
+    try {
+      const resp = await fetch(`/send/${encodeURIComponent(sendId)}/recipients?${params}`);
+      if (!resp.ok) throw new Error("Failed to load");
+      const data = await resp.json();
+      recipientTotal = data.total || 0;
+      renderRecipientTable(data.recipients || []);
+    } catch (err) {
+      recipientTableBody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center">Unable to load recipients.</td></tr>';
+    }
+  }
+
+  function renderRecipientTable(rows) {
+    if (!rows.length) {
+      recipientTableBody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center">No recipients found.</td></tr>';
     } else {
-      setTimeout(focusLog, 0);
+      recipientTableBody.innerHTML = rows.map((r, i) => {
+        const idx = recipientOffset + i + 1;
+        const statusClass = r.status === "sent" ? "status-active" : r.status === "failed" ? "status-inactive" : "";
+        return `<tr>
+          <td>${idx}</td>
+          <td>${escapeHtml(r.email)}</td>
+          <td>${escapeHtml(r.firstname || "")}</td>
+          <td>${escapeHtml(r.lastname || "")}</td>
+          <td class="${statusClass}">${r.status}</td>
+          <td>${escapeHtml(r.error || "")}</td>
+        </tr>`;
+      }).join("");
     }
+    const start = recipientTotal > 0 ? recipientOffset + 1 : 0;
+    const end = Math.min(recipientOffset + RECIPIENT_PAGE_SIZE, recipientTotal);
+    recipientPageInfo.textContent = `${start}–${end} of ${recipientTotal}`;
+    recipientPrev.disabled = recipientOffset <= 0;
+    recipientNext.disabled = recipientOffset + RECIPIENT_PAGE_SIZE >= recipientTotal;
+  }
 
-    const appendLog = (text) => {
-      if (!text) return;
-      const needsNewline = log.textContent && !log.textContent.endsWith("\n");
-      log.textContent += (needsNewline ? "\n" : "") + text + "\n";
-      log.scrollTop = log.scrollHeight;
-    };
+  function escapeHtml(s) {
+    const d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
 
-    const markComplete = () => {
-      if (footer) {
-        footer.textContent = "Send complete. You may navigate away from this page.";
-      }
-    };
+  recipientPrev.addEventListener("click", () => {
+    recipientOffset = Math.max(0, recipientOffset - RECIPIENT_PAGE_SIZE);
+    loadRecipients();
+  });
+  recipientNext.addEventListener("click", () => {
+    recipientOffset += RECIPIENT_PAGE_SIZE;
+    loadRecipients();
+  });
+  recipientStatusFilter.addEventListener("change", () => {
+    recipientOffset = 0;
+    loadRecipients();
+  });
+  loadRecipients();
+  setInterval(loadRecipients, 10000);
 
-    const logStreamToken = {{ log_stream_token|tojson }};
+  /* ── SSE log stream (supplementary) ───────────────────────── */
+  const log = document.getElementById("confirmSendLog");
+  const footer = document.getElementById("sendLogFooter");
+  if (!log) return;
 
-    if (initialStatus !== "running") {
-      if (sendId) {
-        fetch("/send/" + encodeURIComponent(sendId) + "/logs")
-          .then((r) => r.json())
-          .then((data) => {
-            if (data.logs) {
-              data.logs.forEach((line) => appendLog(line));
-            }
-            markComplete();
-          })
-          .catch(() => {
-            appendLog("Unable to load historical log data.");
-          });
-      } else {
-        appendLog("Send already finished.");
-        markComplete();
-      }
-      return;
-    }
+  const initialStatus = {{ (send_status or "running")|tojson }};
 
-    if (!logStreamToken) {
-      appendLog("⚠ Live log stream unavailable. Reload this page to retry the connection.");
-      return;
-    }
+  const appendLog = (text) => {
+    if (!text) return;
+    const needsNewline = log.textContent && !log.textContent.endsWith("\n");
+    log.textContent += (needsNewline ? "\n" : "") + text + "\n";
+    log.scrollTop = log.scrollHeight;
+  };
 
-    const baseStreamUrl = {{ url_for("logs_stream")|tojson }};
-    const streamUrl =
-      baseStreamUrl +
-      (baseStreamUrl.includes("?") ? "&" : "?") +
-      "token=" +
-      encodeURIComponent(logStreamToken);
+  const markComplete = () => {
+    if (footer) footer.textContent = "Send complete. You may navigate away from this page.";
+  };
 
-    let currentEs = null;
-    let done = false;
-    let retryDelay = 2000;
-    const MAX_RETRY_DELAY = 30000;
+  const logStreamToken = {{ log_stream_token|tojson }};
 
-    const connect = () => {
-      if (done) return;
-      log.textContent = "";
-      const es = new EventSource(streamUrl);
-      currentEs = es;
-
-      es.onmessage = (event) => {
-        if (event.data === "__DONE__") {
-          done = true;
-          try { es.close(); } catch (e) {}
+  if (initialStatus !== "running" && initialStatus !== "paused" && initialStatus !== "queued") {
+    if (sendId) {
+      fetch("/send/" + encodeURIComponent(sendId) + "/logs")
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.logs) data.logs.forEach((line) => appendLog(line));
           markComplete();
-          return;
-        }
-        appendLog(event.data);
-        retryDelay = 2000;
-      };
+        })
+        .catch(() => appendLog("Unable to load historical log data."));
+    } else {
+      appendLog("Send already finished.");
+      markComplete();
+    }
+    return;
+  }
 
-      es.onerror = () => {
+  if (!logStreamToken) {
+    appendLog("Live log stream unavailable. Progress is tracked above.");
+    return;
+  }
+
+  const baseStreamUrl = {{ url_for("logs_stream")|tojson }};
+  const streamUrl = baseStreamUrl + (baseStreamUrl.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(logStreamToken);
+
+  let currentEs = null;
+  let done = false;
+  let retryDelay = 2000;
+  const MAX_RETRY_DELAY = 30000;
+
+  const connect = () => {
+    if (done) return;
+    const es = new EventSource(streamUrl);
+    currentEs = es;
+    es.onmessage = (event) => {
+      if (event.data === "__DONE__") {
+        done = true;
         try { es.close(); } catch (e) {}
-        if (done) return;
-        appendLog("⚠ Connection lost. Reconnecting in " + Math.round(retryDelay / 1000) + "s...");
-        setTimeout(() => {
-          connect();
-        }, retryDelay);
-        retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
-      };
+        markComplete();
+        return;
+      }
+      appendLog(event.data);
+      retryDelay = 2000;
     };
+    es.onerror = () => {
+      try { es.close(); } catch (e) {}
+      if (done) return;
+      setTimeout(connect, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
+    };
+  };
 
-    connect();
+  connect();
 
-    window.addEventListener("beforeunload", () => {
-      done = true;
-      try {
-        if (currentEs) currentEs.close();
-      } catch (err) {}
-    });
-  })();
+  window.addEventListener("beforeunload", () => {
+    done = true;
+    try { if (currentEs) currentEs.close(); } catch (err) {}
+  });
+})();
 </script>
 {% endif %}
 <script>

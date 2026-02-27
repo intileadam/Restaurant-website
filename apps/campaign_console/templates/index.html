@@ -2,7 +2,7 @@
 <section class="hero hero-utility">
   <div class="hero-copy">
     <p class="eyebrow">Workflow</p>
-    <h2>Prepare and send campaigns</h2>
+    <h2>Prepare and queue campaigns</h2>
     <p>
       Follow the steps below in order. Each section unlocks once a campaign file
       is selected.
@@ -11,15 +11,31 @@
       Need a new template? Upload an HTML file below or drop it into
       <code>campaigns/</code> and refresh this page.
     </p>
-    <button
-      type="button"
-      class="button outline hero-upload-button"
-      id="openManageModal"
-    >
-      Manage campaigns
-    </button>
+    <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
+      <button
+        type="button"
+        class="button outline hero-upload-button"
+        id="openManageModal"
+      >
+        Manage campaigns
+      </button>
+      <span id="schedulerIndicator" style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.85rem;color:var(--color-muted,#888)">
+        <span id="schedulerDot" style="width:8px;height:8px;border-radius:50%;background:#888;display:inline-block"></span>
+        <span id="schedulerLabel">Scheduler: checking...</span>
+      </span>
+    </div>
   </div>
 </section>
+
+<div id="activeSendBanner" class="card soft" style="margin-bottom:1rem;display:none">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+    <div>
+      <strong id="activeSendFile"></strong>
+      <span class="muted" id="activeSendProgress"></span>
+    </div>
+    <a id="activeSendLink" href="#" class="button primary" style="font-size:0.85rem">View progress</a>
+  </div>
+</div>
 
 <div id="campaign-workflow" class="dashboard-grid">
   <section class="card focus-card preview-panel">
@@ -134,7 +150,7 @@
       <header class="card-header">
         <div>
           <p class="eyebrow">Step 3</p>
-          <h2>Live send</h2>
+          <h2>Queue campaign</h2>
         </div>
       </header>
       <form method="get" action="/confirm" class="form-grid">
@@ -1295,6 +1311,60 @@
     }
 
     updateLintStatus({ report: null, message: "" });
+
+    /* ── Scheduler health indicator ───────────────────────────── */
+
+    const schedulerDot = document.getElementById("schedulerDot");
+    const schedulerLabel = document.getElementById("schedulerLabel");
+
+    async function pollSchedulerHealth() {
+      try {
+        const resp = await fetch("/scheduler/health", { headers: csrfHeaders() });
+        if (!resp.ok) throw new Error();
+        const data = await resp.json();
+        if (data.alive) {
+          schedulerDot.style.background = "#2ecc71";
+          schedulerLabel.textContent = "Scheduler active";
+        } else {
+          schedulerDot.style.background = "#c0392b";
+          schedulerLabel.textContent = "Scheduler down";
+        }
+      } catch {
+        schedulerDot.style.background = "#888";
+        schedulerLabel.textContent = "Scheduler: unknown";
+      }
+    }
+    pollSchedulerHealth();
+    setInterval(pollSchedulerHealth, 10000);
+
+    /* ── Active send banner ───────────────────────────────────── */
+
+    const activeSendBanner = document.getElementById("activeSendBanner");
+    const activeSendFile = document.getElementById("activeSendFile");
+    const activeSendProgress = document.getElementById("activeSendProgress");
+    const activeSendLink = document.getElementById("activeSendLink");
+
+    async function pollActiveSend() {
+      try {
+        const resp = await fetch("/api/active-send", { headers: csrfHeaders() });
+        if (!resp.ok) throw new Error();
+        const data = await resp.json();
+        if (data.send_id) {
+          activeSendFile.textContent = data.campaign_file || "Campaign";
+          const sent = data.sent_count || 0;
+          const total = data.total_recipients || 0;
+          activeSendProgress.textContent = ` — ${data.status} (${sent}/${total} sent)`;
+          activeSendLink.href = `/send/${encodeURIComponent(data.send_id)}/status`;
+          activeSendBanner.style.display = "";
+        } else {
+          activeSendBanner.style.display = "none";
+        }
+      } catch {
+        activeSendBanner.style.display = "none";
+      }
+    }
+    pollActiveSend();
+    setInterval(pollActiveSend, 10000);
   })();
 </script>
 

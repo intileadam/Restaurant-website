@@ -2,9 +2,13 @@
 from __future__ import annotations
 import queue
 import threading
+import time
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime
+
+
+SESSION_TTL_SECONDS = 1800  # 30 minutes after completion
 
 
 class EventBus:
@@ -81,6 +85,7 @@ class SendSession:
     failed_count: int = 0
     total_count: int = 0
     started_at: datetime = field(default_factory=datetime.utcnow)
+    finished_at: float | None = None  # monotonic time when finished
     bus: EventBus = field(default_factory=EventBus)
 
 
@@ -90,6 +95,7 @@ ACTIVE_SEND_ID: str | None = None
 
 
 def create_send_session(
+    send_id: str,
     file: str,
     subject: str | None,
     mode: str,
@@ -97,7 +103,6 @@ def create_send_session(
 ) -> SendSession:
     """Create a new send session and register it as the active send."""
     global ACTIVE_SEND_ID
-    send_id = secrets.token_hex(16)
     sess = SendSession(
         send_id=send_id,
         file=file,
@@ -108,7 +113,16 @@ def create_send_session(
     with _sessions_lock:
         SEND_SESSIONS[send_id] = sess
         ACTIVE_SEND_ID = send_id
+    _evict_stale_sessions()
     return sess
+
+
+def register_send_session(sess: SendSession):
+    """Register a pre-built session (used for auto-resume on startup)."""
+    global ACTIVE_SEND_ID
+    with _sessions_lock:
+        SEND_SESSIONS[sess.send_id] = sess
+        ACTIVE_SEND_ID = sess.send_id
 
 
 def get_send_session(send_id: str) -> SendSession | None:
@@ -135,7 +149,26 @@ def finish_send_session(send_id: str, status: str, sent: int, failed: int):
     sess.status = status
     sess.sent_count = sent
     sess.failed_count = failed
+    sess.finished_at = time.monotonic()
     sess.bus.mark_done()
     with _sessions_lock:
         if ACTIVE_SEND_ID == send_id:
             ACTIVE_SEND_ID = None
+
+
+def _evict_stale_sessions():
+    """Remove sessions that finished more than SESSION_TTL_SECONDS ago."""
+    now = time.monotonic()
+    with _sessions_lock:
+        stale = [
+            sid for sid, sess in SEND_SESSIONS.items()
+            if sess.finished_at is not None
+            and (now - sess.finished_at) > SESSION_TTL_SECONDS
+        ]
+        for sid in stale:
+            del SEND_SESSIONS[sid]
+
+
+def evict_stale_sessions():
+    """Public helper to evict stale sessions on a periodic cadence."""
+    _evict_stale_sessions()

@@ -73,6 +73,12 @@
         </div>
         {% endif %}
       </div>
+      {% if send.STATUS == 'cancelled' %}
+      <p class="muted" style="margin-top:0.75rem;font-size:0.85rem;">
+        This send was cancelled. Some recipients may remain in a pending state because cancellation
+        stops new batches from starting but does not interrupt emails already being processed.
+      </p>
+      {% endif %}
     </section>
 
     <section class="card history-results">
@@ -94,6 +100,10 @@
             href="{{ url_for('campaign_history_detail', send_id=send.SEND_ID, status='failed') }}"
             class="button {% if status_filter == 'failed' %}accent{% else %}ghost{% endif %}"
           >Failed</a>
+          <a
+            href="{{ url_for('campaign_history_detail', send_id=send.SEND_ID, status='pending') }}"
+            class="button {% if status_filter == 'pending' %}accent{% else %}ghost{% endif %}"
+          >Pending</a>
         </div>
       </header>
 

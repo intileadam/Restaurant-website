@@ -1,5 +1,5 @@
 from __future__ import annotations
-import csv, io, math, os, pathlib, re, secrets, sys, threading
+import csv, io, math, os, pathlib, re, secrets, socket, sys, threading, time
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
@@ -37,8 +37,8 @@ from mailer.render import load_campaign_html, ensure_unsubscribe, render_for_rec
 from mailer.sse import (
     create_send_session,
     get_send_session,
-    get_active_send_id,
     finish_send_session,
+    evict_stale_sessions,
 )
 
 def _normalized_app_env() -> str:
@@ -46,6 +46,21 @@ def _normalized_app_env() -> str:
     return value.strip().lower() or "development"
 
 APP_ENV = _normalized_app_env()
+
+
+def _env_flag(name: str, default: bool = True) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    raw = raw.strip().lower()
+    if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    if raw in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+SEND_SCHEDULER_ENABLED = _env_flag("SEND_SCHEDULER_ENABLED", True)
 
 def _is_production_env() -> bool:
     return APP_ENV == "production"
@@ -122,6 +137,9 @@ CUSTOMER_MODE_CHOICES = {"production", "test"}
 LOG_STREAM_TOKEN_TTL_SECONDS = int(os.getenv("LOG_STREAM_TOKEN_TTL_SECONDS", "3600"))
 LOG_STREAM_TOKEN_SALT = "logs-stream-token"
 SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
+SCHEDULER_POLL_INTERVAL = 5
+_scheduler_thread: threading.Thread | None = None
+_scheduler_last_tick: float | None = None
 CSRF_SESSION_KEY = "_csrf_token"
 CSRF_FIELD_NAME = "csrf_token"
 CSRF_HEADER_NAME = "X-CSRF-Token"
@@ -211,8 +229,9 @@ def _human_bytes(n: int) -> str:
 
 def default_controls():
     return {
-    "batch_size": int(os.getenv("DEFAULT_BATCH_SIZE", "100")),
-    "delay_ms": int(os.getenv("DEFAULT_BATCH_DELAY_MS", "200")),
+    "batch_size": int(os.getenv("DEFAULT_BATCH_SIZE", "25")),
+    "delay_ms": int(os.getenv("DEFAULT_BATCH_DELAY_MS", "500")),
+    "batch_cooldown_seconds": int(os.getenv("DEFAULT_BATCH_COOLDOWN_SECONDS", "1200")),
     }
 
 
@@ -1864,8 +1883,10 @@ def send_individual_email_api(cust_id: int):
     return jsonify({"status": "sent", **result})
 
 
-def _build_confirm_context(file: str, subject: str | None, batch_size: int, delay_ms: int):
+def _build_confirm_context(file: str, subject: str | None, batch_size: int, delay_ms: int, cooldown_seconds: int | None = None):
     """Assemble the template context for the confirm page."""
+    if cooldown_seconds is None:
+        cooldown_seconds = default_controls()["batch_cooldown_seconds"]
     campaign_path = resolve_campaign_path(file)
     raw_html = load_campaign_html(campaign_path)
     lint_report = lint_html(raw_html)
@@ -1880,32 +1901,41 @@ def _build_confirm_context(file: str, subject: str | None, batch_size: int, dela
         preview_error = f"Unable to render campaign preview: {e}"
 
     recipients = dbmod.fetch_subscribed_customers() or []
+    recipient_count = len(recipients)
+    num_batches = max(1, math.ceil(recipient_count / batch_size)) if recipient_count else 0
+    total_cooldown = max(0, num_batches - 1) * cooldown_seconds
+    estimated_seconds = total_cooldown + recipient_count * (delay_ms / 1000)
+
     return {
         "file": file,
         "subject": subject,
-        "recipient_count": len(recipients),
+        "recipient_count": recipient_count,
         "recipients": recipients,
         "batch_size": batch_size,
         "delay_ms": delay_ms,
+        "cooldown_seconds": cooldown_seconds,
         "lint_report": lint_report,
         "lint_has_errors": lint_has_errors,
         "lint_has_warnings": lint_has_warnings,
         "preview_html": preview_html,
         "preview_error": preview_error,
+        "estimated_send_time": _format_duration(int(estimated_seconds)),
     }
 
 @app.get("/confirm")
 def confirm():
     file = (request.args.get("file") or "").strip()
     subject = request.args.get("subject")
-    batch_size = int(request.args.get("batch_size", default_controls()["batch_size"]))
-    delay_ms = int(request.args.get("delay_ms", default_controls()["delay_ms"]))
+    defaults = default_controls()
+    batch_size = int(request.args.get("batch_size", defaults["batch_size"]))
+    delay_ms = int(request.args.get("delay_ms", defaults["delay_ms"]))
+    cooldown_seconds = int(request.args.get("cooldown_seconds", defaults["batch_cooldown_seconds"]))
 
     if not file:
         flash("No campaign file was selected.", "error")
         return redirect(url_for("index"))
     try:
-        context = _build_confirm_context(file, subject, batch_size, delay_ms)
+        context = _build_confirm_context(file, subject, batch_size, delay_ms, cooldown_seconds)
     except FileNotFoundError:
         flash("Campaign file not found.", "error")
         return redirect(url_for("index"))
@@ -1917,31 +1947,33 @@ def confirm():
         return redirect(url_for("index"))
 
     if context["lint_has_errors"]:
-        flash("Resolve lint errors before reviewing the live send.", "error")
+        flash("Resolve lint errors before queuing the campaign.", "error")
         return redirect(url_for("index"))
 
     return render_template("confirm.html", **context, sending=False, log_stream_token=None)
 
 
 @app.post("/send")
-def send_to_customers():
+@app.post("/queue")
+def queue_campaign():
     file = (request.form.get("file") or "").strip()
     subject = request.form.get("subject")
-    batch_size = int(request.form.get("batch_size", default_controls()["batch_size"]))
-    delay_ms = int(request.form.get("delay_ms", default_controls()["delay_ms"]))
+    defaults = default_controls()
+    batch_size = int(request.form.get("batch_size", defaults["batch_size"]))
+    delay_ms = int(request.form.get("delay_ms", defaults["delay_ms"]))
+    cooldown_seconds = int(request.form.get("cooldown_seconds", defaults["batch_cooldown_seconds"]))
 
     if not file:
         flash("No campaign file was selected.", "error")
         return redirect(url_for("index"))
 
-    # Duplicate-send prevention
-    active_id = get_active_send_id()
-    if active_id:
-        flash("A campaign send is already in progress.", "error")
-        return redirect(url_for("send_status", send_id=active_id))
+    active = dbmod.fetch_active_send()
+    if active:
+        flash("A campaign is already queued or in progress.", "error")
+        return redirect(url_for("send_status", send_id=active["SEND_ID"]))
 
     try:
-        context = _build_confirm_context(file, subject, batch_size, delay_ms)
+        context = _build_confirm_context(file, subject, batch_size, delay_ms, cooldown_seconds)
     except FileNotFoundError:
         flash("Campaign file not found.", "error")
         return redirect(url_for("index"))
@@ -1953,7 +1985,7 @@ def send_to_customers():
         return redirect(url_for("index"))
 
     if context["lint_has_errors"]:
-        flash("Resolve lint errors before sending to customers.", "error")
+        flash("Resolve lint errors before queuing the campaign.", "error")
         return redirect(
             url_for(
                 "confirm",
@@ -1965,72 +1997,74 @@ def send_to_customers():
         )
 
     mode = getattr(g, "db_mode", CUSTOMER_MODE_DEFAULT)
-    total = context["recipient_count"]
-
-    sess = create_send_session(file, subject, mode, total)
+    recipients = context["recipients"]
+    total = len(recipients)
+    send_id = secrets.token_hex(16)
 
     try:
-        dbmod.insert_campaign_send(sess.send_id, file, subject, mode, total)
+        dbmod.insert_campaign_send(
+            send_id, file, subject, mode, total,
+            batch_size=batch_size,
+            delay_ms=delay_ms,
+            cooldown_seconds=cooldown_seconds,
+        )
+        dbmod.bulk_insert_send_recipients(send_id, recipients)
+        dbmod.activate_campaign_send(send_id)
     except Exception as exc:
-        app.logger.exception("Failed to persist campaign send row: %s", exc)
+        app.logger.exception("Failed to queue campaign send: %s", exc)
+        flash("Unable to queue campaign. Please try again.", "error")
+        return redirect(url_for("index"))
 
-    threading.Thread(
-        target=_send_worker,
-        args=(sess.send_id, file, subject, batch_size, delay_ms, mode),
-        daemon=True,
-    ).start()
+    sess = create_send_session(send_id, file, subject, mode, total)
+    _ensure_scheduler()
 
-    return redirect(url_for("send_status", send_id=sess.send_id))
+    return redirect(url_for("send_status", send_id=send_id))
 
 
 @app.get("/send/<send_id>/status")
 def send_status(send_id: str):
-    sess = get_send_session(send_id)
+    send_row = dbmod.get_send_status(send_id)
+    if not send_row:
+        flash("Send not found.", "error")
+        return redirect(url_for("index"))
 
-    if sess:
-        mode = sess.mode
-        file = sess.file
-        subject = sess.subject
-        session_status = sess.status
-    else:
-        send_row, _ = dbmod.fetch_campaign_detail(send_id)
-        if not send_row:
-            flash("Send session not found.", "error")
-            return redirect(url_for("index"))
-        mode = send_row.get("MODE", CUSTOMER_MODE_DEFAULT)
-        file = send_row["CAMPAIGN_FILE"]
-        subject = send_row.get("SUBJECT")
-        session_status = send_row.get("STATUS", "completed")
+    file = send_row["CAMPAIGN_FILE"]
+    subject = send_row.get("SUBJECT")
+    mode = send_row.get("MODE", CUSTOMER_MODE_DEFAULT)
+    session_status = send_row.get("STATUS", "completed")
 
+    preview_html = None
+    preview_error = None
     try:
-        context = _build_confirm_context(
-            file, subject,
-            default_controls()["batch_size"],
-            default_controls()["delay_ms"],
-        )
-    except Exception:
-        context = {
-            "file": file,
-            "subject": subject,
-            "recipient_count": 0,
-            "recipients": [],
-            "batch_size": default_controls()["batch_size"],
-            "delay_ms": default_controls()["delay_ms"],
-            "lint_report": {},
-            "lint_has_errors": False,
-            "lint_has_warnings": False,
-            "preview_html": None,
-            "preview_error": None,
-        }
+        candidate = resolve_campaign_path(file)
+        raw_html = load_campaign_html(candidate)
+        raw_html = ensure_unsubscribe(raw_html)
+        preview_html = render_for_test(raw_html, mode=mode)
+    except Exception as e:
+        preview_error = f"Unable to render campaign preview: {e}"
 
     log_stream_token = _generate_log_stream_token(mode, send_id)
-    context["sending"] = True
     return render_template(
         "confirm.html",
-        **context,
-        log_stream_token=log_stream_token,
+        file=file,
+        subject=subject,
         send_id=send_id,
         send_status=session_status,
+        sending=True,
+        preview_html=preview_html,
+        preview_error=preview_error,
+        log_stream_token=log_stream_token,
+        batch_size=int(send_row.get("BATCH_SIZE") or 25),
+        delay_ms=int(send_row.get("DELAY_MS") or 0),
+        cooldown_seconds=int(send_row.get("COOLDOWN_SECONDS") or 0),
+        recipient_count=int(send_row.get("TOTAL_RECIPIENTS") or 0),
+        sent_count=int(send_row.get("SENT_COUNT") or 0),
+        failed_count=int(send_row.get("FAILED_COUNT") or 0),
+        lint_report={},
+        lint_has_errors=False,
+        lint_has_warnings=False,
+        recipients=[],
+        estimated_send_time=None,
     )
 
 
@@ -2071,7 +2105,212 @@ def send_logs_json(send_id: str):
     })
 
 
-def _send_worker(send_id: str, file: str, subject: str, batch_size: int, delay_ms: int, mode: str):
+@app.get("/send/<send_id>/progress")
+def send_progress(send_id: str):
+    """Return accurate real-time progress from the database."""
+    row = dbmod.get_send_status(send_id)
+    if not row:
+        return jsonify({"error": "Send not found."}), 404
+    counts = dbmod.count_send_results(send_id)
+    return jsonify({
+        "send_id": send_id,
+        "status": row["STATUS"],
+        "total": int(row.get("TOTAL_RECIPIENTS") or 0),
+        "sent": int(row.get("SENT_COUNT") or 0),
+        "failed": int(row.get("FAILED_COUNT") or 0),
+        "pending": counts.get("pending", 0),
+        "batch_size": int(row.get("BATCH_SIZE") or 0),
+        "delay_ms": int(row.get("DELAY_MS") or 0),
+        "cooldown_seconds": int(row.get("COOLDOWN_SECONDS") or 0),
+        "started_at": row.get("STARTED_AT").isoformat() if row.get("STARTED_AT") else None,
+        "finished_at": row.get("FINISHED_AT").isoformat() if row.get("FINISHED_AT") else None,
+        "last_batch_at": row.get("LAST_BATCH_AT").isoformat() if row.get("LAST_BATCH_AT") else None,
+    })
+
+
+@app.post("/send/<send_id>/pause")
+def pause_send_route(send_id: str):
+    changed = dbmod.pause_send(send_id)
+    if not changed:
+        return jsonify({"ok": False, "message": "Send is not currently running."}), 409
+    sess = get_send_session(send_id)
+    if sess:
+        sess.status = "paused"
+        sess.bus.emit("⏸ Send paused by operator")
+    return jsonify({"ok": True, "status": "paused"})
+
+
+@app.post("/send/<send_id>/resume")
+def resume_send_route(send_id: str):
+    changed = dbmod.resume_send(send_id)
+    if not changed:
+        return jsonify({"ok": False, "message": "Send is not currently paused."}), 409
+    sess = get_send_session(send_id)
+    if sess:
+        sess.status = "running"
+        sess.bus.emit("▶ Send resumed by operator")
+    _ensure_scheduler()
+    return jsonify({"ok": True, "status": "running"})
+
+
+@app.post("/send/<send_id>/cancel")
+def cancel_send_route(send_id: str):
+    changed = dbmod.cancel_send(send_id)
+    if not changed:
+        return jsonify({"ok": False, "message": "Send cannot be cancelled in its current state."}), 409
+    sess = get_send_session(send_id)
+    if sess:
+        finish_send_session(send_id, "cancelled", sess.sent_count, sess.failed_count)
+        sess.bus.emit("✖ Send cancelled by operator")
+    return jsonify({"ok": True, "status": "cancelled"})
+
+
+@app.patch("/send/<send_id>/controls")
+def update_send_controls_route(send_id: str):
+    """Update batch_size, delay_ms, or cooldown_seconds mid-flight."""
+    data = request.get_json(silent=True) or {}
+    batch_size = data.get("batch_size")
+    delay_ms = data.get("delay_ms")
+    cooldown_seconds = data.get("cooldown_seconds")
+
+    if batch_size is not None:
+        batch_size = max(1, int(batch_size))
+    if delay_ms is not None:
+        delay_ms = max(0, int(delay_ms))
+    if cooldown_seconds is not None:
+        cooldown_seconds = max(0, int(cooldown_seconds))
+
+    row = dbmod.get_send_status(send_id)
+    if not row:
+        return jsonify({"ok": False, "message": "Send not found."}), 404
+    if row["STATUS"] not in ("running", "paused", "queued"):
+        return jsonify({"ok": False, "message": "Send is already finished."}), 409
+
+    dbmod.update_send_controls(
+        send_id,
+        batch_size=batch_size,
+        delay_ms=delay_ms,
+        cooldown_seconds=cooldown_seconds,
+    )
+    sess = get_send_session(send_id)
+    if sess and sess.bus:
+        parts = []
+        if batch_size is not None:
+            parts.append(f"batch_size={batch_size}")
+        if delay_ms is not None:
+            parts.append(f"delay={delay_ms}ms")
+        if cooldown_seconds is not None:
+            parts.append(f"cooldown={_format_cooldown(cooldown_seconds)}")
+        if parts:
+            sess.bus.emit(f"⚙ Controls updated: {', '.join(parts)}")
+
+    return jsonify({"ok": True})
+
+
+@app.get("/send/<send_id>/recipients")
+def send_recipients_route(send_id: str):
+    """Paginated list of recipients with their statuses."""
+    status_filter = request.args.get("status")
+    limit = int(request.args.get("limit", 50))
+    offset = int(request.args.get("offset", 0))
+    rows, total = dbmod.fetch_send_recipients_paginated(
+        send_id, status_filter=status_filter, limit=limit, offset=offset,
+    )
+    result = []
+    for r in rows:
+        entry = {
+            "id": r["ID"],
+            "email": r["EMAIL"],
+            "firstname": r.get("FIRSTNAME"),
+            "lastname": r.get("LASTNAME"),
+            "status": r["STATUS"],
+            "error": r.get("ERROR_MESSAGE"),
+        }
+        at = r.get("ATTEMPTED_AT")
+        entry["attempted_at"] = at.isoformat() if at else None
+        result.append(entry)
+    return jsonify({"recipients": result, "total": total, "limit": limit, "offset": offset})
+
+
+@app.get("/scheduler/health")
+def scheduler_health():
+    """Return scheduler heartbeat for dashboard indicator."""
+    thread_alive = _scheduler_thread is not None and _scheduler_thread.is_alive()
+    if _scheduler_last_tick is not None:
+        seconds_since = time.monotonic() - _scheduler_last_tick
+    else:
+        seconds_since = None
+    alive = thread_alive and seconds_since is not None and seconds_since < (SCHEDULER_POLL_INTERVAL * 2)
+    return jsonify({
+        "alive": alive,
+        "seconds_since_last_tick": round(seconds_since, 1) if seconds_since is not None else None,
+        "poll_interval": SCHEDULER_POLL_INTERVAL,
+        "thread_alive": thread_alive,
+    })
+
+
+@app.get("/api/active-send")
+def active_send_api():
+    """Return the currently running/queued send for the dashboard banner."""
+    row = dbmod.fetch_active_send()
+    if not row:
+        return jsonify({"send_id": None})
+    return jsonify({
+        "send_id": row["SEND_ID"],
+        "campaign_file": row["CAMPAIGN_FILE"],
+        "subject": row.get("SUBJECT"),
+        "status": row["STATUS"],
+        "total_recipients": int(row.get("TOTAL_RECIPIENTS") or 0),
+        "sent_count": int(row.get("SENT_COUNT") or 0),
+        "failed_count": int(row.get("FAILED_COUNT") or 0),
+    })
+
+
+def _ensure_scheduler():
+    """Start the scheduler thread if it is not already running."""
+    global _scheduler_thread
+    if _scheduler_thread is not None and _scheduler_thread.is_alive():
+        return
+    _scheduler_thread = threading.Thread(target=_scheduler_loop, daemon=True)
+    _scheduler_thread.start()
+
+
+def _scheduler_loop():
+    """Persistent background loop that polls MySQL for sends needing work."""
+    global _scheduler_last_tick
+    worker_id = f"{socket.gethostname()}:{os.getpid()}"
+    while True:
+        time.sleep(SCHEDULER_POLL_INTERVAL)
+        _scheduler_last_tick = time.monotonic()
+        try:
+            evict_stale_sessions()
+            with app.app_context():
+                sends = dbmod.fetch_ready_sends()
+                for send_row in sends:
+                    send_id = send_row["SEND_ID"]
+                    if not dbmod.claim_send(send_id, worker_id):
+                        continue
+                    try:
+                        _process_one_batch(send_row)
+                    except Exception:
+                        app.logger.exception("Error processing batch for send %s", send_id)
+                    finally:
+                        dbmod.release_claim(send_id)
+        except Exception:
+            app.logger.exception("Scheduler tick failed; will retry next tick")
+
+
+def _process_one_batch(send_row: dict):
+    """Process a single batch for one send. Called by the scheduler."""
+    send_id = send_row["SEND_ID"]
+    file = send_row["CAMPAIGN_FILE"]
+    subject = send_row.get("SUBJECT") or ""
+    mode = send_row.get("MODE", CUSTOMER_MODE_DEFAULT)
+    batch_size = int(send_row.get("BATCH_SIZE") or 25)
+    delay_ms = int(send_row.get("DELAY_MS") or 0)
+    sent_count = int(send_row.get("SENT_COUNT") or 0)
+    failed_count = int(send_row.get("FAILED_COUNT") or 0)
+
     sess = get_send_session(send_id)
     bus = sess.bus if sess else None
 
@@ -2079,75 +2318,89 @@ def _send_worker(send_id: str, file: str, subject: str, batch_size: int, delay_m
         if bus:
             bus.emit(text)
 
+    batch = dbmod.fetch_pending_recipients(send_id, limit=batch_size)
+    if not batch:
+        emit(f"Done. Sent {sent_count}/{send_row.get('TOTAL_RECIPIENTS', 0)}.")
+        dbmod.update_campaign_send_finished(send_id, "completed", sent_count, failed_count)
+        if sess:
+            finish_send_session(send_id, "completed", sent_count, failed_count)
+        return
+
     dbmod.set_customer_table_mode(mode)
-    sent = 0
-    failed = 0
     try:
         candidate = resolve_campaign_path(file)
         raw_html = load_campaign_html(candidate)
         raw_html = ensure_unsubscribe(raw_html)
-        if "{{ unsubscribe_url }}" not in raw_html and "{{ UNSUBSCRIBE_URL }}" not in raw_html:
-            emit("⚠ No unsubscribe placeholder present after ensure_unsubscribe()")
-        smtp = SmtpClient()
-        rows = dbmod.fetch_subscribed_customers()
-        total = len(rows)
-        emit(f"Starting send: {total} recipients; batch_size={batch_size}; delay={delay_ms}ms")
 
-        idx = 0
-        while idx < total:
-            batch = rows[idx: idx + batch_size]
-            emit(f"Batch {idx // batch_size + 1}: {len(batch)} recipients")
+        smtp = SmtpClient()
+        emit(f"Batch: {len(batch)} recipients (batch_size={batch_size}, delay={delay_ms}ms)")
+
+        with smtp.open_connection() as conn:
             for r in batch:
+                result_id = r["ID"]
                 to_addr = r["EMAIL"].strip()
                 firstname = r.get("FIRSTNAME")
                 lastname = r.get("LASTNAME")
+                custid = r.get("CUSTID")
+
                 try:
-                    token = dbmod.ensure_unsubscribe_token(r.get("CUSTID"), r.get("UNSUBSCRIBE_TOKEN"))
+                    token = dbmod.ensure_unsubscribe_token(custid, None)
                 except Exception as e:
                     emit(f"✖ Missing unsubscribe token for {to_addr}: {e}")
-                    failed += 1
-                    try:
-                        dbmod.insert_send_result(send_id, to_addr, firstname, lastname, "failed", str(e))
-                    except Exception:
-                        pass
+                    failed_count += 1
+                    dbmod.mark_recipient_failed(result_id, str(e))
                     continue
 
-                html = render_for_recipient(
-                    raw_html,
-                    firstname,
-                    lastname,
-                    token,
-                    mode=mode,
-                )
+                html = render_for_recipient(raw_html, firstname, lastname, token, mode=mode)
                 try:
                     msg = smtp.build_message(to_addr, subject, html)
-                    smtp.send(msg, delay_ms=delay_ms)
-                    sent += 1
+                    conn.send(msg, delay_ms=delay_ms)
+                    sent_count += 1
                     emit(f"✔ Sent to {to_addr}")
-                    try:
-                        dbmod.insert_send_result(send_id, to_addr, firstname, lastname, "sent")
-                    except Exception:
-                        pass
+                    dbmod.mark_recipient_sent(result_id)
                 except Exception as e:
-                    failed += 1
+                    failed_count += 1
                     emit(f"✖ Failed for {to_addr}: {e}")
-                    try:
-                        dbmod.insert_send_result(send_id, to_addr, firstname, lastname, "failed", str(e))
-                    except Exception:
-                        pass
-            idx += batch_size
-        emit(f"Done. Sent {sent}/{total}.")
-        final_status = "completed"
-    except Exception as e:
-        emit(f"Fatal error: {e}")
-        final_status = "failed"
+                    dbmod.mark_recipient_failed(result_id, str(e))
+
+        dbmod.update_send_progress(send_id, sent_count, failed_count)
+        if sess:
+            sess.sent_count = sent_count
+            sess.failed_count = failed_count
+
+        remaining = dbmod.fetch_pending_recipients(send_id, limit=1)
+        if not remaining:
+            total = int(send_row.get("TOTAL_RECIPIENTS") or 0)
+            emit(f"Done. Sent {sent_count}/{total}.")
+            dbmod.update_campaign_send_finished(send_id, "completed", sent_count, failed_count)
+            if sess:
+                finish_send_session(send_id, "completed", sent_count, failed_count)
     finally:
-        finish_send_session(send_id, final_status, sent, failed)
-        try:
-            dbmod.update_campaign_send_finished(send_id, final_status, sent, failed)
-        except Exception:
-            pass
         dbmod.clear_customer_table_mode()
+
+
+def _format_cooldown(seconds: int) -> str:
+    if seconds <= 0:
+        return "none"
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    remaining = seconds % 60
+    if remaining:
+        return f"{minutes}m {remaining}s"
+    return f"{minutes}m"
+
+
+def _format_duration(seconds: int) -> str:
+    if seconds < 60:
+        return "under 1 minute"
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    if hours and minutes:
+        return f"~{hours}h {minutes}m"
+    if hours:
+        return f"~{hours}h"
+    return f"~{minutes}m"
 
 
 @app.get("/logs/stream")
@@ -2220,12 +2473,57 @@ def campaign_history_detail(send_id: str):
 
 
 
+def _is_gunicorn():
+    return "gunicorn" in os.getenv("SERVER_SOFTWARE", "")
+
+
 with app.app_context():
     try:
         dbmod.ensure_campaign_tables()
     except Exception as exc:
         print(f"WARNING: Could not create campaign history tables: {exc}", file=sys.stderr)
 
+    server_software = os.getenv("SERVER_SOFTWARE", "").strip()
+    if SEND_SCHEDULER_ENABLED and (_is_gunicorn() or APP_ENV != "production"):
+        app.logger.info(
+            "Starting send scheduler thread",
+            extra={
+                "app_env": APP_ENV,
+                "server_software": server_software,
+                "scheduler_enabled": SEND_SCHEDULER_ENABLED,
+            },
+        )
+        _ensure_scheduler()
+    else:
+        app.logger.info(
+            "Send scheduler startup skipped",
+            extra={
+                "app_env": APP_ENV,
+                "server_software": server_software,
+                "scheduler_enabled": SEND_SCHEDULER_ENABLED,
+            },
+        )
+
 
 if __name__ == "__main__":
+    server_software = os.getenv("SERVER_SOFTWARE", "").strip()
+    if SEND_SCHEDULER_ENABLED:
+        app.logger.info(
+            "Starting send scheduler thread in __main__",
+            extra={
+                "app_env": APP_ENV,
+                "server_software": server_software,
+                "scheduler_enabled": SEND_SCHEDULER_ENABLED,
+            },
+        )
+        _ensure_scheduler()
+    else:
+        app.logger.info(
+            "Send scheduler disabled by SEND_SCHEDULER_ENABLED in __main__",
+            extra={
+                "app_env": APP_ENV,
+                "server_software": server_software,
+                "scheduler_enabled": SEND_SCHEDULER_ENABLED,
+            },
+        )
     app.run(debug=True, use_reloader=False, threaded=True)
