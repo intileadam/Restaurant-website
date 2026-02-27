@@ -1,9 +1,14 @@
 {% extends 'base.html' %} {% block content %}
 <section class="hero hero-utility">
   <div class="hero-copy">
-    <p class="eyebrow">Records</p>
-    <h2>Campaign history</h2>
-    <p>Review past campaign sends, delivery results, and per-recipient outcomes.</p>
+    <p class="eyebrow">Campaigns</p>
+    <h2>Campaigns</h2>
+    <p>See past campaigns, monitor in-progress sends, and schedule new campaigns.</p>
+    <div style="margin-top:0.75rem">
+      <a href="{{ url_for('index') }}" class="button accent">
+        Schedule new campaign
+      </a>
+    </div>
   </div>
 </section>
 
@@ -27,13 +32,15 @@
 {% if sends %}
 <div class="history-list">
   {% for send in sends %}
+  {% set display_name = send.CAMPAIGN_NAME or send.CAMPAIGN_FILE %}
   <a href="{{ url_for('campaign_history_detail', send_id=send.SEND_ID) }}" class="card history-card">
     <div class="history-card__header">
       <div class="history-card__title">
-        <h3>{{ send.CAMPAIGN_FILE }}</h3>
-        {% if send.SUBJECT %}
-        <p class="muted history-card__subject">{{ send.SUBJECT }}</p>
-        {% endif %}
+        <h3>{{ display_name }}</h3>
+        <p class="muted history-card__subject">
+          File: {{ send.CAMPAIGN_FILE }}
+          {% if send.SUBJECT %} · Subject: {{ send.SUBJECT }}{% endif %}
+        </p>
       </div>
       <div class="history-card__badges">
         <span class="badge badge--{{ send.MODE }}">{{ send.MODE|capitalize }}</span>

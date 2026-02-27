@@ -2,14 +2,17 @@
 {% set sent_count = send.SENT_COUNT|int %}
 {% set failed_count = send.FAILED_COUNT|int %}
 {% set total = send.TOTAL_RECIPIENTS|int %}
+{% set pending_count = (total - sent_count - failed_count)|int %}
+{% set attempted = (sent_count + failed_count)|int %}
 <div class="history-detail">
   <section class="hero hero-utility">
     <div class="hero-copy">
       <p class="eyebrow">Campaign detail</p>
-      <h2>{{ send.CAMPAIGN_FILE }}</h2>
-      {% if send.SUBJECT %}
-      <p>{{ send.SUBJECT }}</p>
-      {% endif %}
+      <h2>{{ send.CAMPAIGN_NAME or send.CAMPAIGN_FILE }}</h2>
+      <p class="muted">
+        File: {{ send.CAMPAIGN_FILE }}
+        {% if send.SUBJECT %} · Subject: {{ send.SUBJECT }}{% endif %}
+      </p>
     </div>
     <div class="confirm-meta">
       <div class="confirm-meta__item">
@@ -66,10 +69,14 @@
           <span class="history-summary__stat-value history-summary__stat-value--failed">{{ failed_count }}</span>
           <span class="history-summary__stat-label">Failed</span>
         </div>
-        {% if total > 0 %}
         <div class="history-summary__stat">
-          <span class="history-summary__stat-value">{{ ((sent_count / total) * 100)|round(1) }}%</span>
-          <span class="history-summary__stat-label">Success rate</span>
+          <span class="history-summary__stat-value">{{ pending_count if pending_count > 0 else 0 }}</span>
+          <span class="history-summary__stat-label">Pending</span>
+        </div>
+        {% if attempted > 0 %}
+        <div class="history-summary__stat">
+          <span class="history-summary__stat-value">{{ ((sent_count / attempted) * 100)|round(1) }}%</span>
+          <span class="history-summary__stat-label">Success rate (of attempted)</span>
         </div>
         {% endif %}
       </div>
@@ -128,7 +135,13 @@
               <td>{{ r.FIRSTNAME or '—' }}</td>
               <td>{{ r.LASTNAME or '—' }}</td>
               <td>
-                <span class="badge badge--{{ r.STATUS }}">{{ r.STATUS|capitalize }}</span>
+                {% set status_class = 'status-pill muted' %}
+                {% if r.STATUS == 'sent' %}
+                  {% set status_class = 'status-pill success' %}
+                {% elif r.STATUS == 'failed' %}
+                  {% set status_class = 'status-pill danger' %}
+                {% endif %}
+                <span class="{{ status_class }}">{{ r.STATUS|capitalize }}</span>
               </td>
               <td class="history-results__error">{{ r.ERROR_MESSAGE or '—' }}</td>
             </tr>

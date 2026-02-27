@@ -1914,6 +1914,8 @@ def _build_confirm_context(file: str, subject: str | None, batch_size: int, dela
         "batch_size": batch_size,
         "delay_ms": delay_ms,
         "cooldown_seconds": cooldown_seconds,
+        "delay_seconds": int(delay_ms / 1000) if delay_ms else 0,
+        "cooldown_minutes": int(cooldown_seconds / 60) if cooldown_seconds else 0,
         "lint_report": lint_report,
         "lint_has_errors": lint_has_errors,
         "lint_has_warnings": lint_has_warnings,
@@ -1926,10 +1928,19 @@ def _build_confirm_context(file: str, subject: str | None, batch_size: int, dela
 def confirm():
     file = (request.args.get("file") or "").strip()
     subject = request.args.get("subject")
+    campaign_name = (request.args.get("campaign_name") or "").strip() or None
     defaults = default_controls()
     batch_size = int(request.args.get("batch_size", defaults["batch_size"]))
-    delay_ms = int(request.args.get("delay_ms", defaults["delay_ms"]))
-    cooldown_seconds = int(request.args.get("cooldown_seconds", defaults["batch_cooldown_seconds"]))
+    # Interpret delay as seconds in the UI, convert to ms for internal use.
+    delay_seconds = _parse_int(request.args.get("delay_seconds"), int(defaults["delay_ms"] / 1000), minimum=0)
+    delay_ms = delay_seconds * 1000
+    # Interpret cooldown as minutes in the UI, convert to seconds for internal use.
+    cooldown_minutes = _parse_int(
+        request.args.get("cooldown_minutes"),
+        int(defaults["batch_cooldown_seconds"] / 60),
+        minimum=0,
+    )
+    cooldown_seconds = cooldown_minutes * 60
 
     if not file:
         flash("No campaign file was selected.", "error")
@@ -1950,7 +1961,13 @@ def confirm():
         flash("Resolve lint errors before queuing the campaign.", "error")
         return redirect(url_for("index"))
 
-    return render_template("confirm.html", **context, sending=False, log_stream_token=None)
+    return render_template(
+        "confirm.html",
+        **context,
+        campaign_name=campaign_name,
+        sending=False,
+        log_stream_token=None,
+    )
 
 
 @app.post("/send")
@@ -1958,10 +1975,18 @@ def confirm():
 def queue_campaign():
     file = (request.form.get("file") or "").strip()
     subject = request.form.get("subject")
+    campaign_name = (request.form.get("campaign_name") or "").strip() or None
     defaults = default_controls()
     batch_size = int(request.form.get("batch_size", defaults["batch_size"]))
-    delay_ms = int(request.form.get("delay_ms", defaults["delay_ms"]))
-    cooldown_seconds = int(request.form.get("cooldown_seconds", defaults["batch_cooldown_seconds"]))
+    # Form accepts delay in seconds and cooldown in minutes; normalize to internal units.
+    delay_seconds = _parse_int(request.form.get("delay_seconds"), int(defaults["delay_ms"] / 1000), minimum=0)
+    delay_ms = delay_seconds * 1000
+    cooldown_minutes = _parse_int(
+        request.form.get("cooldown_minutes"),
+        int(defaults["batch_cooldown_seconds"] / 60),
+        minimum=0,
+    )
+    cooldown_seconds = cooldown_minutes * 60
 
     if not file:
         flash("No campaign file was selected.", "error")
@@ -2003,7 +2028,12 @@ def queue_campaign():
 
     try:
         dbmod.insert_campaign_send(
-            send_id, file, subject, mode, total,
+            send_id,
+            file,
+            subject,
+            campaign_name,
+            mode,
+            total,
             batch_size=batch_size,
             delay_ms=delay_ms,
             cooldown_seconds=cooldown_seconds,
@@ -2030,6 +2060,7 @@ def send_status(send_id: str):
 
     file = send_row["CAMPAIGN_FILE"]
     subject = send_row.get("SUBJECT")
+    campaign_name = send_row.get("CAMPAIGN_NAME")
     mode = send_row.get("MODE", CUSTOMER_MODE_DEFAULT)
     session_status = send_row.get("STATUS", "completed")
 
@@ -2043,17 +2074,16 @@ def send_status(send_id: str):
     except Exception as e:
         preview_error = f"Unable to render campaign preview: {e}"
 
-    log_stream_token = _generate_log_stream_token(mode, send_id)
     return render_template(
         "confirm.html",
         file=file,
         subject=subject,
+        campaign_name=campaign_name,
         send_id=send_id,
         send_status=session_status,
         sending=True,
         preview_html=preview_html,
         preview_error=preview_error,
-        log_stream_token=log_stream_token,
         batch_size=int(send_row.get("BATCH_SIZE") or 25),
         delay_ms=int(send_row.get("DELAY_MS") or 0),
         cooldown_seconds=int(send_row.get("COOLDOWN_SECONDS") or 0),
@@ -2259,6 +2289,7 @@ def active_send_api():
         "send_id": row["SEND_ID"],
         "campaign_file": row["CAMPAIGN_FILE"],
         "subject": row.get("SUBJECT"),
+        "campaign_name": row.get("CAMPAIGN_NAME"),
         "status": row["STATUS"],
         "total_recipients": int(row.get("TOTAL_RECIPIENTS") or 0),
         "sent_count": int(row.get("SENT_COUNT") or 0),

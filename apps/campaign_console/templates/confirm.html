@@ -4,12 +4,20 @@
   <section class="hero hero-utility confirm-hero">
     <div class="hero-copy">
       <p class="eyebrow">{% if sending %}Campaign progress{% else %}Queue campaign{% endif %}</p>
-      <h2>{% if sending %}{{ file }}{% else %}Confirm campaign{% endif %}</h2>
+      <h2>
+        {% if campaign_name %}
+          {{ campaign_name }}
+        {% elif sending %}
+          {{ file }}
+        {% else %}
+          Confirm campaign
+        {% endif %}
+      </h2>
       <p>{% if sending %}Track progress, adjust pacing, or pause/cancel the send.{% else %}Review the content, pacing, and recipients before queuing.{% endif %}</p>
     </div>
     <div class="confirm-meta">
       <div class="confirm-meta__item">
-        <p class="eyebrow">Campaign</p>
+        <p class="eyebrow">Campaign file</p>
         <p class="confirm-meta__value">{{ file }}</p>
       </div>
       <div class="confirm-meta__item">
@@ -63,6 +71,9 @@
           <span>Failed: <strong id="progressFailed">{{ failed_count|default(0) }}</strong></span>
           <span>Pending: <strong id="progressPending">—</strong></span>
         </div>
+        <p class="muted" id="nextBatchInfo" style="margin-top:0.35rem;font-size:0.8rem;">
+          Next batch timing will appear here when there is pending work.
+        </p>
       </div>
 
       <div class="confirm-form-grid" id="controlsForm">
@@ -71,22 +82,15 @@
           <input type="number" id="ctrlBatchSize" min="1" value="{{ batch_size }}" />
         </label>
         <label>
-          <span>Delay per email (ms)</span>
+          <span>Delay per email (seconds)</span>
           <input type="number" id="ctrlDelayMs" min="0" value="{{ delay_ms }}" />
         </label>
         <label>
-          <span>Cooldown between batches (s)</span>
+          <span>Cooldown between batches (minutes)</span>
           <input type="number" id="ctrlCooldown" min="0" value="{{ cooldown_seconds }}" />
         </label>
         <button type="button" class="button secondary" id="btnSaveControls" {% if (send_status or "running") in ('completed', 'failed', 'cancelled') %}disabled{% endif %}>Save controls</button>
       </div>
-    </section>
-
-    <section id="sendLogSection" class="card send-log confirm-send-log">
-      <h3>Send log</h3>
-      <p class="eyebrow">Campaign: {{ file }}{% if subject %} · Subject: {{ subject }}{% endif %}</p>
-      <pre id="confirmSendLog" tabindex="-1" class="send-log__output"></pre>
-      <p id="sendLogFooter" class="muted">You can safely navigate away — the send continues in the background.</p>
     </section>
 
     <section class="card confirm-recipients" id="recipientListSection">
@@ -250,6 +254,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <input type="hidden" name="file" value="{{ file }}" />
         <input type="hidden" name="subject" value="{{ subject }}" />
+        <input type="hidden" name="campaign_name" value="{{ campaign_name or '' }}" />
 
         <div class="confirm-form-grid">
           <label>
@@ -257,19 +262,22 @@
             <input type="number" name="batch_size" min="1" value="{{ batch_size }}" />
           </label>
           <label>
-            <span>Delay per email (ms)</span>
-            <input type="number" name="delay_ms" min="0" value="{{ delay_ms }}" />
+            <span>Delay per email (seconds)</span>
+            <input type="number" name="delay_seconds" min="0" value="{{ delay_seconds }}" />
           </label>
           <label>
-            <span>Cooldown between batches (seconds)</span>
-            <input type="number" name="cooldown_seconds" min="0" value="{{ cooldown_seconds }}" />
+            <span>Cooldown between batches (minutes)</span>
+            <input type="number" name="cooldown_minutes" min="0" value="{{ cooldown_minutes }}" />
           </label>
         </div>
 
         {% if estimated_send_time %}
         <p class="confirm-estimate muted">
-          Estimated total send time: <strong>{{ estimated_send_time }}</strong>
-          for {{ recipient_count }} recipient{{ "s" if recipient_count != 1 else "" }}.
+          Estimated total send time:
+          <strong id="estimatedSendTime">{{ estimated_send_time }}</strong>
+          for
+          <span id="estimatedRecipientCount">{{ recipient_count }}</span>
+          recipient{{ "s" if recipient_count != 1 else "" }}.
           The send runs in the background — you can sign out and return later.
         </p>
         {% endif %}
@@ -369,6 +377,7 @@
   const ctrlBatchSize = document.getElementById("ctrlBatchSize");
   const ctrlDelayMs = document.getElementById("ctrlDelayMs");
   const ctrlCooldown = document.getElementById("ctrlCooldown");
+  const nextBatchInfo = document.getElementById("nextBatchInfo");
 
   let currentStatus = {{ (send_status or "running")|tojson }};
   let pollTimer = null;
@@ -408,13 +417,62 @@
       progressSent.textContent = sent;
       progressFailed.textContent = failed;
       progressPending.textContent = pending;
-
       if (d.batch_size && ctrlBatchSize && !ctrlBatchSize.matches(":focus"))
         ctrlBatchSize.value = d.batch_size;
       if (d.delay_ms != null && ctrlDelayMs && !ctrlDelayMs.matches(":focus"))
-        ctrlDelayMs.value = d.delay_ms;
+        ctrlDelayMs.value = Math.round(d.delay_ms / 1000);
       if (d.cooldown_seconds != null && ctrlCooldown && !ctrlCooldown.matches(":focus"))
-        ctrlCooldown.value = d.cooldown_seconds;
+        ctrlCooldown.value = Math.round(d.cooldown_seconds / 60);
+
+      if (nextBatchInfo) {
+        const status = d.status || "";
+        if ((status === "running" || status === "paused" || status === "queued") && pending > 0) {
+          const cooldownSeconds = d.cooldown_seconds || 0;
+          if (!cooldownSeconds) {
+            nextBatchInfo.textContent = "Batches are continuous; the next batch starts immediately.";
+          } else {
+            const lastBatchAt = d.last_batch_at ? new Date(d.last_batch_at) : null;
+            let nextTime = null;
+            if (lastBatchAt && !Number.isNaN(lastBatchAt.getTime())) {
+              nextTime = new Date(lastBatchAt.getTime() + cooldownSeconds * 1000);
+            } else if (d.started_at) {
+              const startedAt = new Date(d.started_at);
+              if (!Number.isNaN(startedAt.getTime())) {
+                nextTime = new Date(startedAt.getTime() + cooldownSeconds * 1000);
+              }
+            }
+            if (nextTime) {
+              const now = new Date();
+              const deltaMs = nextTime.getTime() - now.getTime();
+              if (deltaMs <= 0) {
+                nextBatchInfo.textContent = "Next batch is ready to send.";
+              } else {
+                const deltaSec = Math.round(deltaMs / 1000);
+                if (deltaSec < 60) {
+                  nextBatchInfo.textContent = "Next batch in under 1 minute.";
+                } else {
+                  const minutes = Math.round(deltaSec / 60);
+                  const hours = Math.floor(minutes / 60);
+                  const remMinutes = minutes % 60;
+                  if (hours) {
+                    if (remMinutes) {
+                      nextBatchInfo.textContent = `Next batch in ~${hours}h ${remMinutes}m.`;
+                    } else {
+                      nextBatchInfo.textContent = `Next batch in ~${hours}h.`;
+                    }
+                  } else {
+                    nextBatchInfo.textContent = `Next batch in ~${minutes}m.`;
+                  }
+                }
+              }
+            } else {
+              nextBatchInfo.textContent = "Next batch will start shortly.";
+            }
+          }
+        } else {
+          nextBatchInfo.textContent = "No additional batches are scheduled.";
+        }
+      }
 
       updateButtons(d.status);
     } catch (err) {
@@ -455,8 +513,8 @@
       btnSaveControls.textContent = "Saving...";
       const body = {
         batch_size: parseInt(ctrlBatchSize.value, 10) || 1,
-        delay_ms: parseInt(ctrlDelayMs.value, 10) || 0,
-        cooldown_seconds: parseInt(ctrlCooldown.value, 10) || 0,
+        delay_ms: (parseInt(ctrlDelayMs.value, 10) || 0) * 1000,
+        cooldown_seconds: (parseInt(ctrlCooldown.value, 10) || 0) * 60,
       };
       await fetch(`/send/${encodeURIComponent(sendId)}/controls`, {
         method: "PATCH",
@@ -506,13 +564,19 @@
     } else {
       recipientTableBody.innerHTML = rows.map((r, i) => {
         const idx = recipientOffset + i + 1;
-        const statusClass = r.status === "sent" ? "status-active" : r.status === "failed" ? "status-inactive" : "";
+        const statusPillClass =
+          r.status === "sent"
+            ? "status-pill success"
+            : r.status === "failed"
+            ? "status-pill danger"
+            : "status-pill muted";
+        const statusLabel = (r.status || "").charAt(0).toUpperCase() + (r.status || "").slice(1);
         return `<tr>
           <td>${idx}</td>
           <td>${escapeHtml(r.email)}</td>
           <td>${escapeHtml(r.firstname || "")}</td>
           <td>${escapeHtml(r.lastname || "")}</td>
-          <td class="${statusClass}">${r.status}</td>
+          <td><span class="${statusPillClass}">${escapeHtml(statusLabel)}</span></td>
           <td>${escapeHtml(r.error || "")}</td>
         </tr>`;
       }).join("");
@@ -545,83 +609,7 @@
   loadRecipients();
   setInterval(loadRecipients, 10000);
 
-  /* ── SSE log stream (supplementary) ───────────────────────── */
-  const log = document.getElementById("confirmSendLog");
-  const footer = document.getElementById("sendLogFooter");
-  if (!log) return;
-
-  const initialStatus = {{ (send_status or "running")|tojson }};
-
-  const appendLog = (text) => {
-    if (!text) return;
-    const needsNewline = log.textContent && !log.textContent.endsWith("\n");
-    log.textContent += (needsNewline ? "\n" : "") + text + "\n";
-    log.scrollTop = log.scrollHeight;
-  };
-
-  const markComplete = () => {
-    if (footer) footer.textContent = "Send complete. You may navigate away from this page.";
-  };
-
-  const logStreamToken = {{ log_stream_token|tojson }};
-
-  if (initialStatus !== "running" && initialStatus !== "paused" && initialStatus !== "queued") {
-    if (sendId) {
-      fetch("/send/" + encodeURIComponent(sendId) + "/logs")
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.logs) data.logs.forEach((line) => appendLog(line));
-          markComplete();
-        })
-        .catch(() => appendLog("Unable to load historical log data."));
-    } else {
-      appendLog("Send already finished.");
-      markComplete();
-    }
-    return;
-  }
-
-  if (!logStreamToken) {
-    appendLog("Live log stream unavailable. Progress is tracked above.");
-    return;
-  }
-
-  const baseStreamUrl = {{ url_for("logs_stream")|tojson }};
-  const streamUrl = baseStreamUrl + (baseStreamUrl.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(logStreamToken);
-
-  let currentEs = null;
-  let done = false;
-  let retryDelay = 2000;
-  const MAX_RETRY_DELAY = 30000;
-
-  const connect = () => {
-    if (done) return;
-    const es = new EventSource(streamUrl);
-    currentEs = es;
-    es.onmessage = (event) => {
-      if (event.data === "__DONE__") {
-        done = true;
-        try { es.close(); } catch (e) {}
-        markComplete();
-        return;
-      }
-      appendLog(event.data);
-      retryDelay = 2000;
-    };
-    es.onerror = () => {
-      try { es.close(); } catch (e) {}
-      if (done) return;
-      setTimeout(connect, retryDelay);
-      retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
-    };
-  };
-
-  connect();
-
-  window.addEventListener("beforeunload", () => {
-    done = true;
-    try { if (currentEs) currentEs.close(); } catch (err) {}
-  });
+  })();
 })();
 </script>
 {% endif %}

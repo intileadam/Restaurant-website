@@ -17,7 +17,7 @@
         class="button outline hero-upload-button"
         id="openManageModal"
       >
-        Manage campaigns
+        Manage campaign files
       </button>
       <span id="schedulerIndicator" style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.85rem;color:var(--color-muted,#888)">
         <span id="schedulerDot" style="width:8px;height:8px;border-radius:50%;background:#888;display:inline-block"></span>
@@ -156,6 +156,14 @@
       <form method="get" action="/confirm" class="form-grid">
         <input type="hidden" name="file" id="sendFileInput" data-sync="file" />
 
+        <label for="campaign_name">Campaign name</label>
+        <input
+          type="text"
+          id="campaign_name"
+          name="campaign_name"
+          placeholder="e.g., June newsletter, Holiday promo"
+        />
+
         <label for="subject2">Subject</label>
         <input
           type="text"
@@ -172,7 +180,7 @@
           data-requires-clean-lint
           disabled
         >
-          Review &amp; confirm
+          Next: Configure sending
         </button>
         <p class="lint-status" data-lint-status="live" hidden></p>
       </form>
@@ -1326,8 +1334,8 @@
           schedulerDot.style.background = "#2ecc71";
           schedulerLabel.textContent = "Scheduler active";
         } else {
-          schedulerDot.style.background = "#c0392b";
-          schedulerLabel.textContent = "Scheduler down";
+          schedulerDot.style.background = "#f39c12";
+          schedulerLabel.textContent = "Scheduler idle (no active work)";
         }
       } catch {
         schedulerDot.style.background = "#888";
@@ -1350,7 +1358,8 @@
         if (!resp.ok) throw new Error();
         const data = await resp.json();
         if (data.send_id) {
-          activeSendFile.textContent = data.campaign_file || "Campaign";
+          const name = data.campaign_name || data.campaign_file || "Campaign";
+          activeSendFile.textContent = name;
           const sent = data.sent_count || 0;
           const total = data.total_recipients || 0;
           activeSendProgress.textContent = ` — ${data.status} (${sent}/${total} sent)`;

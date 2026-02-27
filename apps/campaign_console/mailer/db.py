@@ -697,6 +697,7 @@ def ensure_campaign_tables():
             SEND_ID          VARCHAR(32)  NOT NULL PRIMARY KEY,
             CAMPAIGN_FILE    VARCHAR(255) NOT NULL,
             SUBJECT          VARCHAR(500) NULL,
+            CAMPAIGN_NAME    VARCHAR(255) NULL,
             MODE             VARCHAR(20)  NOT NULL,
             TOTAL_RECIPIENTS INT          NOT NULL DEFAULT 0,
             SENT_COUNT       INT          NOT NULL DEFAULT 0,
@@ -714,6 +715,7 @@ def ensure_campaign_tables():
         )
         """)
         _migrate_columns = [
+            ("CAMPAIGN_NAME", "VARCHAR(255) NULL"),
             ("BATCH_SIZE", "INT NULL"),
             ("DELAY_MS", "INT NULL"),
             ("COOLDOWN_SECONDS", "INT NULL"),
@@ -778,6 +780,7 @@ def insert_campaign_send(
     send_id: str,
     campaign_file: str,
     subject: str | None,
+    campaign_name: str | None,
     mode: str,
     total_recipients: int,
     *,
@@ -792,12 +795,12 @@ def insert_campaign_send(
         cur.execute(
         """
         INSERT INTO CAMPAIGN_SENDS
-            (SEND_ID, CAMPAIGN_FILE, SUBJECT, MODE, TOTAL_RECIPIENTS,
+            (SEND_ID, CAMPAIGN_FILE, SUBJECT, CAMPAIGN_NAME, MODE, TOTAL_RECIPIENTS,
              STATUS, QUEUED_AT, BATCH_SIZE, DELAY_MS, COOLDOWN_SECONDS)
         VALUES
-            (%s, %s, %s, %s, %s, 'queued', UTC_TIMESTAMP(), %s, %s, %s)
+            (%s, %s, %s, %s, %s, %s, 'queued', UTC_TIMESTAMP(), %s, %s, %s)
         """,
-        (send_id, campaign_file, subject, mode, total_recipients,
+        (send_id, campaign_file, subject, campaign_name, mode, total_recipients,
          batch_size, delay_ms, cooldown_seconds),
         )
     finally:
@@ -980,10 +983,22 @@ def get_send_status(send_id: str) -> dict | None:
     try:
         cur.execute(
         """
-        SELECT SEND_ID, CAMPAIGN_FILE, SUBJECT, MODE,
-               TOTAL_RECIPIENTS, SENT_COUNT, FAILED_COUNT, STATUS,
-               QUEUED_AT, STARTED_AT, FINISHED_AT, LAST_BATCH_AT,
-               BATCH_SIZE, DELAY_MS, COOLDOWN_SECONDS
+        SELECT SEND_ID,
+               CAMPAIGN_FILE,
+               SUBJECT,
+               CAMPAIGN_NAME,
+               MODE,
+               TOTAL_RECIPIENTS,
+               SENT_COUNT,
+               FAILED_COUNT,
+               STATUS,
+               QUEUED_AT,
+               STARTED_AT,
+               FINISHED_AT,
+               LAST_BATCH_AT,
+               BATCH_SIZE,
+               DELAY_MS,
+               COOLDOWN_SECONDS
         FROM CAMPAIGN_SENDS
         WHERE SEND_ID = %s
         """,
@@ -1286,8 +1301,14 @@ def fetch_active_send() -> dict | None:
     try:
         cur.execute(
         """
-        SELECT SEND_ID, CAMPAIGN_FILE, SUBJECT, STATUS,
-               TOTAL_RECIPIENTS, SENT_COUNT, FAILED_COUNT
+        SELECT SEND_ID,
+               CAMPAIGN_FILE,
+               SUBJECT,
+               CAMPAIGN_NAME,
+               STATUS,
+               TOTAL_RECIPIENTS,
+               SENT_COUNT,
+               FAILED_COUNT
         FROM CAMPAIGN_SENDS
         WHERE STATUS IN ('queued', 'running')
         ORDER BY STARTED_AT DESC
