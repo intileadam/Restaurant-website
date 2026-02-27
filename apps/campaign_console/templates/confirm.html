@@ -3,17 +3,15 @@
 <div class="confirm-page" data-confirm-page>
   <section class="hero hero-utility confirm-hero">
     <div class="hero-copy">
-      <p class="eyebrow">{% if sending %}Campaign progress{% else %}Queue campaign{% endif %}</p>
+      <p class="eyebrow">Queue campaign</p>
       <h2>
         {% if campaign_name %}
           {{ campaign_name }}
-        {% elif sending %}
-          {{ file }}
         {% else %}
           Confirm campaign
         {% endif %}
       </h2>
-      <p>{% if sending %}Track progress, adjust pacing, or pause/cancel the send.{% else %}Review the content, pacing, and recipients before queuing.{% endif %}</p>
+      <p>Review the content, pacing, and recipients before queuing.</p>
     </div>
     <div class="confirm-meta">
       <div class="confirm-meta__item">
@@ -28,116 +26,10 @@
         <p class="eyebrow">Recipients</p>
         <p class="confirm-meta__value" id="metaRecipientCount">{{ resolved_recipient_count }}</p>
       </div>
-      {% if sending %}
-      <div class="confirm-meta__item">
-        <p class="eyebrow">Status</p>
-        <p class="confirm-meta__value" id="metaStatus">{{ send_status or "running" }}</p>
-      </div>
-      {% endif %}
     </div>
   </section>
 
   <div class="confirm-grid">
-
-    {% if sending %}
-    <section class="card confirm-send" id="progressSection">
-      <header class="card-header">
-        <div>
-          <h3>Send progress</h3>
-        </div>
-        <div class="confirm-controls-actions" id="sendActions">
-          {% set st = send_status or "running" %}
-          <button type="button" class="button outline" id="btnPause" {% if st != 'running' %}hidden{% endif %}>Pause</button>
-          <button type="button" class="button primary" id="btnResume" {% if st != 'paused' %}hidden{% endif %}>Resume</button>
-          <button type="button" class="button" id="btnCancel" {% if st not in ('running', 'paused') %}hidden{% endif %} style="color:var(--color-error,#c0392b)">Cancel</button>
-        </div>
-      </header>
-
-      <p class="muted" style="font-size:0.85rem;margin:0 0 0.75rem;">
-        Pause and resume affect new batches only. Cancelling stops any further batches from starting;
-        emails already in the current batch will still finish sending or fail.
-      </p>
-
-      <div class="progress-bar-container" style="margin-bottom:1rem">
-        <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem">
-          <span id="progressLabel">0 / {{ resolved_recipient_count }}</span>
-          <span id="progressPercent">0%</span>
-        </div>
-        <div style="background:var(--color-surface-alt,#eee);border-radius:4px;height:8px;overflow:hidden">
-          <div id="progressFill" style="background:var(--color-accent,#2ecc71);height:100%;width:0%;transition:width 0.3s"></div>
-        </div>
-        <div style="display:flex;gap:1.5rem;font-size:0.85rem;margin-top:0.5rem;color:var(--color-muted,#888)">
-          <span>Sent: <strong id="progressSent">{{ sent_count|default(0) }}</strong></span>
-          <span>Failed: <strong id="progressFailed">{{ failed_count|default(0) }}</strong></span>
-          <span>Pending: <strong id="progressPending">—</strong></span>
-        </div>
-        <p class="muted" id="nextBatchInfo" style="margin-top:0.35rem;font-size:0.8rem;">
-          Next batch timing will appear here when there is pending work.
-        </p>
-        <p class="muted" id="etaInfo" style="margin-top:0.15rem;font-size:0.8rem;">
-          Estimated completion time will appear here while the campaign is running.
-        </p>
-      </div>
-
-      <div class="confirm-form-grid" id="controlsForm">
-        <label>
-          <span>Batch size</span>
-          <input type="number" id="ctrlBatchSize" min="1" value="{{ batch_size }}" />
-        </label>
-        <label>
-          <span>Delay per email (seconds)</span>
-          <input type="number" id="ctrlDelayMs" min="0" value="{{ delay_ms }}" />
-        </label>
-        <label>
-          <span>Cooldown between batches (minutes)</span>
-          <input type="number" id="ctrlCooldown" min="0" value="{{ cooldown_seconds }}" />
-        </label>
-        <button type="button" class="button secondary" id="btnSaveControls" {% if (send_status or "running") in ('completed', 'failed', 'cancelled') %}disabled{% endif %}>Save controls</button>
-      </div>
-    </section>
-
-    <section class="card confirm-recipients" id="recipientListSection">
-      <header class="card-header">
-        <div>
-          <p class="eyebrow">Recipients</p>
-          <h3>Recipient status</h3>
-        </div>
-        <div style="display:flex;gap:0.5rem;align-items:center">
-          <select id="recipientStatusFilter" style="font-size:0.85rem">
-            <option value="">All</option>
-            <option value="pending">Pending</option>
-            <option value="sent">Sent</option>
-            <option value="failed">Failed</option>
-          </select>
-        </div>
-      </header>
-      <div class="recipient-table-scroll">
-        <table id="recipientTable">
-          <thead>
-            <tr>
-              <th scope="col">#</th>
-              <th scope="col">Email</th>
-              <th scope="col">First name</th>
-              <th scope="col">Last name</th>
-              <th scope="col">Status</th>
-              <th scope="col">Error</th>
-            </tr>
-          </thead>
-          <tbody id="recipientTableBody">
-            <tr><td colspan="6" class="muted" style="text-align:center">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div id="recipientPagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:0.75rem;font-size:0.85rem">
-        <span id="recipientPageInfo"></span>
-        <div style="display:flex;gap:0.5rem">
-          <button type="button" class="button ghost" id="recipientPrev" disabled>Previous</button>
-          <button type="button" class="button ghost" id="recipientNext" disabled>Next</button>
-        </div>
-      </div>
-    </section>
-
-    {% else %}
 
     <section class="card preview-panel confirm-preview">
       <header class="card-header">
@@ -300,14 +192,13 @@
         </button>
       </form>
     </section>
-    {% endif %}
   </div>
   <div class="confirm-footer card soft">
     <a href="{{ url_for('index') }}" class="button ghost full-width">Return to homepage</a>
   </div>
 </div>
 
-{% if not sending and recipients and recipients|length > preview_limit %}
+{% if recipients and recipients|length > preview_limit %}
 <script>
   (function () {
     const table = document.getElementById("recipient-table");
@@ -344,7 +235,7 @@
   })();
 </script>
 {% endif %}
-{% if not sending and preview_html %}
+{% if preview_html %}
 <script>
   (function () {
     const frame = document.getElementById("confirmPreviewFrame");
@@ -352,320 +243,6 @@
     const html = {{ preview_html|tojson|safe }};
     frame.srcdoc = html || "";
   })();
-</script>
-{% endif %}
-{% if sending %}
-<script>
-(function () {
-  const sendId = {{ (send_id or "")|tojson }};
-  const csrfToken = {{ csrf_token()|tojson }};
-
-  function csrfHeaders(extra) {
-    const h = { "X-Requested-With": "XMLHttpRequest", "X-CSRF-Token": csrfToken, ...extra };
-    return h;
-  }
-
-  /* ── Progress polling ─────────────────────────────────────── */
-  const progressLabel = document.getElementById("progressLabel");
-  const progressPercent = document.getElementById("progressPercent");
-  const progressFill = document.getElementById("progressFill");
-  const progressSent = document.getElementById("progressSent");
-  const progressFailed = document.getElementById("progressFailed");
-  const progressPending = document.getElementById("progressPending");
-  const metaStatus = document.getElementById("metaStatus");
-  const btnPause = document.getElementById("btnPause");
-  const btnResume = document.getElementById("btnResume");
-  const btnCancel = document.getElementById("btnCancel");
-  const btnSaveControls = document.getElementById("btnSaveControls");
-  const ctrlBatchSize = document.getElementById("ctrlBatchSize");
-  const ctrlDelayMs = document.getElementById("ctrlDelayMs");
-  const ctrlCooldown = document.getElementById("ctrlCooldown");
-  const nextBatchInfo = document.getElementById("nextBatchInfo");
-  const etaInfo = document.getElementById("etaInfo");
-
-  let currentStatus = {{ (send_status or "running")|tojson }};
-  let pollTimer = null;
-
-  function formatDurationShort(seconds) {
-    const s = Math.max(0, Math.round(seconds || 0));
-    if (s < 60) return "under 1 minute";
-    const hours = Math.floor(s / 3600);
-    const minutes = Math.round((s % 3600) / 60);
-    if (hours && minutes) return `~${hours}h ${minutes}m`;
-    if (hours) return `~${hours}h`;
-    return `~${minutes}m`;
-  }
-
-  function updateButtons(status) {
-    currentStatus = status;
-    if (metaStatus) metaStatus.textContent = status;
-    const isActive = status === "running" || status === "paused" || status === "queued";
-    btnPause.hidden = status !== "running";
-    btnResume.hidden = status !== "paused";
-    btnCancel.hidden = !(status === "running" || status === "paused");
-    btnSaveControls.disabled = !isActive;
-    ctrlBatchSize.disabled = !isActive;
-    ctrlDelayMs.disabled = !isActive;
-    ctrlCooldown.disabled = !isActive;
-
-    if (!isActive && pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
-  }
-
-  async function pollProgress() {
-    try {
-      const resp = await fetch(`/send/${encodeURIComponent(sendId)}/progress`);
-      if (!resp.ok) return;
-      const d = await resp.json();
-      const sent = d.sent || 0;
-      const failed = d.failed || 0;
-      const total = d.total || 1;
-      const pending = d.pending || 0;
-      const done = sent + failed;
-      const pct = Math.round((done / total) * 100);
-      progressLabel.textContent = `${done} / ${total}`;
-      progressPercent.textContent = `${pct}%`;
-      progressFill.style.width = `${pct}%`;
-      progressSent.textContent = sent;
-      progressFailed.textContent = failed;
-      progressPending.textContent = pending;
-      if (d.batch_size && ctrlBatchSize && !ctrlBatchSize.matches(":focus"))
-        ctrlBatchSize.value = d.batch_size;
-      if (d.delay_ms != null && ctrlDelayMs && !ctrlDelayMs.matches(":focus"))
-        ctrlDelayMs.value = Math.round(d.delay_ms / 1000);
-      if (d.cooldown_seconds != null && ctrlCooldown && !ctrlCooldown.matches(":focus"))
-        ctrlCooldown.value = Math.round(d.cooldown_seconds / 60);
-
-      if (etaInfo) {
-        const status = d.status || "";
-        if (
-          total > 0 &&
-          done > 0 &&
-          (status === "running" || status === "paused" || status === "queued") &&
-          !d.finished_at &&
-          d.started_at
-        ) {
-          let startedAt = new Date(d.started_at);
-          if (Number.isNaN(startedAt.getTime())) {
-            startedAt = new Date(d.started_at + "Z");
-          }
-          if (!Number.isNaN(startedAt.getTime())) {
-            const now = new Date();
-            const elapsedMs = now.getTime() - startedAt.getTime();
-            const fraction = done / total;
-            if (fraction > 0 && elapsedMs > 0) {
-              const totalMsEstimate = elapsedMs / fraction;
-              const remainingMs = Math.max(0, totalMsEstimate - elapsedMs);
-              const remainingSeconds = Math.round(remainingMs / 1000);
-              const finishTime = new Date(now.getTime() + remainingMs);
-              const finishLabel = finishTime.toLocaleTimeString(undefined, {
-                hour: "numeric",
-                minute: "2-digit",
-              });
-              const remainingLabel = formatDurationShort(remainingSeconds);
-              etaInfo.textContent = `Estimated completion around ${finishLabel} (${remainingLabel} remaining).`;
-            } else {
-              etaInfo.textContent = "";
-            }
-          } else {
-            etaInfo.textContent = "";
-          }
-        } else if (status === "completed" || status === "cancelled" || status === "failed") {
-          etaInfo.textContent = "Campaign finished.";
-        } else {
-          etaInfo.textContent = "";
-        }
-      }
-
-      if (nextBatchInfo) {
-        const status = d.status || "";
-        if ((status === "running" || status === "paused" || status === "queued") && pending > 0) {
-          const cooldownSeconds = d.cooldown_seconds || 0;
-          if (!cooldownSeconds) {
-            nextBatchInfo.textContent = "Batches are continuous; the next batch starts immediately.";
-          } else {
-            const lastBatchAt = d.last_batch_at ? new Date(d.last_batch_at) : null;
-            let nextTime = null;
-            if (lastBatchAt && !Number.isNaN(lastBatchAt.getTime())) {
-              nextTime = new Date(lastBatchAt.getTime() + cooldownSeconds * 1000);
-            } else if (d.started_at) {
-              const startedAt = new Date(d.started_at);
-              if (!Number.isNaN(startedAt.getTime())) {
-                nextTime = new Date(startedAt.getTime() + cooldownSeconds * 1000);
-              }
-            }
-            if (nextTime) {
-              const now = new Date();
-              const deltaMs = nextTime.getTime() - now.getTime();
-              if (deltaMs <= 0) {
-                nextBatchInfo.textContent = "Next batch is ready to send.";
-              } else {
-                const deltaSec = Math.round(deltaMs / 1000);
-                if (deltaSec < 60) {
-                  nextBatchInfo.textContent = "Next batch in under 1 minute.";
-                } else {
-                  const minutes = Math.round(deltaSec / 60);
-                  const hours = Math.floor(minutes / 60);
-                  const remMinutes = minutes % 60;
-                  if (hours) {
-                    if (remMinutes) {
-                      nextBatchInfo.textContent = `Next batch in ~${hours}h ${remMinutes}m.`;
-                    } else {
-                      nextBatchInfo.textContent = `Next batch in ~${hours}h.`;
-                    }
-                  } else {
-                    nextBatchInfo.textContent = `Next batch in ~${minutes}m.`;
-                  }
-                }
-              }
-            } else {
-              nextBatchInfo.textContent = "Next batch will start shortly.";
-            }
-          }
-        } else {
-          nextBatchInfo.textContent = "No additional batches are scheduled.";
-        }
-      }
-
-      updateButtons(d.status);
-    } catch (err) {
-      console.error("Progress poll failed:", err);
-    }
-  }
-
-  pollProgress();
-  pollTimer = setInterval(pollProgress, 3000);
-
-  /* ── Pause / Resume / Cancel ─────────────────────────────── */
-  async function postAction(action) {
-    try {
-      const resp = await fetch(`/send/${encodeURIComponent(sendId)}/${action}`, {
-        method: "POST",
-        headers: csrfHeaders({ "Content-Type": "application/json" }),
-      });
-      const data = await resp.json();
-      if (data.status) updateButtons(data.status);
-      pollProgress();
-    } catch (err) {
-      console.error(`${action} failed:`, err);
-    }
-  }
-
-  btnPause.addEventListener("click", () => postAction("pause"));
-  btnResume.addEventListener("click", () => postAction("resume"));
-  btnCancel.addEventListener("click", () => {
-    if (confirm("Are you sure you want to cancel this campaign send? Remaining emails will not be sent.")) {
-      postAction("cancel");
-    }
-  });
-
-  /* ── Save controls ───────────────────────────────────────── */
-  btnSaveControls.addEventListener("click", async () => {
-    try {
-      btnSaveControls.disabled = true;
-      btnSaveControls.textContent = "Saving...";
-      const body = {
-        batch_size: parseInt(ctrlBatchSize.value, 10) || 1,
-        delay_ms: (parseInt(ctrlDelayMs.value, 10) || 0) * 1000,
-        cooldown_seconds: (parseInt(ctrlCooldown.value, 10) || 0) * 60,
-      };
-      await fetch(`/send/${encodeURIComponent(sendId)}/controls`, {
-        method: "PATCH",
-        headers: csrfHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify(body),
-      });
-      btnSaveControls.textContent = "Saved!";
-      setTimeout(() => {
-        btnSaveControls.textContent = "Save controls";
-        btnSaveControls.disabled = !(currentStatus === "running" || currentStatus === "paused" || currentStatus === "queued");
-      }, 1500);
-    } catch (err) {
-      btnSaveControls.textContent = "Save controls";
-      btnSaveControls.disabled = false;
-      console.error("Save controls failed:", err);
-    }
-  });
-
-  /* ── Recipient table ─────────────────────────────────────── */
-  const recipientTableBody = document.getElementById("recipientTableBody");
-  const recipientPageInfo = document.getElementById("recipientPageInfo");
-  const recipientPrev = document.getElementById("recipientPrev");
-  const recipientNext = document.getElementById("recipientNext");
-  const recipientStatusFilter = document.getElementById("recipientStatusFilter");
-  const RECIPIENT_PAGE_SIZE = 50;
-  let recipientOffset = 0;
-  let recipientTotal = 0;
-
-  async function loadRecipients() {
-    const status = recipientStatusFilter.value;
-    const params = new URLSearchParams({ limit: RECIPIENT_PAGE_SIZE, offset: recipientOffset });
-    if (status) params.set("status", status);
-    try {
-      const resp = await fetch(`/send/${encodeURIComponent(sendId)}/recipients?${params}`);
-      if (!resp.ok) throw new Error("Failed to load");
-      const data = await resp.json();
-      recipientTotal = data.total || 0;
-      renderRecipientTable(data.recipients || []);
-    } catch (err) {
-      recipientTableBody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center">Unable to load recipients.</td></tr>';
-    }
-  }
-
-  function renderRecipientTable(rows) {
-    if (!rows.length) {
-      recipientTableBody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center">No recipients found.</td></tr>';
-    } else {
-      recipientTableBody.innerHTML = rows.map((r, i) => {
-        const idx = recipientOffset + i + 1;
-        const statusPillClass =
-          r.status === "sent"
-            ? "status-pill success"
-            : r.status === "failed"
-            ? "status-pill danger"
-            : "status-pill muted";
-        const statusLabel = (r.status || "").charAt(0).toUpperCase() + (r.status || "").slice(1);
-        return `<tr>
-          <td>${idx}</td>
-          <td>${escapeHtml(r.email)}</td>
-          <td>${escapeHtml(r.firstname || "")}</td>
-          <td>${escapeHtml(r.lastname || "")}</td>
-          <td><span class="${statusPillClass}">${escapeHtml(statusLabel)}</span></td>
-          <td>${escapeHtml(r.error || "")}</td>
-        </tr>`;
-      }).join("");
-    }
-    const start = recipientTotal > 0 ? recipientOffset + 1 : 0;
-    const end = Math.min(recipientOffset + RECIPIENT_PAGE_SIZE, recipientTotal);
-    recipientPageInfo.textContent = `${start}–${end} of ${recipientTotal}`;
-    recipientPrev.disabled = recipientOffset <= 0;
-    recipientNext.disabled = recipientOffset + RECIPIENT_PAGE_SIZE >= recipientTotal;
-  }
-
-  function escapeHtml(s) {
-    const d = document.createElement("div");
-    d.textContent = s;
-    return d.innerHTML;
-  }
-
-  recipientPrev.addEventListener("click", () => {
-    recipientOffset = Math.max(0, recipientOffset - RECIPIENT_PAGE_SIZE);
-    loadRecipients();
-  });
-  recipientNext.addEventListener("click", () => {
-    recipientOffset += RECIPIENT_PAGE_SIZE;
-    loadRecipients();
-  });
-  recipientStatusFilter.addEventListener("change", () => {
-    recipientOffset = 0;
-    loadRecipients();
-  });
-  loadRecipients();
-  setInterval(loadRecipients, 10000);
-
-  })();
-})();
 </script>
 {% endif %}
 <script>

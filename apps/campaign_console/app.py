@@ -1998,7 +1998,7 @@ def queue_campaign():
     active = dbmod.fetch_active_send()
     if active:
         flash("A campaign is already queued or in progress.", "error")
-        return redirect(url_for("send_status", send_id=active["SEND_ID"]))
+        return redirect(url_for("campaign_history_detail", send_id=active["SEND_ID"]))
 
     try:
         context = _build_confirm_context(file, subject, batch_size, delay_ms, cooldown_seconds)
@@ -2051,54 +2051,17 @@ def queue_campaign():
     sess = create_send_session(send_id, file, subject, mode, total)
     _ensure_scheduler()
 
-    return redirect(url_for("send_status", send_id=send_id))
+    return redirect(url_for("campaign_history_detail", send_id=send_id))
 
 
 @app.get("/send/<send_id>/status")
 def send_status(send_id: str):
+    """Redirect to campaign history detail; kept for backwards compatibility."""
     send_row = dbmod.get_send_status(send_id)
     if not send_row:
         flash("Send not found.", "error")
         return redirect(url_for("index"))
-
-    file = send_row["CAMPAIGN_FILE"]
-    subject = send_row.get("SUBJECT")
-    campaign_name = send_row.get("CAMPAIGN_NAME")
-    mode = send_row.get("MODE", CUSTOMER_MODE_DEFAULT)
-    session_status = send_row.get("STATUS", "completed")
-
-    preview_html = None
-    preview_error = None
-    try:
-        candidate = resolve_campaign_path(file)
-        raw_html = load_campaign_html(candidate)
-        raw_html = ensure_unsubscribe(raw_html)
-        preview_html = render_for_test(raw_html, mode=mode)
-    except Exception as e:
-        preview_error = f"Unable to render campaign preview: {e}"
-
-    return render_template(
-        "confirm.html",
-        file=file,
-        subject=subject,
-        campaign_name=campaign_name,
-        send_id=send_id,
-        send_status=session_status,
-        sending=True,
-        preview_html=preview_html,
-        preview_error=preview_error,
-        batch_size=int(send_row.get("BATCH_SIZE") or 25),
-        delay_ms=int(send_row.get("DELAY_MS") or 0),
-        cooldown_seconds=int(send_row.get("COOLDOWN_SECONDS") or 0),
-        recipient_count=int(send_row.get("TOTAL_RECIPIENTS") or 0),
-        sent_count=int(send_row.get("SENT_COUNT") or 0),
-        failed_count=int(send_row.get("FAILED_COUNT") or 0),
-        lint_report={},
-        lint_has_errors=False,
-        lint_has_warnings=False,
-        recipients=[],
-        estimated_send_time=None,
-    )
+    return redirect(url_for("campaign_history_detail", send_id=send_id))
 
 
 @app.get("/send/<send_id>/logs")

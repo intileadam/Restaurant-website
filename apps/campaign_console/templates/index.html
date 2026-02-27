@@ -1363,7 +1363,7 @@
           const sent = data.sent_count || 0;
           const total = data.total_recipients || 0;
           activeSendProgress.textContent = ` — ${data.status} (${sent}/${total} sent)`;
-          activeSendLink.href = `/send/${encodeURIComponent(data.send_id)}/status`;
+          activeSendLink.href = `/history/${encodeURIComponent(data.send_id)}`;
           activeSendBanner.style.display = "";
         } else {
           activeSendBanner.style.display = "none";
