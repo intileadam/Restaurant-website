@@ -1990,7 +1990,7 @@ def confirm():
 
 @app.post("/send")
 @app.post("/queue")
-def queue_campaign():
+def queue_campaign_post():
     file = (request.form.get("file") or "").strip()
     subject = request.form.get("subject")
     campaign_name = (request.form.get("campaign_name") or "").strip() or None
