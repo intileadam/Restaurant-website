@@ -44,8 +44,7 @@
           </div>
         </div>
         <div class="header-actions">
-          {% set campaigns_endpoints = ["index", "campaign_history_detail"] %}
-          {% set queue_endpoints = ["queue_campaign", "confirm"] %}
+          {% set campaigns_endpoints = ["index", "campaign_history_detail", "queue_campaign", "confirm"] %}
           {% set customer_endpoints = ["new_customer"] %}
           <nav class="primary-nav">
             <a
@@ -53,12 +52,6 @@
               class="nav-link{% if request.endpoint in campaigns_endpoints %} nav-link--active{% endif %}"
             >
               Campaigns
-            </a>
-            <a
-              href="{{ url_for('queue_campaign') }}"
-              class="nav-link{% if request.endpoint in queue_endpoints %} nav-link--active{% endif %}"
-            >
-              Queue campaign
             </a>
             <a
               href="{{ url_for('new_customer') }}"
