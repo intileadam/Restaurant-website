@@ -5,7 +5,7 @@
     <h2>Campaigns</h2>
     <p>See past campaigns, monitor in-progress sends, and schedule new campaigns.</p>
     <div style="margin-top:0.75rem">
-      <a href="{{ url_for('index') }}" class="button accent">
+      <a href="{{ url_for('queue_campaign') }}" class="button accent">
         Schedule new campaign
       </a>
     </div>
@@ -15,15 +15,15 @@
 <div class="history-controls">
   <div class="history-filter" role="group" aria-label="Filter by mode">
     <a
-      href="{{ url_for('campaign_history') }}"
+      href="{{ url_for('index') }}"
       class="button {% if mode_filter == 'all' %}accent{% else %}ghost{% endif %} history-filter__button"
     >All</a>
     <a
-      href="{{ url_for('campaign_history', mode='production') }}"
+      href="{{ url_for('index', mode='production') }}"
       class="button {% if mode_filter == 'production' %}accent{% else %}ghost{% endif %} history-filter__button"
     >Production</a>
     <a
-      href="{{ url_for('campaign_history', mode='test') }}"
+      href="{{ url_for('index', mode='test') }}"
       class="button {% if mode_filter == 'test' %}accent{% else %}ghost{% endif %} history-filter__button"
     >Test</a>
   </div>

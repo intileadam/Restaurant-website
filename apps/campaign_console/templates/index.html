@@ -189,124 +189,6 @@
 
 </div>
 
-<div class="workflow-modal-backdrop" id="adminModal" hidden>
-  <div
-    class="workflow-modal card admin-card"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="adminModalTitle"
-  >
-    <button
-      type="button"
-      class="workflow-modal__close"
-      data-close-modal
-      aria-label="Close manage admins dialog"
-    >
-      &times;
-    </button>
-    <header class="card-header">
-      <div>
-        <p class="eyebrow">Team access</p>
-        <h2 id="adminModalTitle">Manage admins</h2>
-      </div>
-      <span class="badge">Admins only</span>
-    </header>
-
-    <section class="manage-section">
-      <h3 class="manage-section__title">Current admins</h3>
-      <div id="adminUserList" class="admin-user-list">
-        <p class="admin-user-list__loading">Loading...</p>
-      </div>
-    </section>
-
-    <hr class="manage-divider" />
-
-    <section class="manage-section">
-      <h3 class="manage-section__title">Add new admin</h3>
-      <p class="manage-section__lead">
-        New accounts can sign in immediately after being added.
-      </p>
-      <form method="post" action="{{ url_for('add_operator') }}" class="form-grid user-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <label for="operator_email">Email address</label>
-        <input
-          type="email"
-          id="operator_email"
-          name="operator_email"
-          placeholder="name@casadelpollo.com"
-          required
-        />
-
-        <label for="operator_password">Password</label>
-        <input
-          type="password"
-          id="operator_password"
-          name="operator_password"
-          minlength="{{ min_password_length }}"
-          placeholder="Minimum {{ min_password_length }} characters"
-          required
-        />
-
-        <label for="operator_password_confirm">Confirm password</label>
-        <input
-          type="password"
-          id="operator_password_confirm"
-          name="operator_password_confirm"
-          minlength="{{ min_password_length }}"
-          required
-        />
-
-        <button type="submit" class="button primary full-width">
-          Add admin
-        </button>
-      </form>
-    </section>
-
-    <hr class="manage-divider" />
-
-    <section class="manage-section">
-      <h3 class="manage-section__title">Change your password</h3>
-      <p class="manage-section__lead">
-        Update the password for <strong>{{ g.user.username if g.user else '' }}</strong>.
-      </p>
-      <form method="post" action="{{ url_for('change_own_password') }}" class="form-grid user-form" id="changePasswordForm">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-
-        <label for="current_password">Current password</label>
-        <input
-          type="password"
-          id="current_password"
-          name="current_password"
-          required
-        />
-
-        <label for="new_password">New password</label>
-        <input
-          type="password"
-          id="new_password"
-          name="new_password"
-          minlength="{{ min_password_length }}"
-          placeholder="Minimum {{ min_password_length }} characters"
-          required
-        />
-
-        <label for="new_password_confirm">Confirm new password</label>
-        <input
-          type="password"
-          id="new_password_confirm"
-          name="new_password_confirm"
-          minlength="{{ min_password_length }}"
-          required
-        />
-
-        <button type="submit" class="button primary full-width">
-          Change password
-        </button>
-      </form>
-    </section>
-  </div>
-</div>
-
 <div class="workflow-modal-backdrop" id="manageModal" hidden>
   <div
     class="workflow-modal card manage-card"
@@ -491,9 +373,6 @@
   (() => {
     const manageModal = document.getElementById("manageModal");
     const manageTrigger = document.getElementById("openManageModal");
-    const adminModal = document.getElementById("adminModal");
-    const adminTrigger = document.querySelector("[data-open-admin-modal]");
-    const adminUserList = document.getElementById("adminUserList");
     const select = document.getElementById("campaignSelect");
     const previewFrame = document.getElementById("previewFrame");
     const previewPlaceholder = document.getElementById("previewPlaceholder");
@@ -618,71 +497,6 @@
         select.value = "";
         select.dispatchEvent(new Event("change"));
       }
-    }
-
-    /* ── admin modal: user list ──────────────────────────────── */
-
-    async function loadAdminList() {
-      if (!adminUserList) return;
-      adminUserList.innerHTML = '<p class="admin-user-list__loading">Loading...</p>';
-      try {
-        const resp = await fetch("/users", { headers: csrfHeaders() });
-        if (!resp.ok) throw new Error("Unable to load admin list.");
-        const data = await resp.json();
-        renderAdminList(data.users || []);
-      } catch (err) {
-        adminUserList.innerHTML = "";
-        const p = document.createElement("p");
-        p.className = "admin-user-list__empty";
-        p.textContent = err.message || "Unable to load admins.";
-        adminUserList.appendChild(p);
-      }
-    }
-
-    function renderAdminList(users) {
-      adminUserList.innerHTML = "";
-      if (!users.length) {
-        const p = document.createElement("p");
-        p.className = "admin-user-list__empty";
-        p.textContent = "No admin accounts found.";
-        adminUserList.appendChild(p);
-        return;
-      }
-      const table = document.createElement("table");
-      table.className = "admin-table";
-      const thead = document.createElement("thead");
-      thead.innerHTML =
-        "<tr><th>Email</th><th>Role</th><th>Status</th><th>Last login</th></tr>";
-      table.appendChild(thead);
-      const tbody = document.createElement("tbody");
-      users.forEach((u) => {
-        const tr = document.createElement("tr");
-        const emailTd = document.createElement("td");
-        emailTd.textContent = u.username;
-        const roleTd = document.createElement("td");
-        roleTd.textContent = u.role || "admin";
-        const statusTd = document.createElement("td");
-        statusTd.textContent = u.is_active ? "Active" : "Inactive";
-        statusTd.className = u.is_active ? "status-active" : "status-inactive";
-        const loginTd = document.createElement("td");
-        if (u.last_login_at) {
-          const d = new Date(u.last_login_at);
-          loginTd.textContent = d.toLocaleDateString(undefined, {
-            year: "numeric", month: "short", day: "numeric",
-            hour: "2-digit", minute: "2-digit",
-          });
-        } else {
-          loginTd.textContent = "Never";
-          loginTd.className = "text-muted";
-        }
-        tr.appendChild(emailTd);
-        tr.appendChild(roleTd);
-        tr.appendChild(statusTd);
-        tr.appendChild(loginTd);
-        tbody.appendChild(tr);
-      });
-      table.appendChild(tbody);
-      adminUserList.appendChild(table);
     }
 
     /* ── manage modal: file list ─────────────────────────────── */
@@ -1036,9 +850,6 @@
     setupModal(manageModal, manageTrigger, null, {
       onOpen: onManageModalOpen,
       onClose: closeFilePreview,
-    });
-    setupModal(adminModal, adminTrigger, null, {
-      onOpen: loadAdminList,
     });
 
     /* ── file preview modal close handlers ────────────────────── */

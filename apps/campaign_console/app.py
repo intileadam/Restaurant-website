@@ -437,10 +437,11 @@ def _login_context(**overrides):
 
 @app.context_processor
 def _inject_customer_mode():
-    """Expose the current DB mode to every template."""
+    """Expose the current DB mode and admin modal vars to every template."""
     return {
         "current_db_mode": getattr(g, "db_mode", CUSTOMER_MODE_DEFAULT),
         "csrf_token": _get_csrf_token,
+        "min_password_length": MIN_PASSWORD_LENGTH,
     }
 
 
@@ -829,12 +830,26 @@ def logout():
 
 @app.get("/")
 def index():
+    """Home page: campaigns list."""
+    mode_filter = request.args.get("mode")
+    if mode_filter and mode_filter not in CUSTOMER_MODE_CHOICES:
+        mode_filter = None
+    try:
+        sends = dbmod.fetch_campaign_history(mode_filter=mode_filter)
+    except Exception as exc:
+        app.logger.exception("Failed to load campaign history: %s", exc)
+        sends = []
+    return render_template("history.html", sends=sends, mode_filter=mode_filter or "all")
+
+
+@app.get("/queue")
+def queue_campaign():
+    """Queue campaign workflow: select campaign, configure, send."""
     return render_template(
-    "index.html",
-    campaign_files=list_campaign_files(),
-    defaults=default_controls(),
-    min_password_length=MIN_PASSWORD_LENGTH,
-    show_user_modal=True,
+        "index.html",
+        campaign_files=list_campaign_files(),
+        defaults=default_controls(),
+        min_password_length=MIN_PASSWORD_LENGTH,
     )
 
 
@@ -1032,7 +1047,7 @@ def upload_campaign():
         if is_ajax:
             return jsonify({"ok": False, "message": msg}), 400
         flash(msg, "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
 
     try:
         filename = _sanitize_campaign_filename(desired_name or upload.filename)
@@ -1040,7 +1055,7 @@ def upload_campaign():
         if is_ajax:
             return jsonify({"ok": False, "message": str(e)}), 400
         flash(str(e), "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
 
     target_path = (CAMPAIGNS_DIR / filename).resolve()
     base = CAMPAIGNS_DIR.resolve()
@@ -1049,14 +1064,14 @@ def upload_campaign():
         if is_ajax:
             return jsonify({"ok": False, "message": msg}), 400
         flash(msg, "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
 
     if target_path.exists():
         msg = "A campaign with that name already exists."
         if is_ajax:
             return jsonify({"ok": False, "message": msg}), 409
         flash(msg, "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
 
     try:
         CAMPAIGNS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1066,7 +1081,7 @@ def upload_campaign():
         if is_ajax:
             return jsonify({"ok": False, "message": msg}), 500
         flash(msg, "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
 
     msg = f"Uploaded {filename}. It is now available in the campaign list."
     if is_ajax:
@@ -1257,13 +1272,13 @@ def send_test():
         if wants_json:
             return jsonify({"ok": False, "message": message}), status
         flash(message, "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
 
     def success_response(message, email):
         if wants_json:
             return jsonify({"ok": True, "message": message, "email": email})
         flash(message, "success")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
 
     # Pull fields safely and normalize
     file_field = (request.form.get("file") or "").strip()  # ensure not None
@@ -1947,22 +1962,22 @@ def confirm():
 
     if not file:
         flash("No campaign file was selected.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
     try:
         context = _build_confirm_context(file, subject, batch_size, delay_ms, cooldown_seconds)
     except FileNotFoundError:
         flash("Campaign file not found.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
     except ValueError as e:
         flash(str(e), "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
     except Exception as e:
         flash(f"Unable to prepare confirmation: {e}", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
 
     if context["lint_has_errors"]:
         flash("Resolve lint errors before queuing the campaign.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
 
     return render_template(
         "confirm.html",
@@ -1993,7 +2008,7 @@ def queue_campaign():
 
     if not file:
         flash("No campaign file was selected.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
 
     active = dbmod.fetch_active_send()
     if active:
@@ -2004,13 +2019,13 @@ def queue_campaign():
         context = _build_confirm_context(file, subject, batch_size, delay_ms, cooldown_seconds)
     except FileNotFoundError:
         flash("Campaign file not found.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
     except ValueError as e:
         flash(str(e), "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
     except Exception as e:
         flash(f"Unable to prepare confirmation: {e}", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
 
     if context["lint_has_errors"]:
         flash("Resolve lint errors before queuing the campaign.", "error")
@@ -2046,7 +2061,7 @@ def queue_campaign():
     except Exception as exc:
         app.logger.exception("Failed to queue campaign send: %s", exc)
         flash("Unable to queue campaign. Please try again.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
 
     sess = create_send_session(send_id, file, subject, mode, total)
     _ensure_scheduler()
@@ -2060,7 +2075,7 @@ def send_status(send_id: str):
     send_row = dbmod.get_send_status(send_id)
     if not send_row:
         flash("Send not found.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("queue_campaign"))
     return redirect(url_for("campaign_history_detail", send_id=send_id))
 
 
@@ -2445,15 +2460,8 @@ def logs_stream():
 
 @app.get("/history")
 def campaign_history():
-    mode_filter = request.args.get("mode")
-    if mode_filter and mode_filter not in CUSTOMER_MODE_CHOICES:
-        mode_filter = None
-    try:
-        sends = dbmod.fetch_campaign_history(mode_filter=mode_filter)
-    except Exception as exc:
-        app.logger.exception("Failed to load campaign history: %s", exc)
-        sends = []
-    return render_template("history.html", sends=sends, mode_filter=mode_filter or "all")
+    """Redirect to home (campaigns list); preserve query params."""
+    return redirect(url_for("index", **request.args))
 
 
 @app.get("/history/<send_id>")

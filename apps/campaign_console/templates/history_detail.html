@@ -61,81 +61,49 @@
   <div class="history-detail__grid">
     <section class="card history-summary">
       <h3>Summary</h3>
-      <div class="history-summary__legend">
-        <span class="history-summary__legend-item">
-          <span class="history-summary__legend-dot history-summary__legend-dot--sent"></span>
-          <span class="history-summary__legend-text">Sent {{ sent_count }}</span>
-        </span>
-        <span class="history-summary__legend-item">
-          <span class="history-summary__legend-dot history-summary__legend-dot--failed"></span>
-          <span class="history-summary__legend-text">Failed {{ failed_count }}</span>
-        </span>
-        <span class="history-summary__legend-item">
-          <span class="history-summary__legend-dot history-summary__legend-dot--pending"></span>
-          <span class="history-summary__legend-text">Pending {{ pending_count if pending_count > 0 else 0 }}</span>
-        </span>
-      </div>
-      <div class="history-summary__stats">
-        <div class="history-summary__stat">
-          <span class="history-summary__stat-value">{{ total }}</span>
-          <span class="history-summary__stat-label">Total recipients</span>
-        </div>
-        <div class="history-summary__stat">
-          <span class="history-summary__stat-value history-summary__stat-value--sent">{{ sent_count }}</span>
-          <span class="history-summary__stat-label">Sent</span>
-        </div>
-        <div class="history-summary__stat">
-          <span class="history-summary__stat-value history-summary__stat-value--failed">{{ failed_count }}</span>
-          <span class="history-summary__stat-label">Failed</span>
-        </div>
-        <div class="history-summary__stat">
-          <span class="history-summary__stat-value">{{ pending_count if pending_count > 0 else 0 }}</span>
-          <span class="history-summary__stat-label">Pending</span>
-        </div>
-        {% if attempted > 0 %}
-        <div class="history-summary__stat">
-          <span class="history-summary__stat-value">{{ ((sent_count / attempted) * 100)|round(1) }}%</span>
-          <span class="history-summary__stat-label">Success rate (of attempted)</span>
-        </div>
-        {% endif %}
-      </div>
       {% if send.STATUS == 'cancelled' %}
-      <p class="muted" style="margin-top:0.75rem;font-size:0.85rem;">
+      <p class="muted" style="margin-top:0.25rem;font-size:0.85rem;">
         This send was cancelled. Some recipients may remain in a pending state because cancellation
         stops new batches from starting but does not interrupt emails already being processed.
       </p>
       {% endif %}
+      <div class="progress-bar-container" style="margin-top:0.75rem;margin-bottom:1rem">
+        <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem">
+          <span id="progressLabel">{{ attempted }} / {{ total }}</span>
+          <span id="progressPercent">{% if total %}{{ ((attempted / total) * 100)|round(0) }}{% else %}0{% endif %}%</span>
+        </div>
+        <div style="background:var(--color-surface-alt,#eee);border-radius:4px;height:8px;overflow:hidden">
+          <div id="progressFill" style="background:var(--color-accent,#2ecc71);height:100%;width:{% if total %}{{ ((attempted / total) * 100)|round(0) }}{% else %}0{% endif %}%;transition:width 0.3s"></div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:1rem 1.5rem;font-size:0.85rem;margin-top:0.5rem;color:var(--color-muted,#888)">
+          <span>Sent: <strong id="progressSent">{{ sent_count }}</strong></span>
+          <span>Failed: <strong id="progressFailed">{{ failed_count }}</strong></span>
+          <span>Pending: <strong id="progressPending">{{ pending_count }}</strong></span>
+          {% if attempted > 0 %}
+          <span>Success rate (of attempted): <strong id="progressSuccessRate">{{ ((sent_count / attempted) * 100)|round(1) }}%</strong></span>
+          {% else %}
+          <span>Success rate (of attempted): <strong id="progressSuccessRate">—</strong></span>
+          {% endif %}
+        </div>
+      </div>
       {% if send.STATUS in ('running', 'paused', 'queued') %}
-      <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--color-surface-alt,#eee)">
+      <div style="padding-top:0.5rem;border-top:1px solid var(--color-surface-alt,#eee)">
+        <p class="muted" id="nextBatchInfo" style="margin:0 0 0.25rem;font-size:0.8rem;">
+          Next batch timing will appear here when there is pending work.
+        </p>
+        <p class="muted" id="etaInfo" style="margin:0 0 0.75rem;font-size:0.8rem;">
+          Estimated completion time will appear here while the campaign is running.
+        </p>
         <p class="muted" style="font-size:0.85rem;margin:0 0 0.75rem;">
           Pause and resume affect new batches only. Cancelling stops any further batches from starting;
           emails already in the current batch will still finish sending or fail.
         </p>
-        <div class="confirm-controls-actions" id="sendActions" style="margin-bottom:0.75rem">
+        <div class="confirm-controls-actions" id="sendActions">
+          <span id="sendIdData" data-send-id="{{ send.SEND_ID }}" hidden aria-hidden="true"></span>
           {% set st = send.STATUS %}
           <button type="button" class="button outline" id="btnPause" {% if st != 'running' %}hidden{% endif %}>Pause</button>
           <button type="button" class="button primary" id="btnResume" {% if st != 'paused' %}hidden{% endif %}>Resume</button>
           <button type="button" class="button" id="btnCancel" {% if st not in ('running', 'paused') %}hidden{% endif %} style="color:var(--color-error,#c0392b)">Cancel</button>
-        </div>
-        <div class="progress-bar-container" style="margin-bottom:1rem">
-          <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem">
-            <span id="progressLabel">{{ attempted }} / {{ total }}</span>
-            <span id="progressPercent">{% if total %}{{ ((attempted / total) * 100)|round(0) }}{% else %}0{% endif %}%</span>
-          </div>
-          <div style="background:var(--color-surface-alt,#eee);border-radius:4px;height:8px;overflow:hidden">
-            <div id="progressFill" style="background:var(--color-accent,#2ecc71);height:100%;width:{% if total %}{{ ((attempted / total) * 100)|round(0) }}{% else %}0{% endif %}%;transition:width 0.3s"></div>
-          </div>
-          <div style="display:flex;gap:1.5rem;font-size:0.85rem;margin-top:0.5rem;color:var(--color-muted,#888)">
-            <span>Sent: <strong id="progressSent">{{ sent_count }}</strong></span>
-            <span>Failed: <strong id="progressFailed">{{ failed_count }}</strong></span>
-            <span>Pending: <strong id="progressPending">{{ pending_count }}</strong></span>
-          </div>
-          <p class="muted" id="nextBatchInfo" style="margin-top:0.35rem;font-size:0.8rem;">
-            Next batch timing will appear here when there is pending work.
-          </p>
-          <p class="muted" id="etaInfo" style="margin-top:0.15rem;font-size:0.8rem;">
-            Estimated completion time will appear here while the campaign is running.
-          </p>
         </div>
       </div>
       {% endif %}
@@ -209,7 +177,7 @@
   </div>
 
   <div class="confirm-footer card soft">
-    <a href="{{ url_for('campaign_history') }}" class="button ghost full-width">Back to campaign history</a>
+    <a href="{{ url_for('index') }}" class="button ghost full-width">Back to campaign history</a>
   </div>
 </div>
 <script>
@@ -240,7 +208,7 @@
 {% if send.STATUS in ('running', 'paused', 'queued') %}
 <script>
 (function () {
-  const sendId = {{ send.SEND_ID|tojson }};
+  const sendId = document.getElementById("sendIdData").getAttribute("data-send-id");
   const meta = document.querySelector('meta[name="csrf-token"]');
   const csrfToken = meta ? (meta.getAttribute("content") || "") : "";
 
@@ -261,6 +229,7 @@
   const btnCancel = document.getElementById("btnCancel");
   const nextBatchInfo = document.getElementById("nextBatchInfo");
   const etaInfo = document.getElementById("etaInfo");
+  const progressSuccessRate = document.getElementById("progressSuccessRate");
 
   let pollTimer = null;
 
@@ -308,6 +277,7 @@
       progressSent.textContent = sent;
       progressFailed.textContent = failed;
       progressPending.textContent = pending;
+      if (progressSuccessRate) progressSuccessRate.textContent = done > 0 ? (Math.round((sent / done) * 1000) / 10 + "%") : "—";
 
       if (etaInfo) {
         const status = d.status || "";
