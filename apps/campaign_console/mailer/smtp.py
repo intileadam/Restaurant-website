@@ -9,7 +9,8 @@ from email.utils import formatdate, make_msgid
 from typing import Iterable
 
 
-RETIES = 2
+RETRIES = 2
+CONNECT_TIMEOUT = 10  # seconds per connection attempt
 
 
 class SmtpClient:
@@ -21,10 +22,15 @@ class SmtpClient:
         self.from_name = os.getenv("FROM_NAME", "Casa del Pollo")
         self.from_email = os.getenv("FROM_EMAIL")
 
+        if not self.host:
+            raise RuntimeError(
+                "SMTP_HOST is not configured. Set the SMTP_HOST environment variable."
+            )
+
 
     def _connect(self):
         local_hostname = self.from_email.split("@")[-1] if self.from_email else None
-        server = smtplib.SMTP(self.host, self.port, timeout=30, local_hostname=local_hostname)
+        server = smtplib.SMTP(self.host, self.port, timeout=CONNECT_TIMEOUT, local_hostname=local_hostname)
         server.ehlo()
         server.starttls()
         server.ehlo()  # Refresh capabilities after STARTTLS
@@ -50,7 +56,7 @@ class SmtpClient:
 
     def send(self, msg: EmailMessage, delay_ms: int = 0):
         last_err = None
-        for attempt in range(RETIES + 1):
+        for attempt in range(RETRIES + 1):
             try:
                 with self._connect() as server:
                     refused = server.send_message(msg)
@@ -61,6 +67,65 @@ class SmtpClient:
                 return True
             except Exception as e:
                 last_err = e
+                time.sleep(0.5 * (attempt + 1))
+        if last_err:
+            raise last_err
+        return False
+
+
+    def open_connection(self) -> SmtpConnection:
+        """Return a reusable connection wrapper for batch sending."""
+        return SmtpConnection(self)
+
+
+class SmtpConnection:
+    """Reusable SMTP connection that auto-reconnects on failure."""
+
+    def __init__(self, client: SmtpClient):
+        self._client = client
+        self._server: smtplib.SMTP | None = None
+
+    def __enter__(self):
+        self._server = self._client._connect()
+        return self
+
+    def __exit__(self, *exc):
+        self._close()
+
+    def _close(self):
+        if self._server:
+            try:
+                self._server.quit()
+            except Exception:
+                pass
+            self._server = None
+
+    def _ensure_connected(self):
+        if self._server is None:
+            self._server = self._client._connect()
+            return
+        try:
+            self._server.noop()
+        except Exception:
+            self._close()
+            self._server = self._client._connect()
+
+    def send(self, msg: EmailMessage, delay_ms: int = 0):
+        last_err = None
+        for attempt in range(RETRIES + 1):
+            try:
+                self._ensure_connected()
+                refused = self._server.send_message(msg)
+                if refused:
+                    raise smtplib.SMTPRecipientsRefused(refused)
+                if delay_ms:
+                    time.sleep(delay_ms / 1000.0)
+                return True
+            except smtplib.SMTPRecipientsRefused:
+                raise
+            except Exception as e:
+                last_err = e
+                self._close()
                 time.sleep(0.5 * (attempt + 1))
         if last_err:
             raise last_err
