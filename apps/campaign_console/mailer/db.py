@@ -974,13 +974,21 @@ def ensure_campaign_tables():
             ("CLAIMED_AT", "DATETIME NULL"),
             ("QUEUED_AT", "DATETIME NULL"),
         ]
+        def _is_dup_field(exc):
+            errno = getattr(exc, "errno", None)
+            if errno == ER.DUP_FIELDNAME:
+                return True
+            if getattr(exc, "args", ()) and exc.args[0] == ER.DUP_FIELDNAME:
+                return True
+            return False
+
         for col, col_type in _migrate_columns:
             try:
                 cur.execute(
                     f"ALTER TABLE CAMPAIGN_SENDS ADD COLUMN {col} {col_type}"
                 )
             except pymysql.MySQLError as exc:
-                if getattr(exc, "errno", None) != ER.DUP_FIELDNAME:
+                if not _is_dup_field(exc):
                     raise
         cur.execute("""
         CREATE TABLE IF NOT EXISTS CAMPAIGN_SEND_RESULTS (
@@ -1006,7 +1014,7 @@ def ensure_campaign_tables():
                     f"ALTER TABLE CAMPAIGN_SEND_RESULTS ADD COLUMN {col} {col_type}"
                 )
             except pymysql.MySQLError as exc:
-                if getattr(exc, "errno", None) != ER.DUP_FIELDNAME:
+                if not _is_dup_field(exc):
                     raise
         try:
             cur.execute(
