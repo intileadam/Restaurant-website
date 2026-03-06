@@ -881,3 +881,25 @@ def create_service_user(
         raise
     finally:
         cur.close()
+
+
+def update_user_password(user_id: int, *, password_hash: str, password_algo: str = "pbkdf2_sha256"):
+    """Update a service user's password and clear force_password_reset."""
+    if not user_id:
+        return
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE service_users
+            SET
+                password_hash = %s,
+                password_algo = %s,
+                force_password_reset = 0
+            WHERE id = %s
+            """,
+            (password_hash, password_algo, user_id),
+        )
+    finally:
+        cur.close()

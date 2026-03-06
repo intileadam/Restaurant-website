@@ -1005,6 +1005,58 @@ def add_operator():
     return redirect(redirect_target)
 
 
+@app.post("/change-password")
+def change_own_password():
+    """Let the logged-in user change their own password."""
+    redirect_target = url_for("index")
+    if not g.user:
+        flash("You must be logged in to change your password.", "error")
+        return redirect(url_for("login"))
+
+    current = (request.form.get("current_password") or "").strip()
+    new_password = request.form.get("new_password") or ""
+    new_confirm = request.form.get("new_password_confirm") or ""
+
+    if not current:
+        flash("Enter your current password.", "error")
+        return redirect(redirect_target)
+    if not new_password:
+        flash("Enter a new password.", "error")
+        return redirect(redirect_target)
+    if len(new_password) < MIN_PASSWORD_LENGTH:
+        flash(f"New password must be at least {MIN_PASSWORD_LENGTH} characters long.", "error")
+        return redirect(redirect_target)
+    if new_password != new_confirm:
+        flash("New password and confirmation do not match.", "error")
+        return redirect(redirect_target)
+
+    try:
+        user_row = dbmod.fetch_user_by_username(g.user["username"])
+    except Exception as exc:
+        app.logger.exception("change_own_password: fetch user: %s", exc)
+        flash("Unable to verify your account. Please try again.", "error")
+        return redirect(redirect_target)
+    if not user_row or not _password_matches(user_row, current):
+        flash("Current password is incorrect.", "error")
+        return redirect(redirect_target)
+
+    try:
+        hashed = generate_password_hash(new_password, method="pbkdf2:sha256", salt_length=16)
+    except Exception as exc:
+        app.logger.exception("change_own_password: hash: %s", exc)
+        flash("Unable to update password.", "error")
+        return redirect(redirect_target)
+    try:
+        dbmod.update_user_password(g.user["id"], password_hash=hashed, password_algo="pbkdf2_sha256")
+    except Exception as exc:
+        app.logger.exception("change_own_password: update: %s", exc)
+        flash("Unable to save new password. Please try again.", "error")
+        return redirect(redirect_target)
+
+    flash("Your password has been updated.", "success")
+    return redirect(redirect_target)
+
+
 @app.get("/api/operators")
 def list_operators():
     """Return current admins for the Manage admins modal (authenticated)."""
