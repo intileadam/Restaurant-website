@@ -60,8 +60,11 @@ class EventBus:
             except ValueError:
                 pass
 
-    def stream(self, q: queue.Queue):
-        """Generator for Flask Response — yields SSE frames from a subscriber queue."""
+    def stream(self, q: queue.Queue | None = None):
+        """Generator for Flask Response — yields SSE frames from a subscriber queue.
+        If q is None, subscribes first (for single-caller global bus usage)."""
+        if q is None:
+            q = self.subscribe()
         try:
             while True:
                 msg = q.get()
@@ -92,6 +95,9 @@ class SendSession:
 _sessions_lock = threading.Lock()
 SEND_SESSIONS: dict[str, SendSession] = {}
 ACTIVE_SEND_ID: str | None = None
+
+# Global event bus for confirm-page / logs SSE (single broadcaster, multiple subscribers).
+GLOBAL_BUS = EventBus()
 
 
 def create_send_session(
