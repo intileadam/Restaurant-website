@@ -20,10 +20,6 @@
         <p class="eyebrow">Recipients</p>
         <p class="confirm-meta__value">{{ resolved_recipient_count }}</p>
       </div>
-      <div class="confirm-meta__item">
-        <p class="eyebrow">Send to</p>
-        <p class="confirm-meta__value">{% if send_to == 'tags' and tag_names %}{{ tag_names|join(', ') }}{% else %}All subscribed{% endif %}</p>
-      </div>
     </div>
   </section>
 
@@ -146,8 +142,27 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <input type="hidden" name="file" value="{{ file }}" />
         <input type="hidden" name="subject" value="{{ subject }}" />
-        <input type="hidden" name="send_to" value="{{ send_to or 'all' }}" />
-        <input type="hidden" name="tag_names" value="{{ (tag_names or [])|join(',') }}" />
+        <div class="confirm-recipients-choice" data-recipients-choice>
+          <p class="eyebrow">Recipients</p>
+          <label class="radio-label">
+            <input type="radio" name="send_to" value="all" checked data-send-to-all />
+            Send to all subscribed customers (<span data-all-count>{{ recipient_count }}</span>)
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="send_to" value="tags" data-send-to-tags />
+            Send to selected tags only
+          </label>
+          <div class="tag-select-wrap" data-tag-select-wrap hidden>
+            <label for="confirmTagNames">Select tags</label>
+            <select id="confirmTagNames" name="tag_names" multiple size="4" data-confirm-tag-names>
+              {% for tag in (all_tags or []) %}
+              <option value="{{ tag.name }}">{{ tag.name }}{% if tag.customer_count is defined %} ({{ tag.customer_count }}){% endif %}</option>
+              {% endfor %}
+            </select>
+            <p class="help-text">Hold Ctrl/Cmd to select multiple. Only customers with at least one selected tag will receive the campaign.</p>
+            <p class="tag-count-info" data-tag-count-info hidden></p>
+          </div>
+        </div>
 
         <div class="confirm-form-grid">
           <label>
@@ -163,14 +178,32 @@
           <p class="eyebrow">Restricted send hours (Pacific time)</p>
           <label>
             <span>Start</span>
-            <input type="time" name="restrict_start" value="{{ restrict_start }}" />
+            <select name="restrict_start" class="restrict-time-select" data-restrict-start>
+              <option value="">No restriction</option>
+              {% set hours_range = range(24) %}
+              {% set minutes_range = [0, 15, 30, 45] %}
+              {% for h in hours_range %}{% for m in minutes_range %}
+              {% set val = '%02d:%02d'|format(h, m) %}
+              {% set ampm = 'AM' if h < 12 else 'PM' %}
+              {% set display_h = h % 12 if h % 12 != 0 else 12 %}
+              <option value="{{ val }}" {% if restrict_start == val %}selected{% endif %}>{{ '%d:%02d %s'|format(display_h, m, ampm) }}</option>
+              {% endfor %}{% endfor %}
+            </select>
           </label>
           <label>
             <span>End</span>
-            <input type="time" name="restrict_end" value="{{ restrict_end }}" />
+            <select name="restrict_end" class="restrict-time-select" data-restrict-end>
+              <option value="">No restriction</option>
+              {% for h in hours_range %}{% for m in minutes_range %}
+              {% set val = '%02d:%02d'|format(h, m) %}
+              {% set ampm = 'AM' if h < 12 else 'PM' %}
+              {% set display_h = h % 12 if h % 12 != 0 else 12 %}
+              <option value="{{ val }}" {% if restrict_end == val %}selected{% endif %}>{{ '%d:%02d %s'|format(display_h, m, ampm) }}</option>
+              {% endfor %}{% endfor %}
+            </select>
           </label>
         </div>
-        <p class="help-text">Optional. Leave empty for no restriction. Emails send only within this window (e.g. 10:00–22:00).</p>
+        <p class="help-text">Optional. Leave empty for no restriction. Emails send only within this window (e.g. 10:00 AM – 10:00 PM).</p>
 
         {% if lint_has_errors %}
         <p class="lint-blocker">Fix the lint errors above to enable the send button.</p>
@@ -423,6 +456,46 @@
         /* ignore */
       }
       window.setTimeout(() => window.location.reload(), 200);
+    });
+  })();
+</script>
+<script>
+  (function () {
+    const sendToAll = document.querySelector("[data-send-to-all]");
+    const sendToTags = document.querySelector("[data-send-to-tags]");
+    const tagSelectWrap = document.querySelector("[data-tag-select-wrap]");
+    const tagSelect = document.querySelector("[data-confirm-tag-names]");
+    const tagCountInfo = document.querySelector("[data-tag-count-info]");
+    if (!sendToAll || !sendToTags || !tagSelectWrap || !tagSelect) return;
+
+    function toggleTagSelect() {
+      tagSelectWrap.hidden = !sendToTags.checked;
+    }
+    sendToAll.addEventListener("change", toggleTagSelect);
+    sendToTags.addEventListener("change", toggleTagSelect);
+    toggleTagSelect();
+
+    let debounce = null;
+    tagSelect.addEventListener("change", function () {
+      const selected = Array.from(tagSelect.selectedOptions).map((o) => o.value);
+      if (!selected.length) {
+        if (tagCountInfo) { tagCountInfo.hidden = true; tagCountInfo.textContent = ""; }
+        return;
+      }
+      clearTimeout(debounce);
+      debounce = setTimeout(function () {
+        const params = new URLSearchParams();
+        params.set("tag_names", selected.join(","));
+        fetch("/api/recipients/count?" + params.toString())
+          .then((r) => r.json())
+          .then((data) => {
+            if (tagCountInfo && data.count !== undefined) {
+              tagCountInfo.hidden = false;
+              tagCountInfo.textContent = data.count + " subscriber" + (data.count !== 1 ? "s" : "") + " match the selected tags.";
+            }
+          })
+          .catch(() => {});
+      }, 300);
     });
   })();
 </script>

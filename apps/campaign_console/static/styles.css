@@ -401,8 +401,9 @@ a {
 
 .confirm-form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 0.75rem;
+  max-width: 400px;
 }
 
 .confirm-form-grid label {
@@ -421,6 +422,51 @@ a {
 .confirm-preview .preview-frame {
   height: 55vh;
   min-height: 420px;
+}
+
+.confirm-form-grid--restrict {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.confirm-form-grid--restrict .eyebrow {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
+.restrict-time-select {
+  max-width: 180px;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.confirm-recipients-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.confirm-recipients-choice .eyebrow {
+  margin-bottom: 0;
+}
+
+.confirm-recipients-choice .tag-select-wrap {
+  max-width: 320px;
+}
+
+.confirm-recipients-choice .tag-select-wrap select[multiple] {
+  width: 100%;
+  max-width: 300px;
+}
+
+.tag-count-info {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-top: 0.25rem;
 }
 
 .confirm-recipients,

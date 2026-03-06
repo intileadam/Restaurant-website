@@ -149,23 +149,6 @@
           required
         />
 
-        <div class="form-group form-group--recipients" data-recipients-group>
-          <span class="form-label">Recipients</span>
-          <label class="radio-label">
-            <input type="radio" name="send_to" value="all" checked data-send-to-all />
-            Send to all subscribed customers
-          </label>
-          <label class="radio-label">
-            <input type="radio" name="send_to" value="tags" data-send-to-tags />
-            Send to selected tags only
-          </label>
-          <div class="tag-select-wrap" data-tag-select-wrap hidden>
-            <label for="sendTagNames">Select tags</label>
-            <select id="sendTagNames" name="tag_names" multiple size="4" data-send-tag-names></select>
-            <p class="help-text">Hold Ctrl/Cmd to select multiple. Only customers with at least one selected tag will receive the campaign.</p>
-          </div>
-        </div>
-
         <button
           type="submit"
           class="button accent full-width"
@@ -720,34 +703,6 @@
 
     updateLintStatus({ report: null, message: "" });
 
-    (function initSendRecipients() {
-      const sendToAll = document.querySelector("[data-send-to-all]");
-      const sendToTags = document.querySelector("[data-send-to-tags]");
-      const tagSelectWrap = document.querySelector("[data-tag-select-wrap]");
-      const tagSelect = document.querySelector("[data-send-tag-names]");
-      if (!sendToAll || !sendToTags || !tagSelectWrap || !tagSelect) return;
-
-      function toggleTagSelect() {
-        tagSelectWrap.hidden = !sendToTags.checked;
-      }
-      sendToAll.addEventListener("change", toggleTagSelect);
-      sendToTags.addEventListener("change", toggleTagSelect);
-      toggleTagSelect();
-
-      fetch("/api/tags", { headers: { Accept: "application/json" } })
-        .then((r) => r.json())
-        .then((data) => {
-          const tags = Array.isArray(data.tags) ? data.tags : [];
-          tagSelect.innerHTML = "";
-          tags.forEach((t) => {
-            const opt = document.createElement("option");
-            opt.value = t.name;
-            opt.textContent = t.name;
-            tagSelect.appendChild(opt);
-          });
-        })
-        .catch(() => {});
-    })();
   })();
 </script>
 
