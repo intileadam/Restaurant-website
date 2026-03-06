@@ -175,8 +175,9 @@ BATCH_SIZE_MAX = 2000
 
 def default_controls():
     return {
-    "batch_size": int(os.getenv("DEFAULT_BATCH_SIZE", "100")),
-    "delay_ms": int(os.getenv("DEFAULT_BATCH_DELAY_MS", "200")),
+    "batch_size": int(os.getenv("DEFAULT_BATCH_SIZE", "25")),
+    "delay_ms": int(os.getenv("DEFAULT_BATCH_DELAY_MS", "1000")),
+    "batch_cooldown_seconds": int(os.getenv("DEFAULT_BATCH_COOLDOWN_SECONDS", "1200")),
     }
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -1076,6 +1077,7 @@ def change_own_password():
     return redirect(redirect_target)
 
 
+@app.get("/users")
 @app.get("/api/operators")
 def list_operators():
     """Return current admins for the Manage admins modal (authenticated)."""
@@ -1083,7 +1085,7 @@ def list_operators():
         rows = dbmod.list_service_users()
     except Exception as exc:
         app.logger.exception("list_operators: %s", exc)
-        return jsonify({"error": "Unable to load operators."}), 500
+        return jsonify({"ok": False, "error": "Unable to load operators."}), 500
     out = []
     for r in rows:
         last_login_at = r.get("last_login_at")
@@ -1098,9 +1100,10 @@ def list_operators():
             "username": r["username"],
             "role": r.get("role") or "admin",
             "is_active": bool(r.get("is_active")),
+            "last_login_at": last_login_at_iso,
             "last_login_at_iso": last_login_at_iso,
         })
-    return jsonify({"operators": out})
+    return jsonify({"ok": True, "users": out, "operators": out})
 
 
 @app.post("/campaigns/upload")
@@ -1578,8 +1581,15 @@ def update_customer_api(cust_id: int):
     phone = _optional_field(payload, "phone")
     comments = _optional_field(payload, "comments")
 
-    existing = dbmod.fetch_customer_by_id(cust_id)
+    try:
+        existing = dbmod.fetch_customer_by_id(cust_id)
+    except Exception as e:
+        app.logger.exception("fetch_customer_by_id(%s) failed (table=%s, mode=%s)",
+                             cust_id, dbmod.get_customer_table_name(), getattr(g, "db_mode", "unknown"))
+        return jsonify({"error": f"Database error: {e}"}), 500
     if not existing:
+        app.logger.warning("Customer %s not found in table %s (mode=%s)",
+                           cust_id, dbmod.get_customer_table_name(), getattr(g, "db_mode", "unknown"))
         return jsonify({"error": "Customer not found."}), 404
 
     if "is_subscribed" in payload:
@@ -1748,6 +1758,7 @@ def _build_confirm_context(
     subject: str | None,
     batch_size: int,
     delay_ms: int,
+    cooldown_seconds: int | None = None,
     restrict_start: str | None = None,
     restrict_end: str | None = None,
     tag_names: list[str] | None = None,
@@ -1756,6 +1767,8 @@ def _build_confirm_context(
     When tag_names is None or empty, recipients = all subscribed ('Send to all').
     When tag_names is non-empty, recipients = subscribed customers with at least one of those tags (distinct).
     """
+    if cooldown_seconds is None:
+        cooldown_seconds = default_controls()["batch_cooldown_seconds"]
     campaign_path = resolve_campaign_path(file)
     raw_html = load_campaign_html(campaign_path)
     lint_report = lint_html(raw_html)
@@ -1771,6 +1784,9 @@ def _build_confirm_context(
 
     recipients = dbmod.fetch_subscribed_customers(tag_names=tag_names) or []
     recipient_count = len(recipients)
+    num_batches = max(1, math.ceil(recipient_count / batch_size)) if recipient_count else 0
+    total_cooldown = max(0, num_batches - 1) * cooldown_seconds
+    estimated_seconds = total_cooldown + recipient_count * (delay_ms / 1000)
     eta_utc = estimate_completion_utc(recipient_count, delay_ms, restrict_start, restrict_end)
     return {
         "file": file,
@@ -1779,6 +1795,9 @@ def _build_confirm_context(
         "recipients": recipients,
         "batch_size": batch_size,
         "delay_ms": delay_ms,
+        "cooldown_seconds": cooldown_seconds,
+        "delay_seconds": int(delay_ms / 1000) if delay_ms else 0,
+        "cooldown_minutes": int(cooldown_seconds / 60) if cooldown_seconds else 0,
         "restrict_start": restrict_start or "",
         "restrict_end": restrict_end or "",
         "lint_report": lint_report,
@@ -1786,6 +1805,7 @@ def _build_confirm_context(
         "lint_has_warnings": lint_has_warnings,
         "preview_html": preview_html,
         "preview_error": preview_error,
+        "estimated_send_time": _format_duration(int(estimated_seconds)),
         "eta_utc_iso": eta_utc.isoformat() if eta_utc else None,
         "send_to": "all" if not tag_names else "tags",
         "tag_names": tag_names or [],
@@ -1797,7 +1817,14 @@ def confirm():
     subject = request.args.get("subject")
     defaults = default_controls()
     batch_size = int(request.args.get("batch_size", defaults["batch_size"]))
-    delay_ms = int(request.args.get("delay_ms", defaults["delay_ms"]))
+    delay_seconds = _parse_int(request.args.get("delay_seconds"), int(defaults["delay_ms"] / 1000), minimum=0)
+    delay_ms = delay_seconds * 1000
+    cooldown_minutes = _parse_int(
+        request.args.get("cooldown_minutes"),
+        int(defaults["batch_cooldown_seconds"] / 60),
+        minimum=0,
+    )
+    cooldown_seconds = cooldown_minutes * 60
     restrict_start = (request.args.get("restrict_start") or "").strip() or None
     restrict_end = (request.args.get("restrict_end") or "").strip() or None
 
@@ -1805,7 +1832,7 @@ def confirm():
         flash("No campaign file was selected.", "error")
         return redirect(url_for("queue_campaign"))
     try:
-        context = _build_confirm_context(file, subject, batch_size, delay_ms, restrict_start, restrict_end)
+        context = _build_confirm_context(file, subject, batch_size, delay_ms, cooldown_seconds, restrict_start, restrict_end)
     except FileNotFoundError:
         flash("Campaign file not found.", "error")
         return redirect(url_for("queue_campaign"))
@@ -1841,7 +1868,14 @@ def queue_campaign_post():
         tag_names = None
     defaults = default_controls()
     batch_size_raw = request.form.get("batch_size", defaults["batch_size"])
-    delay_ms_raw = request.form.get("delay_ms", defaults["delay_ms"])
+    delay_seconds = _parse_int(request.form.get("delay_seconds"), int(defaults["delay_ms"] / 1000), minimum=0)
+    delay_ms = delay_seconds * 1000
+    cooldown_minutes = _parse_int(
+        request.form.get("cooldown_minutes"),
+        int(defaults["batch_cooldown_seconds"] / 60),
+        minimum=0,
+    )
+    cooldown_seconds = cooldown_minutes * 60
     restrict_start = (request.form.get("restrict_start") or "").strip() or None
     restrict_end = (request.form.get("restrict_end") or "").strip() or None
 
@@ -1849,14 +1883,15 @@ def queue_campaign_post():
         flash("No campaign file was selected.", "error")
         return redirect(url_for("queue_campaign"))
     try:
-        delay_ms, batch_size, restrict_start, restrict_end = _validate_send_controls(
-            delay_ms_raw, batch_size_raw, restrict_start, restrict_end
-        )
-    except ValueError as e:
-        flash(str(e), "error")
+        batch_size = int(batch_size_raw)
+    except (TypeError, ValueError):
+        flash("Batch size must be a whole number.", "error")
+        return redirect(url_for("queue_campaign"))
+    if not (BATCH_SIZE_MIN <= batch_size <= BATCH_SIZE_MAX):
+        flash(f"Batch size must be between {BATCH_SIZE_MIN} and {BATCH_SIZE_MAX}.", "error")
         return redirect(url_for("queue_campaign"))
     try:
-        context = _build_confirm_context(file, subject, batch_size, delay_ms, restrict_start, restrict_end, tag_names=tag_names)
+        context = _build_confirm_context(file, subject, batch_size, delay_ms, cooldown_seconds, restrict_start, restrict_end, tag_names=tag_names)
     except FileNotFoundError:
         flash("Campaign file not found.", "error")
         return redirect(url_for("queue_campaign"))
@@ -1869,7 +1904,7 @@ def queue_campaign_post():
 
     if context["lint_has_errors"]:
         flash("Resolve lint errors before queuing the campaign.", "error")
-        return redirect(url_for("confirm", file=file, subject=subject, batch_size=batch_size, delay_ms=delay_ms))
+        return redirect(url_for("confirm", file=file, subject=subject, batch_size=batch_size, delay_seconds=delay_seconds, cooldown_minutes=cooldown_minutes))
 
     active = dbmod.fetch_active_send()
     if active:
@@ -1884,7 +1919,7 @@ def queue_campaign_post():
     try:
         dbmod.insert_campaign_send(
             send_id, file, subject, None, mode, total,
-            batch_size=batch_size, delay_ms=delay_ms, cooldown_seconds=0,
+            batch_size=batch_size, delay_ms=delay_ms, cooldown_seconds=cooldown_seconds,
         )
         dbmod.bulk_insert_send_recipients(send_id, recipients)
         dbmod.activate_campaign_send(send_id)
@@ -2298,6 +2333,10 @@ def _is_gunicorn():
 
 
 with app.app_context():
+    try:
+        dbmod.ensure_tag_tables()
+    except Exception as exc:
+        print(f"WARNING: Could not create tag tables: {exc}", file=sys.stderr)
     try:
         dbmod.ensure_campaign_tables()
     except Exception as exc:

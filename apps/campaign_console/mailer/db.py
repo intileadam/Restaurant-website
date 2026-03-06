@@ -554,6 +554,33 @@ def ensure_unsubscribe_token(custid: int, token: str | None = None) -> str:
 # --- Tags and customer_tags ---
 
 
+def ensure_tag_tables():
+    """Create tags and customer_tags tables if they do not exist."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS tags (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(191) NOT NULL,
+            UNIQUE KEY tags_name_unique (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS customer_tags (
+            customer_table VARCHAR(64) NOT NULL,
+            custid INT NOT NULL,
+            tag_id INT NOT NULL,
+            PRIMARY KEY (customer_table, custid, tag_id),
+            KEY customer_tags_tag_id (tag_id),
+            CONSTRAINT customer_tags_tag_fk
+                FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """)
+    finally:
+        cur.close()
+
+
 def list_tags(*, include_count: bool = False) -> list[dict]:
     """Return all tags (id, name). When include_count=True, add customer_count per tag (current table only)."""
     conn = get_connection()

@@ -170,10 +170,26 @@
             <input type="number" name="batch_size" min="1" value="{{ batch_size }}" />
           </label>
           <label>
-            <span>Delay (ms)</span>
-            <input type="number" name="delay_ms" min="0" value="{{ delay_ms }}" />
+            <span>Delay per email (seconds)</span>
+            <input type="number" name="delay_seconds" min="0" value="{{ delay_seconds }}" />
+          </label>
+          <label>
+            <span>Cooldown between batches (minutes)</span>
+            <input type="number" name="cooldown_minutes" min="0" value="{{ cooldown_minutes }}" />
           </label>
         </div>
+
+        {% if estimated_send_time %}
+        <p class="confirm-estimate muted">
+          Estimated total send time:
+          <strong id="estimatedSendTime">{{ estimated_send_time }}</strong>
+          for
+          <span id="estimatedRecipientCount">{{ recipient_count }}</span>
+          recipient{{ "s" if recipient_count != 1 else "" }}.
+          The send runs in the background — you can sign out and return later.
+        </p>
+        {% endif %}
+
         <div class="confirm-form-grid confirm-form-grid--restrict">
           <p class="eyebrow">Restricted send hours (Pacific time)</p>
           <label>
@@ -497,6 +513,48 @@
           .catch(() => {});
       }, 300);
     });
+  })();
+</script>
+<script>
+  (function () {
+    const estimateEl = document.getElementById("estimatedSendTime");
+    const recipientCountEl = document.getElementById("estimatedRecipientCount");
+    const batchInput = document.querySelector('input[name="batch_size"]');
+    const delayInput = document.querySelector('input[name="delay_seconds"]');
+    const cooldownInput = document.querySelector('input[name="cooldown_minutes"]');
+    if (!estimateEl || !recipientCountEl || !batchInput || !delayInput || !cooldownInput) return;
+
+    const baseRecipients = parseInt(recipientCountEl.textContent || "0", 10) || 0;
+
+    function formatDuration(seconds) {
+      const s = Math.max(0, Math.round(seconds || 0));
+      if (s < 60) return "under 1 minute";
+      const hours = Math.floor(s / 3600);
+      const minutes = Math.round((s % 3600) / 60);
+      if (hours && minutes) return "~" + hours + "h " + minutes + "m";
+      if (hours) return "~" + hours + "h";
+      return "~" + minutes + "m";
+    }
+
+    function recalcEstimate() {
+      if (!baseRecipients) return;
+      const batchSize = Math.max(1, parseInt(batchInput.value, 10) || 1);
+      const delaySeconds = Math.max(0, parseInt(delayInput.value, 10) || 0);
+      const cooldownMinutes = Math.max(0, parseInt(cooldownInput.value, 10) || 0);
+      const cooldownSeconds = cooldownMinutes * 60;
+      const numBatches = Math.max(1, Math.ceil(baseRecipients / batchSize));
+      const totalCooldown = Math.max(0, numBatches - 1) * cooldownSeconds;
+      const estimatedSeconds = totalCooldown + baseRecipients * delaySeconds;
+      estimateEl.textContent = formatDuration(estimatedSeconds);
+    }
+
+    batchInput.addEventListener("input", recalcEstimate);
+    batchInput.addEventListener("change", recalcEstimate);
+    delayInput.addEventListener("input", recalcEstimate);
+    delayInput.addEventListener("change", recalcEstimate);
+    cooldownInput.addEventListener("input", recalcEstimate);
+    cooldownInput.addEventListener("change", recalcEstimate);
+    recalcEstimate();
   })();
 </script>
 {% endblock %}
