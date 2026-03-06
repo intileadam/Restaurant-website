@@ -41,6 +41,12 @@
             data-customers-search
           />
         </label>
+        <label class="customer-tag-filter">
+          <span>Filter by tag</span>
+          <select data-customers-tag-filter>
+            <option value="">All customers</option>
+          </select>
+        </label>
       </div>
       <div class="table-scroll">
         <table class="customer-table">
@@ -51,6 +57,7 @@
               <th>Last name</th>
               <th>Company</th>
               <th>Phone</th>
+              <th>Tags</th>
               <th>Status</th>
               <th>Comments</th>
             </tr>
@@ -110,6 +117,14 @@
               <input type="checkbox" name="is_subscribed" data-field-subscribed checked />
               <span>Subscribed</span>
             </label>
+            <div class="customer-form-tags" data-tags-container>
+              <span class="form-label">Tags</span>
+              <div class="tag-chips" data-tag-chips></div>
+              <div class="tag-input-row">
+                <input type="text" data-tag-input placeholder="Add or create tag" autocomplete="off" list="tag-datalist" />
+                <datalist id="tag-datalist" data-tag-datalist></datalist>
+              </div>
+            </div>
           </div>
           <div class="form-actions">
             <button type="button" class="btn danger" data-modal-delete hidden>Delete customer</button>
@@ -190,8 +205,13 @@
       deleteBtn: document.querySelector("[data-modal-delete]"),
       sendEmailBtn: document.querySelector("[data-modal-send-email]"),
       searchInput: root.querySelector("[data-customers-search]"),
+      tagFilterSelect: root.querySelector("[data-customers-tag-filter]"),
       pageSizeSelect: root.querySelector("[data-customers-page-size]"),
       pagination: root.querySelector("[data-pagination]"),
+      tagsContainer: document.querySelector("[data-tags-container]"),
+      tagChips: document.querySelector("[data-tag-chips]"),
+      tagInput: document.querySelector("[data-tag-input]"),
+      tagDatalist: document.querySelector("[data-tag-datalist]"),
       paginationInfo: root.querySelector("[data-pagination-info]"),
       prevBtn: root.querySelector("[data-pagination-prev]"),
       nextBtn: root.querySelector("[data-pagination-next]"),
@@ -221,6 +241,8 @@
 
     const state = {
       customers: [],
+      allTags: [],
+      filterTagId: "",
       mode: "create",
       activeId: null,
       currentCustomer: null,
@@ -235,7 +257,42 @@
       emailPreviewToken: 0,
       emailCustomerId: null,
       viewMode: "form",
+      modalTagNames: [],
     };
+
+    async function loadTags() {
+      try {
+        const response = await authorizedFetch("/api/tags");
+        if (!response.ok) return;
+        const data = await response.json();
+        state.allTags = Array.isArray(data.tags) ? data.tags : [];
+        if (elements.tagFilterSelect) {
+          const current = elements.tagFilterSelect.value;
+          elements.tagFilterSelect.innerHTML = "";
+          const allOpt = document.createElement("option");
+          allOpt.value = "";
+          allOpt.textContent = "All customers";
+          elements.tagFilterSelect.appendChild(allOpt);
+          state.allTags.forEach((t) => {
+            const opt = document.createElement("option");
+            opt.value = String(t.id);
+            opt.textContent = t.name;
+            elements.tagFilterSelect.appendChild(opt);
+          });
+          if (current) elements.tagFilterSelect.value = current;
+        }
+        if (elements.tagDatalist) {
+          elements.tagDatalist.innerHTML = "";
+          state.allTags.forEach((t) => {
+            const opt = document.createElement("option");
+            opt.value = t.name;
+            elements.tagDatalist.appendChild(opt);
+          });
+        }
+      } catch (e) {
+        console.error("loadTags failed:", e);
+      }
+    }
 
     function authorizedFetch(input, init = {}) {
       const headers = new Headers(init.headers || {});
@@ -308,6 +365,12 @@
         addCell(customer.company || "—");
         addCell(customer.phone || "—");
 
+        const tagsTd = document.createElement("td");
+        const tagNames = Array.isArray(customer.tags) ? customer.tags.map((t) => (t && t.name) || t).filter(Boolean) : [];
+        tagsTd.textContent = tagNames.length ? tagNames.join(", ") : "—";
+        tagsTd.className = "customer-table-tags";
+        row.appendChild(tagsTd);
+
         const statusTd = document.createElement("td");
         const pill = document.createElement("span");
         pill.className = customer.is_subscribed ? "status-pill success" : "status-pill muted";
@@ -367,6 +430,9 @@
         if (state.search) {
           params.set("search", state.search);
         }
+        if (state.filterTagId) {
+          params.set("tag", state.filterTagId);
+        }
 
         const response = await authorizedFetch(`/api/customers?${params.toString()}`);
         if (!response.ok) {
@@ -406,6 +472,7 @@
         elements.shell.hidden = false;
         renderCustomers();
         renderPagination();
+        if (!state.allTags.length) loadTags();
       } catch (error) {
         console.error("loadCustomers failed:", error);
         const nextRetry = retryCount + 1;
@@ -424,6 +491,38 @@
           elements.loading.textContent = "Loading customers…";
         }
       }
+    }
+
+    function renderTagChips() {
+      if (!elements.tagChips) return;
+      elements.tagChips.innerHTML = "";
+      state.modalTagNames.forEach((name, idx) => {
+        const chip = document.createElement("span");
+        chip.className = "tag-chip";
+        chip.textContent = name;
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "tag-chip-remove";
+        remove.setAttribute("aria-label", `Remove tag ${name}`);
+        remove.textContent = "×";
+        remove.addEventListener("click", () => {
+          state.modalTagNames = state.modalTagNames.filter((_, i) => i !== idx);
+          renderTagChips();
+        });
+        chip.appendChild(remove);
+        elements.tagChips.appendChild(chip);
+      });
+    }
+
+    function addTagFromInput() {
+      if (!elements.tagInput) return;
+      const name = elements.tagInput.value.trim();
+      if (!name) return;
+      if (!state.modalTagNames.includes(name)) {
+        state.modalTagNames = state.modalTagNames.concat(name);
+        renderTagChips();
+      }
+      elements.tagInput.value = "";
     }
 
     function updateSendEmailButton(customer) {
@@ -480,9 +579,15 @@
         formFields.phone.value = customer.phone || "";
         formFields.comments.value = customer.comments || "";
         formFields.subscribed.checked = customer.is_subscribed;
+        state.modalTagNames = Array.isArray(customer.tags)
+          ? customer.tags.map((t) => (t && t.name) || t).filter(Boolean)
+          : [];
       } else {
         formFields.subscribed.checked = true;
+        state.modalTagNames = [];
       }
+      renderTagChips();
+      if (elements.tagInput) elements.tagInput.value = "";
 
       if (elements.deleteBtn) {
         const canDelete = mode === "edit";
@@ -752,6 +857,7 @@
         phone: valueFor("phone"),
         comments: valueFor("comments"),
         is_subscribed: elements.form.querySelector("[data-field-subscribed]").checked,
+        tags: state.modalTagNames.slice(),
       };
 
       elements.saveBtn.disabled = true;
@@ -900,6 +1006,24 @@
           loadCustomers();
         }, SEARCH_DELAY);
       });
+    }
+
+    if (elements.tagFilterSelect) {
+      elements.tagFilterSelect.addEventListener("change", (event) => {
+        state.filterTagId = (event.target.value || "").trim();
+        state.page = 1;
+        loadCustomers();
+      });
+    }
+
+    if (elements.tagInput) {
+      elements.tagInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          addTagFromInput();
+        }
+      });
+      elements.tagInput.addEventListener("blur", () => addTagFromInput());
     }
 
     if (elements.pageSizeSelect) {

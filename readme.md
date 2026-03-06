@@ -72,6 +72,10 @@ A Flask-based dashboard (see `apps/campaign_console/app.py`) turns the static si
      UNSUBSCRIBE_TOKEN CHAR(64) NOT NULL
    );
    ```
+   For the campaign console's customer-tag and tag-aware send features, also run the tags schema once per database:
+   ```bash
+   mysql -u ... -p your_database < scripts/schema_tags.sql
+   ```
    Use the dashboard’s “Add subscriber” form or `POST /api/customers` to seed a few rows if you don’t want to insert them manually.
 
 4. **Run the dashboard**

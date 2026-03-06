@@ -314,8 +314,43 @@ a {
   color: var(--muted);
 }
 
+.user-card__current-admins {
+  margin-bottom: 1rem;
+}
+
+.user-card__current-admins .eyebrow {
+  margin-bottom: 0.5rem;
+}
+
+.user-card__table-wrap {
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
+
+.user-card__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.user-card__table th,
+.user-card__table td {
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.user-card__table th {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.user-card .status-active {
+  color: var(--success, #0a0);
+}
+
 .user-card.workflow-modal {
-  width: min(460px, 100%);
+  width: min(520px, 100%);
 }
 
 .user-form {
@@ -445,6 +480,18 @@ a {
 
 .recipient-list tbody tr:nth-child(even) {
   background: rgba(47, 43, 36, 0.02);
+}
+
+.send-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.send-progress time {
+  font-weight: 600;
 }
 
 .send-log__output {
@@ -721,6 +768,43 @@ a {
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;
+}
+
+.form-group--recipients {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group--recipients .form-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.radio-label input {
+  width: auto;
+  margin: 0;
+}
+
+.tag-select-wrap {
+  margin-top: 0.25rem;
+}
+
+.tag-select-wrap select[multiple] {
+  min-width: 200px;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.9rem;
 }
 
 .help-text {
@@ -1051,6 +1135,96 @@ button:focus-visible,
 .customer-search-field {
   flex: 1;
   min-width: 240px;
+}
+
+.customer-tag-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.customer-tag-filter select {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.45rem 0.75rem;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.95rem;
+  min-height: 40px;
+  min-width: 160px;
+}
+
+.customer-form-tags {
+  grid-column: 1 / -1;
+}
+
+.customer-form-tags .form-label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 8px;
+  background: var(--border);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.tag-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.tag-chip-remove:hover {
+  color: var(--danger);
+}
+
+.tag-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tag-input-row input {
+  flex: 1;
+  max-width: 220px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.95rem;
+}
+
+.customer-table-tags {
+  font-size: 0.9rem;
+  color: var(--muted);
+  max-width: 180px;
 }
 
 .table-status {

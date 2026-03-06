@@ -112,21 +112,53 @@ def close_connection():
 
 
 
-def fetch_subscribed_customers():
+def _normalize_tag_name(name: str) -> str:
+    """Trim and lowercase for case-insensitive uniqueness."""
+    return (name or "").strip().lower()
+
+
+def fetch_subscribed_customers(tag_names: list[str] | None = None):
     """Returns basic fields needed for sending.
-    Keep this read-only in the campaign app; writes occur only in the unsubscribe service.
+    When tag_names is None or empty: all subscribed customers (respects IS_SUBSCRIBED).
+    When tag_names is non-empty: only subscribed customers that have at least one of
+    the given tags (OR semantics); each customer appears once (distinct).
     """
     conn = get_connection()
     cur = conn.cursor(DictCursor)
     table = get_customer_table_name()
-    cur.execute(
-    f"""
-    SELECT CUSTID, FIRSTNAME, LASTNAME, EMAIL, UNSUBSCRIBE_TOKEN
-    FROM {table}
-    WHERE IS_SUBSCRIBED = 1 AND EMAIL IS NOT NULL AND EMAIL <> ''
-    """
-    )
-    rows = cur.fetchall()
+    if not tag_names:
+        cur.execute(
+            f"""
+            SELECT CUSTID, FIRSTNAME, LASTNAME, EMAIL, UNSUBSCRIBE_TOKEN
+            FROM {table}
+            WHERE IS_SUBSCRIBED = 1 AND EMAIL IS NOT NULL AND EMAIL <> ''
+            """
+        )
+        rows = cur.fetchall()
+    else:
+        normalized = [_normalize_tag_name(n) for n in tag_names if _normalize_tag_name(n)]
+        if not normalized:
+            cur.execute(
+                f"""
+                SELECT CUSTID, FIRSTNAME, LASTNAME, EMAIL, UNSUBSCRIBE_TOKEN
+                FROM {table}
+                WHERE IS_SUBSCRIBED = 1 AND EMAIL IS NOT NULL AND EMAIL <> ''
+                """
+            )
+            rows = cur.fetchall()
+        else:
+            placeholders = ", ".join(["%s"] * len(normalized))
+            cur.execute(
+                f"""
+                SELECT DISTINCT c.CUSTID, c.FIRSTNAME, c.LASTNAME, c.EMAIL, c.UNSUBSCRIBE_TOKEN
+                FROM {table} c
+                INNER JOIN customer_tags ct ON ct.customer_table = %s AND ct.custid = c.CUSTID
+                INNER JOIN tags t ON t.id = ct.tag_id AND t.name IN ({placeholders})
+                WHERE c.IS_SUBSCRIBED = 1 AND c.EMAIL IS NOT NULL AND c.EMAIL <> ''
+                """,
+                [table] + normalized,
+            )
+            rows = cur.fetchall()
     cur.close()
     return rows
 
@@ -169,20 +201,59 @@ def fetch_all_customers():
     return rows
 
 
-def fetch_customers_paginated(*, search: str | None = None, limit: int = 50, offset: int = 0):
-    """Return a page of customers along with the total count."""
+def fetch_customers_paginated(
+    *,
+    search: str | None = None,
+    tag_ids: list[int] | None = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Return a page of customers along with the total count.
+    When tag_ids is non-empty, only customers that have ALL of those tags are returned.
+    Each row is enriched with a 'tags' key: list of {id, name}.
+    """
     conn = get_connection()
     normalized_limit = max(1, int(limit))
     normalized_offset = max(0, int(offset))
     table = get_customer_table_name()
 
-    where_clause = ""
     search_params: list[str] = []
+    tag_filter_sql = ""
+    tag_filter_params: list[str] = []
+    if tag_ids:
+        tag_ids = [int(x) for x in tag_ids if x]
+        if tag_ids:
+            placeholders = ", ".join(["%s"] * len(tag_ids))
+            tag_filter_sql = f"""
+            AND c.CUSTID IN (
+                SELECT ct.custid
+                FROM customer_tags ct
+                WHERE ct.customer_table = %s AND ct.tag_id IN ({placeholders})
+                GROUP BY ct.custid
+                HAVING COUNT(DISTINCT ct.tag_id) = %s
+            )
+            """
+            tag_filter_params = [table] + tag_ids + [len(tag_ids)]
+
+    use_alias = bool(tag_filter_sql)
+
     if search:
         term = search.strip().lower()
         if term:
             like = f"%{term}%"
-            where_clause = """
+            if use_alias:
+                search_where = """
+        WHERE (
+            LOWER(c.FIRSTNAME) LIKE %s OR
+            LOWER(c.LASTNAME) LIKE %s OR
+            LOWER(c.EMAIL) LIKE %s OR
+            LOWER(c.COMPANY) LIKE %s OR
+            LOWER(c.PHONE) LIKE %s OR
+            LOWER(c.COMMENTS) LIKE %s
+        )
+            """ + tag_filter_sql
+            else:
+                search_where = """
         WHERE
             LOWER(FIRSTNAME) LIKE %s OR
             LOWER(LASTNAME) LIKE %s OR
@@ -192,27 +263,55 @@ def fetch_customers_paginated(*, search: str | None = None, limit: int = 50, off
             LOWER(COMMENTS) LIKE %s
         """
             search_params = [like] * 6
+    else:
+        if use_alias:
+            search_where = "WHERE 1=1 " + tag_filter_sql
+        else:
+            search_where = ""
 
-    count_sql = f"SELECT COUNT(*) AS total FROM {table} {where_clause}"
+    all_params = search_params + tag_filter_params
+
+    if use_alias:
+        count_sql = f"SELECT COUNT(*) AS total FROM {table} c {search_where}"
+        field_set = ", ".join(
+            f"c.{f.strip()}" for f in _CUSTOMER_FIELD_SET.split(",") if f.strip()
+        )
+        data_sql = f"""
+    SELECT {field_set}
+    FROM {table} c
+    {search_where}
+    ORDER BY c.CUSTID DESC
+    LIMIT %s OFFSET %s
+    """
+    else:
+        count_sql = f"SELECT COUNT(*) AS total FROM {table} {search_where}"
+        data_sql = f"""
+    SELECT {_CUSTOMER_FIELD_SET}
+    FROM {table}
+    {search_where}
+    ORDER BY CUSTID DESC
+    LIMIT %s OFFSET %s
+    """
+
     count_cur = conn.cursor()
-    count_cur.execute(count_sql, search_params)
+    count_cur.execute(count_sql, all_params)
     count_row = count_cur.fetchone()
     total = int(count_row[0]) if count_row else 0
     count_cur.close()
 
-    data_sql = f"""
-    SELECT {_CUSTOMER_FIELD_SET}
-    FROM {table}
-    {where_clause}
-    ORDER BY CUSTID DESC
-    LIMIT %s OFFSET %s
-    """
-    params = list(search_params)
+    params = list(all_params)
     params.extend([normalized_limit, normalized_offset])
     data_cur = conn.cursor(DictCursor)
     data_cur.execute(data_sql, params)
     rows = data_cur.fetchall()
     data_cur.close()
+
+    # Attach tags to each row
+    if rows:
+        custids = [r["CUSTID"] for r in rows]
+        tags_by_cust = fetch_tags_for_customers(table, custids)
+        for r in rows:
+            r["tags"] = tags_by_cust.get(r["CUSTID"], [])
 
     return rows, total
 
@@ -386,11 +485,15 @@ def update_customer(
 
 
 def delete_customer(custid: int):
-    """Hard-delete a customer row."""
+    """Hard-delete a customer row and their tag assignments."""
     conn = get_connection()
     cur = conn.cursor()
     table = get_customer_table_name()
     try:
+        cur.execute(
+            "DELETE FROM customer_tags WHERE customer_table = %s AND custid = %s",
+            (table, custid),
+        )
         cur.execute(
         f"""
         DELETE FROM {table}
@@ -444,6 +547,183 @@ def ensure_unsubscribe_token(custid: int, token: str | None = None) -> str:
         if existing:
             return existing
         raise RuntimeError(f"Unable to ensure unsubscribe token for CUSTID {custid}.")
+    finally:
+        cur.close()
+
+
+# --- Tags and customer_tags ---
+
+
+def list_tags(*, include_count: bool = False) -> list[dict]:
+    """Return all tags (id, name). When include_count=True, add customer_count per tag (current table only)."""
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        if include_count:
+            table = get_customer_table_name()
+            cur.execute(
+                """
+                SELECT t.id, t.name,
+                    (SELECT COUNT(DISTINCT ct.custid)
+                     FROM customer_tags ct
+                     WHERE ct.tag_id = t.id AND ct.customer_table = %s) AS customer_count
+                FROM tags t
+                ORDER BY t.name
+                """,
+                (table,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, name
+                FROM tags
+                ORDER BY name
+                """
+            )
+        return cur.fetchall()
+    finally:
+        cur.close()
+
+
+def get_or_create_tag(name: str) -> int:
+    """Return tag id for the given name; create tag if missing. Name is normalized (trim, lowercase)."""
+    canonical = _normalize_tag_name(name)
+    if not canonical:
+        raise ValueError("Tag name cannot be empty.")
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        cur.execute("SELECT id FROM tags WHERE name = %s LIMIT 1", (canonical,))
+        row = cur.fetchone()
+        if row:
+            return int(row["id"])
+        cur.execute("INSERT INTO tags (name) VALUES (%s)", (canonical,))
+        return cur.lastrowid or 0
+    except pymysql.MySQLError as exc:
+        if getattr(exc, "errno", None) == ER.DUP_ENTRY:
+            cur.execute("SELECT id FROM tags WHERE name = %s LIMIT 1", (canonical,))
+            row = cur.fetchone()
+            if row:
+                return int(row["id"])
+        raise
+    finally:
+        cur.close()
+
+
+def delete_tag(tag_id: int) -> None:
+    """Remove a tag and all its customer assignments (CASCADE)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM tags WHERE id = %s", (tag_id,))
+    finally:
+        cur.close()
+
+
+def set_customer_tags(
+    customer_table: str,
+    custid: int,
+    tag_ids_or_names: list[int | str],
+) -> None:
+    """Replace tags for one customer. Items can be tag ids (int) or tag names (str)."""
+    table = _normalize_table(customer_table)
+    tag_ids: list[int] = []
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        for x in tag_ids_or_names:
+            if isinstance(x, int):
+                tag_ids.append(x)
+            else:
+                name = _normalize_tag_name(str(x))
+                if name:
+                    tid = get_or_create_tag(name)
+                    tag_ids.append(tid)
+        cur.execute(
+            "DELETE FROM customer_tags WHERE customer_table = %s AND custid = %s",
+            (table, custid),
+        )
+        for tag_id in tag_ids:
+            cur.execute(
+                """
+                INSERT IGNORE INTO customer_tags (customer_table, custid, tag_id)
+                VALUES (%s, %s, %s)
+                """,
+                (table, custid, tag_id),
+            )
+    finally:
+        cur.close()
+
+
+def get_customer_tag_ids(customer_table: str, custid: int) -> list[int]:
+    """Return list of tag ids for a customer."""
+    table = _normalize_table(customer_table)
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT tag_id
+            FROM customer_tags
+            WHERE customer_table = %s AND custid = %s
+            ORDER BY tag_id
+            """,
+            (table, custid),
+        )
+        return [row[0] for row in cur.fetchall()]
+    finally:
+        cur.close()
+
+
+def get_customer_tags(customer_table: str, custid: int) -> list[dict]:
+    """Return list of {id, name} for a customer's tags."""
+    table = _normalize_table(customer_table)
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        cur.execute(
+            """
+            SELECT t.id, t.name
+            FROM customer_tags ct
+            JOIN tags t ON t.id = ct.tag_id
+            WHERE ct.customer_table = %s AND ct.custid = %s
+            ORDER BY t.name
+            """,
+            (table, custid),
+        )
+        return cur.fetchall()
+    finally:
+        cur.close()
+
+
+def fetch_tags_for_customers(
+    customer_table: str,
+    custids: list[int],
+) -> dict[int, list[dict]]:
+    """Return dict custid -> list of {id, name} for tags. Empty list if no tags."""
+    if not custids:
+        return {}
+    table = _normalize_table(customer_table)
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        placeholders = ", ".join(["%s"] * len(custids))
+        cur.execute(
+            f"""
+            SELECT ct.custid, t.id, t.name
+            FROM customer_tags ct
+            JOIN tags t ON t.id = ct.tag_id
+            WHERE ct.customer_table = %s AND ct.custid IN ({placeholders})
+            ORDER BY ct.custid, t.name
+            """,
+            [table] + custids,
+        )
+        rows = cur.fetchall()
+        result: dict[int, list[dict]] = {cid: [] for cid in custids}
+        for r in rows:
+            cid = r["custid"]
+            result[cid].append({"id": r["id"], "name": r["name"]})
+        return result
     finally:
         cur.close()
 
@@ -547,6 +827,28 @@ def update_failed_login(user_id: int, *, failed_login_count: int, locked_until: 
         """,
         (failed_login_count, locked_until, user_id),
         )
+    finally:
+        cur.close()
+
+
+def list_service_users():
+    """Return all service users (id, username, role, is_active, last_login_at) for admin UI."""
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        cur.execute(
+            """
+            SELECT
+                id,
+                username,
+                role,
+                is_active,
+                last_login_at
+            FROM service_users
+            ORDER BY username
+            """
+        )
+        return cur.fetchall()
     finally:
         cur.close()
 

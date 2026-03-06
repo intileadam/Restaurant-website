@@ -20,6 +20,10 @@
         <p class="eyebrow">Recipients</p>
         <p class="confirm-meta__value">{{ resolved_recipient_count }}</p>
       </div>
+      <div class="confirm-meta__item">
+        <p class="eyebrow">Send to</p>
+        <p class="confirm-meta__value">{% if send_to == 'tags' and tag_names %}{{ tag_names|join(', ') }}{% else %}All subscribed{% endif %}</p>
+      </div>
     </div>
   </section>
 
@@ -142,6 +146,8 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <input type="hidden" name="file" value="{{ file }}" />
         <input type="hidden" name="subject" value="{{ subject }}" />
+        <input type="hidden" name="send_to" value="{{ send_to or 'all' }}" />
+        <input type="hidden" name="tag_names" value="{{ (tag_names or [])|join(',') }}" />
 
         <div class="confirm-form-grid">
           <label>
@@ -153,6 +159,18 @@
             <input type="number" name="delay_ms" min="0" value="{{ delay_ms }}" />
           </label>
         </div>
+        <div class="confirm-form-grid confirm-form-grid--restrict">
+          <p class="eyebrow">Restricted send hours (Pacific time)</p>
+          <label>
+            <span>Start</span>
+            <input type="time" name="restrict_start" value="{{ restrict_start }}" />
+          </label>
+          <label>
+            <span>End</span>
+            <input type="time" name="restrict_end" value="{{ restrict_end }}" />
+          </label>
+        </div>
+        <p class="help-text">Optional. Leave empty for no restriction. Emails send only within this window (e.g. 10:00–22:00).</p>
 
         {% if lint_has_errors %}
         <p class="lint-blocker">Fix the lint errors above to enable the send button.</p>
@@ -171,9 +189,16 @@
     </section>
 
     {% if sending %}
-    <section id="sendLogSection" class="card send-log confirm-send-log">
+    <section id="sendLogSection" class="card send-log confirm-send-log" data-send-total="{{ resolved_recipient_count }}" data-delay-ms="{{ delay_ms }}" data-eta-utc-iso="{{ eta_utc_iso or '' }}" data-has-restrict="{{ '1' if restrict_start and restrict_end else '0' }}">
       <h3>Send log</h3>
       <p class="eyebrow">Campaign: {{ file }}{% if subject %} · Subject: {{ subject }}{% endif %}</p>
+      <div class="send-progress" aria-live="polite">
+        <span>Sent: <strong id="sendMetricSent">0</strong></span>
+        <span>Pending: <strong id="sendMetricPending">{{ resolved_recipient_count }}</strong></span>
+        <span>Failed: <strong id="sendMetricFailed">0</strong></span>
+        <span>Skipped: <strong id="sendMetricSkipped">0</strong></span>
+        <span>Estimated completion: <time id="sendEta" datetime="{{ eta_utc_iso or '' }}">{{ eta_utc_iso or '—' }}</time></span>
+      </div>
       <pre id="confirmSendLog" tabindex="-1" class="send-log__output"></pre>
       <p class="muted">Keep this page open to monitor progress.</p>
     </section>
@@ -234,15 +259,47 @@
 <script>
   (function () {
     const log = document.getElementById("confirmSendLog");
+    const section = document.getElementById("sendLogSection");
     if (!log) return;
 
+    const total = parseInt(section?.dataset.sendTotal || "0", 10) || 0;
+    const delayMs = parseInt(section?.dataset.delayMs || "0", 10) || 0;
+    const hasRestrict = section?.dataset.hasRestrict === "1";
+    let sent = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    const updateMetrics = () => {
+      const pending = Math.max(0, total - sent - failed - skipped);
+      const sentEl = document.getElementById("sendMetricSent");
+      const pendingEl = document.getElementById("sendMetricPending");
+      const failedEl = document.getElementById("sendMetricFailed");
+      const skippedEl = document.getElementById("sendMetricSkipped");
+      const etaEl = document.getElementById("sendEta");
+      if (sentEl) sentEl.textContent = String(sent);
+      if (pendingEl) pendingEl.textContent = String(pending);
+      if (failedEl) failedEl.textContent = String(failed);
+      if (skippedEl) skippedEl.textContent = String(skipped);
+      if (etaEl && !hasRestrict && delayMs > 0) {
+        const remainingMs = pending * delayMs;
+        const eta = new Date(Date.now() + remainingMs);
+        etaEl.dateTime = eta.toISOString();
+        etaEl.textContent = eta.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+      } else if (etaEl && hasRestrict && section?.dataset.etaUtcIso) {
+        const eta = new Date(section.dataset.etaUtcIso);
+        if (!isNaN(eta.getTime())) {
+          etaEl.textContent = eta.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short", timeZoneName: "short" });
+        }
+      }
+    };
+
     const focusLog = () => {
-      const section = document.getElementById("sendLogSection") || log;
-      if (section.scrollIntoView) {
+      const scrollSection = section || log;
+      if (scrollSection.scrollIntoView) {
         try {
-          section.scrollIntoView({ behavior: "smooth", block: "start" });
+          scrollSection.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (err) {
-          section.scrollIntoView();
+          scrollSection.scrollIntoView();
         }
       }
       if (log.focus) {
@@ -266,6 +323,13 @@
       log.scrollTop = log.scrollHeight;
     };
 
+    const escapeHtml = (s) => {
+      if (s == null) return "";
+      const div = document.createElement("div");
+      div.textContent = s;
+      return div.innerHTML;
+    };
+
     const logStreamToken = {{ log_stream_token|tojson }};
     if (!logStreamToken) {
       appendLog("⚠ Live log stream unavailable. Reload this page to retry the connection.");
@@ -278,7 +342,46 @@
     let loggedError = false;
 
     es.onmessage = (event) => {
-      appendLog(event.data);
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch (e) {
+        appendLog(event.data);
+        return;
+      }
+      if (!data || typeof data.type !== "string") {
+        appendLog(event.data);
+        return;
+      }
+      switch (data.type) {
+        case "log":
+          appendLog(data.text || "");
+          break;
+        case "sent":
+          sent += 1;
+          appendLog("✔ Sent to " + escapeHtml(data.to));
+          updateMetrics();
+          break;
+        case "failed":
+          failed += 1;
+          appendLog("✖ Failed for " + escapeHtml(data.to) + ": " + escapeHtml(data.reason || ""));
+          updateMetrics();
+          break;
+        case "skipped":
+          skipped += 1;
+          appendLog("✖ Skipped " + escapeHtml(data.to) + ": " + escapeHtml(data.reason || ""));
+          updateMetrics();
+          break;
+        case "summary":
+          sent = data.sent ?? sent;
+          failed = data.failed ?? failed;
+          skipped = data.skipped ?? skipped;
+          updateMetrics();
+          if (data.text) appendLog(data.text);
+          break;
+        default:
+          if (data.text) appendLog(data.text);
+      }
     };
 
     es.onerror = () => {
@@ -297,6 +400,8 @@
         es.close();
       } catch (err) {}
     });
+
+    updateMetrics();
   })();
 </script>
 {% endif %}

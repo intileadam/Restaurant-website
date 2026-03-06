@@ -137,7 +137,7 @@
           <h2>Live send</h2>
         </div>
       </header>
-      <form method="get" action="/confirm" class="form-grid">
+      <form method="get" action="/confirm" class="form-grid" id="confirmForm">
         <input type="hidden" name="file" id="sendFileInput" data-sync="file" />
 
         <label for="subject2">Subject</label>
@@ -148,6 +148,23 @@
           placeholder="Subject line for customers"
           required
         />
+
+        <div class="form-group form-group--recipients" data-recipients-group>
+          <span class="form-label">Recipients</span>
+          <label class="radio-label">
+            <input type="radio" name="send_to" value="all" checked data-send-to-all />
+            Send to all subscribed customers
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="send_to" value="tags" data-send-to-tags />
+            Send to selected tags only
+          </label>
+          <div class="tag-select-wrap" data-tag-select-wrap hidden>
+            <label for="sendTagNames">Select tags</label>
+            <select id="sendTagNames" name="tag_names" multiple size="4" data-send-tag-names></select>
+            <p class="help-text">Hold Ctrl/Cmd to select multiple. Only customers with at least one selected tag will receive the campaign.</p>
+          </div>
+        </div>
 
         <button
           type="submit"
@@ -176,20 +193,37 @@
       type="button"
       class="workflow-modal__close"
       data-close-modal
-      aria-label="Close add user dialog"
+      aria-label="Close manage admins dialog"
     >
       &times;
     </button>
     <header class="card-header">
       <div>
         <p class="eyebrow">Team access</p>
-        <h2 id="userModalTitle">Add admin</h2>
+        <h2 id="userModalTitle">Manage admins</h2>
       </div>
       <span class="badge">Admins only</span>
     </header>
+    <section class="user-card__current-admins" aria-labelledby="currentAdminsHeading">
+      <h3 id="currentAdminsHeading" class="eyebrow">Current admins</h3>
+      <div class="user-card__table-wrap">
+        <table class="user-card__table" id="operatorsTable">
+          <thead>
+            <tr>
+              <th scope="col">Email</th>
+              <th scope="col">Role</th>
+              <th scope="col">Status</th>
+              <th scope="col">Last login</th>
+            </tr>
+          </thead>
+          <tbody id="operatorsTableBody">
+            <tr data-operators-loading><td colspan="4">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
     <p class="user-card__lead">
-      Keep this console restricted to trusted staff. New accounts can sign in immediately after
-      being added.
+      Add a new admin below. New accounts can sign in immediately after being added.
     </p>
     <form method="post" action="{{ url_for('add_operator') }}" class="form-grid user-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
@@ -357,6 +391,70 @@
 
     setupModal(uploadModal, uploadTrigger, "#campaign_file");
     setupModal(userModal, userTrigger, "#operator_email");
+
+    function formatLastLoginLocal() {
+      document.querySelectorAll("#operatorsTableBody [data-last-login]").forEach((el) => {
+        const iso = el.getAttribute("datetime");
+        if (!iso) return;
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return;
+        el.textContent = d.toLocaleString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      });
+    }
+
+    async function loadOperators() {
+      const tbody = document.getElementById("operatorsTableBody");
+      if (!tbody) return;
+      tbody.innerHTML = "<tr data-operators-loading><td colspan=\"4\">Loading…</td></tr>";
+      try {
+        const resp = await fetch("/api/operators", { headers: { Accept: "application/json" } });
+        const data = await resp.json();
+        if (!resp.ok) {
+          tbody.innerHTML = "<tr><td colspan=\"4\">Unable to load admins.</td></tr>";
+          return;
+        }
+        const operators = data.operators || [];
+        if (operators.length === 0) {
+          tbody.innerHTML = "<tr><td colspan=\"4\">No admins yet.</td></tr>";
+          return;
+        }
+        tbody.innerHTML = operators
+          .map(
+            (op) =>
+              `<tr>
+                <td>${escapeHtml(op.username)}</td>
+                <td>${escapeHtml(op.role || "admin")}</td>
+                <td>${op.is_active ? "<span class=\"status-active\">Active</span>" : "Inactive"}</td>
+                <td><time data-last-login datetime="${op.last_login_at_iso ? escapeAttr(op.last_login_at_iso) : ""}">${op.last_login_at_iso ? escapeHtml(op.last_login_at_iso) : "—"}</time></td>
+              </tr>`
+          )
+          .join("");
+        formatLastLoginLocal();
+      } catch (err) {
+        tbody.innerHTML = "<tr><td colspan=\"4\">Unable to load admins.</td></tr>";
+      }
+    }
+
+    function escapeHtml(s) {
+      if (s == null) return "";
+      const div = document.createElement("div");
+      div.textContent = s;
+      return div.innerHTML;
+    }
+    function escapeAttr(s) {
+      if (s == null) return "";
+      return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    if (userTrigger && userModal) {
+      userTrigger.addEventListener("click", () => loadOperators());
+    }
 
     function setLoading(isLoading) {
       reloadButton.textContent = isLoading ? "Loading..." : "Reload preview";
@@ -621,6 +719,35 @@
     }
 
     updateLintStatus({ report: null, message: "" });
+
+    (function initSendRecipients() {
+      const sendToAll = document.querySelector("[data-send-to-all]");
+      const sendToTags = document.querySelector("[data-send-to-tags]");
+      const tagSelectWrap = document.querySelector("[data-tag-select-wrap]");
+      const tagSelect = document.querySelector("[data-send-tag-names]");
+      if (!sendToAll || !sendToTags || !tagSelectWrap || !tagSelect) return;
+
+      function toggleTagSelect() {
+        tagSelectWrap.hidden = !sendToTags.checked;
+      }
+      sendToAll.addEventListener("change", toggleTagSelect);
+      sendToTags.addEventListener("change", toggleTagSelect);
+      toggleTagSelect();
+
+      fetch("/api/tags", { headers: { Accept: "application/json" } })
+        .then((r) => r.json())
+        .then((data) => {
+          const tags = Array.isArray(data.tags) ? data.tags : [];
+          tagSelect.innerHTML = "";
+          tags.forEach((t) => {
+            const opt = document.createElement("option");
+            opt.value = t.name;
+            opt.textContent = t.name;
+            tagSelect.appendChild(opt);
+          });
+        })
+        .catch(() => {});
+    })();
   })();
 </script>
 
