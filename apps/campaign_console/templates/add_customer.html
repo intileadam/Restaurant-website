@@ -852,6 +852,7 @@
         const value = formData.get(field);
         return value ? value.toString().trim() : "";
       };
+      const dbMode = document.body.dataset.dbMode === "test" ? "test" : "production";
       const payload = {
         email: valueFor("email"),
         firstname: valueFor("firstname"),
@@ -861,6 +862,7 @@
         comments: valueFor("comments"),
         is_subscribed: elements.form.querySelector("[data-field-subscribed]").checked,
         tags: state.modalTagNames.slice(),
+        db_mode: dbMode,
       };
 
       elements.saveBtn.disabled = true;

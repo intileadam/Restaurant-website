@@ -1389,7 +1389,9 @@ def list_customers_api():
     "has_next": total > 0 and page < total_pages,
     "has_prev": total > 0 and page > 1,
     }
-    return jsonify({"customers": serialized, "pagination": pagination, "search": search_term or ""})
+    response = jsonify({"customers": serialized, "pagination": pagination, "search": search_term or ""})
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.post("/api/customers")
@@ -1573,6 +1575,11 @@ def export_customers_api():
 @app.put("/api/customers/<int:cust_id>")
 def update_customer_api(cust_id: int):
     payload = request.get_json(silent=True) or {}
+    body_mode = _normalize_customer_mode(payload.get("db_mode"))
+    if body_mode is not None:
+        g.db_mode = body_mode
+        dbmod.set_customer_table_mode(body_mode)
+        session[CUSTOMER_MODE_SESSION_KEY] = body_mode
     email_raw = _clean_field(payload, "email")
     if not email_raw:
         return jsonify({"error": "Email is required."}), 400
