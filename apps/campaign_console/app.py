@@ -638,13 +638,13 @@ def _load_logged_in_user():
 
     g.db_mode = _ensure_customer_mode()
     dbmod.set_customer_table_mode(g.db_mode)
-    request_mode = request.headers.get("X-DB-Mode")
+    header_mode = _normalize_customer_mode(request.headers.get("X-DB-Mode"))
+    query_mode = _normalize_customer_mode(request.args.get("db_mode"))
+    request_mode = query_mode or header_mode
     if request_mode is not None:
-        normalized = _normalize_customer_mode(request_mode)
-        if normalized is not None:
-            g.db_mode = normalized
-            dbmod.set_customer_table_mode(normalized)
-            session[CUSTOMER_MODE_SESSION_KEY] = normalized
+        g.db_mode = request_mode
+        dbmod.set_customer_table_mode(request_mode)
+        session[CUSTOMER_MODE_SESSION_KEY] = request_mode
 
     if _should_skip_auth(request.endpoint):
         return
@@ -1575,11 +1575,13 @@ def export_customers_api():
 @app.put("/api/customers/<int:cust_id>")
 def update_customer_api(cust_id: int):
     payload = request.get_json(silent=True) or {}
+    query_mode = _normalize_customer_mode(request.args.get("db_mode"))
     body_mode = _normalize_customer_mode(payload.get("db_mode"))
-    if body_mode is not None:
-        g.db_mode = body_mode
-        dbmod.set_customer_table_mode(body_mode)
-        session[CUSTOMER_MODE_SESSION_KEY] = body_mode
+    request_mode = query_mode or body_mode
+    if request_mode is not None:
+        g.db_mode = request_mode
+        dbmod.set_customer_table_mode(request_mode)
+        session[CUSTOMER_MODE_SESSION_KEY] = request_mode
     email_raw = _clean_field(payload, "email")
     if not email_raw:
         return jsonify({"error": "Email is required."}), 400

@@ -430,6 +430,7 @@
         const params = new URLSearchParams();
         params.set("page", String(state.page));
         params.set("per_page", String(state.perPage));
+        params.set("db_mode", document.body.dataset.dbMode === "test" ? "test" : "production");
         if (state.search) {
           params.set("search", state.search);
         }
@@ -871,10 +872,13 @@
       elements.alert.textContent = "";
 
       try {
-        const url =
+        const baseUrl =
           state.mode === "create"
             ? "/api/customers"
             : `/api/customers/${encodeURIComponent(state.activeId)}`;
+        const url = state.mode === "create"
+          ? baseUrl
+          : `${baseUrl}?db_mode=${encodeURIComponent(dbMode)}`;
         const response = await authorizedFetch(url, {
           method: state.mode === "create" ? "POST" : "PUT",
           headers: { "Content-Type": "application/json" },
