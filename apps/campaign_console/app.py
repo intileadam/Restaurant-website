@@ -638,6 +638,13 @@ def _load_logged_in_user():
 
     g.db_mode = _ensure_customer_mode()
     dbmod.set_customer_table_mode(g.db_mode)
+    request_mode = request.headers.get("X-DB-Mode")
+    if request_mode is not None:
+        normalized = _normalize_customer_mode(request_mode)
+        if normalized is not None:
+            g.db_mode = normalized
+            dbmod.set_customer_table_mode(normalized)
+            session[CUSTOMER_MODE_SESSION_KEY] = normalized
 
     if _should_skip_auth(request.endpoint):
         return

@@ -502,7 +502,11 @@
       debounce = setTimeout(function () {
         const params = new URLSearchParams();
         params.set("tag_names", selected.join(","));
-        fetch("/api/recipients/count?" + params.toString())
+        const dbMode = document.body.dataset.dbMode === "test" ? "test" : "production";
+        fetch("/api/recipients/count?" + params.toString(), {
+          credentials: "same-origin",
+          headers: { "X-DB-Mode": dbMode },
+        })
           .then((r) => r.json())
           .then((data) => {
             if (tagCountInfo && data.count !== undefined) {

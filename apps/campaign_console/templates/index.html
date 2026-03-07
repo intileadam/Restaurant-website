@@ -595,9 +595,11 @@
       previewError.hidden = true;
       setLoading(true);
       try {
+        const dbMode = document.body.dataset.dbMode === "test" ? "test" : "production";
         const resp = await fetch(`/preview?file=${encodeURIComponent(file)}`, {
           signal: controller.signal,
-          headers: { Accept: "application/json" },
+          credentials: "same-origin",
+          headers: { Accept: "application/json", "X-DB-Mode": dbMode },
         });
         if (!resp.ok) {
           const payload = await resp.json().catch(() => ({}));
@@ -666,9 +668,11 @@
         setTestStatus("info", "Sending test email...");
         try {
           const formData = new FormData(testForm);
+          const dbMode = document.body.dataset.dbMode === "test" ? "test" : "production";
           const headers = {
             "X-Requested-With": "XMLHttpRequest",
             Accept: "application/json",
+            "X-DB-Mode": dbMode,
           };
           const csrfToken = window.getCsrfToken ? window.getCsrfToken() : "";
           if (csrfToken) {
@@ -677,6 +681,7 @@
           const resp = await fetch(testForm.action, {
             method: testForm.method,
             body: formData,
+            credentials: "same-origin",
             headers,
           });
           const text = await resp.text();

@@ -300,6 +300,9 @@
       if (csrfToken && !headers.has("X-CSRF-Token")) {
         headers.set("X-CSRF-Token", csrfToken);
       }
+      const rawMode = document.body.dataset.dbMode || "production";
+      const dbMode = rawMode === "test" ? "test" : "production";
+      headers.set("X-DB-Mode", dbMode);
       return fetch(input, { credentials: "same-origin", ...init, headers });
     }
 
@@ -1046,6 +1049,9 @@
     }
 
     window.addEventListener("db-mode-changed", (event) => {
+      if (elements.modal && !elements.modal.hidden) {
+        closeModal();
+      }
       state.page = 1;
       if (elements.loading) {
         const modeLabel = event?.detail?.mode === "test" ? "test" : "production";
