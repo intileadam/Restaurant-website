@@ -2,6 +2,15 @@ from __future__ import annotations
 import csv
 import io
 import json, math, os, pathlib, re, secrets, socket, sys, threading, time as time_module
+# #region agent log
+def _debug_log(session_id: str, location: str, message: str, data: dict, hypothesis_id: str = ""):
+    try:
+        p = pathlib.Path(__file__).resolve().parent.parent.parent / ".cursor" / "debug-6c455b.log"
+        with open(p, "a") as f:
+            f.write(json.dumps({"sessionId": session_id, "location": location, "message": message, "data": data, "hypothesisId": hypothesis_id, "timestamp": time_module.time() * 1000}) + "\n")
+    except Exception:
+        pass
+# #endregion
 from datetime import datetime, timedelta, time as dt_time
 from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
@@ -1575,6 +1584,14 @@ def export_customers_api():
 @app.put("/api/customers/<int:cust_id>")
 def update_customer_api(cust_id: int):
     payload = request.get_json(silent=True) or {}
+    # #region agent log
+    _debug_log("6c455b", "app.py:update_customer_api:entry", "PUT update_customer_api", {
+        "cust_id": cust_id,
+        "query_db_mode_raw": request.args.get("db_mode"),
+        "body_db_mode_raw": payload.get("db_mode") if isinstance(payload, dict) else None,
+        "has_tags": isinstance(payload.get("tags"), list) if isinstance(payload, dict) else False,
+    }, "H1")
+    # #endregion
     query_mode = _normalize_customer_mode(request.args.get("db_mode"))
     body_mode = _normalize_customer_mode(payload.get("db_mode"))
     request_mode = query_mode or body_mode
@@ -1582,6 +1599,13 @@ def update_customer_api(cust_id: int):
         g.db_mode = request_mode
         dbmod.set_customer_table_mode(request_mode)
         session[CUSTOMER_MODE_SESSION_KEY] = request_mode
+    # #region agent log
+    _debug_log("6c455b", "app.py:update_customer_api:after_mode", "mode and table set", {
+        "request_mode": request_mode,
+        "g_db_mode": getattr(g, "db_mode", None),
+        "table_name": dbmod.get_customer_table_name(),
+    }, "H2")
+    # #endregion
     email_raw = _clean_field(payload, "email")
     if not email_raw:
         return jsonify({"error": "Email is required."}), 400
@@ -1603,6 +1627,14 @@ def update_customer_api(cust_id: int):
         app.logger.exception("fetch_customer_by_id(%s) failed (table=%s, mode=%s)",
                              cust_id, dbmod.get_customer_table_name(), getattr(g, "db_mode", "unknown"))
         return jsonify({"error": f"Database error: {e}"}), 500
+    # #region agent log
+    _debug_log("6c455b", "app.py:update_customer_api:after_first_fetch", "first fetch result", {
+        "cust_id": cust_id,
+        "existing_found": existing is not None,
+        "table_used": dbmod.get_customer_table_name(),
+        "g_db_mode": getattr(g, "db_mode", None),
+    }, "H3")
+    # #endregion
     if not existing:
         current_mode = getattr(g, "db_mode", "production")
         other_mode = "test" if current_mode == "production" else "production"
@@ -1619,7 +1651,23 @@ def update_customer_api(cust_id: int):
                 session[CUSTOMER_MODE_SESSION_KEY] = other_mode
             else:
                 dbmod.set_customer_table_mode(current_mode)
+        # #region agent log
+        _debug_log("6c455b", "app.py:update_customer_api:after_fallback", "fallback fetch result", {
+            "cust_id": cust_id,
+            "current_mode": current_mode,
+            "other_mode": other_mode,
+            "existing_after_fallback": existing is not None,
+            "table_after_fallback": dbmod.get_customer_table_name(),
+        }, "H4")
+        # #endregion
         if not existing:
+            # #region agent log
+            _debug_log("6c455b", "app.py:update_customer_api:returning_404", "returning 404", {
+                "cust_id": cust_id,
+                "final_table": dbmod.get_customer_table_name(),
+                "final_mode": getattr(g, "db_mode", None),
+            }, "H5")
+            # #endregion
             app.logger.warning("Customer %s not found in table %s (mode=%s)",
                                cust_id, dbmod.get_customer_table_name(), getattr(g, "db_mode", "unknown"))
             return jsonify({"error": "Customer not found."}), 404
