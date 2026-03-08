@@ -1604,9 +1604,25 @@ def update_customer_api(cust_id: int):
                              cust_id, dbmod.get_customer_table_name(), getattr(g, "db_mode", "unknown"))
         return jsonify({"error": f"Database error: {e}"}), 500
     if not existing:
-        app.logger.warning("Customer %s not found in table %s (mode=%s)",
-                           cust_id, dbmod.get_customer_table_name(), getattr(g, "db_mode", "unknown"))
-        return jsonify({"error": "Customer not found."}), 404
+        current_mode = getattr(g, "db_mode", "production")
+        other_mode = "test" if current_mode == "production" else "production"
+        dbmod.set_customer_table_mode(other_mode)
+        try:
+            existing = dbmod.fetch_customer_by_id(cust_id)
+        except Exception:
+            existing = None
+        finally:
+            if existing:
+                app.logger.info("Customer %s found in %s table (request was using %s); syncing mode",
+                                cust_id, other_mode, current_mode)
+                g.db_mode = other_mode
+                session[CUSTOMER_MODE_SESSION_KEY] = other_mode
+            else:
+                dbmod.set_customer_table_mode(current_mode)
+        if not existing:
+            app.logger.warning("Customer %s not found in table %s (mode=%s)",
+                               cust_id, dbmod.get_customer_table_name(), getattr(g, "db_mode", "unknown"))
+            return jsonify({"error": "Customer not found."}), 404
 
     if "is_subscribed" in payload:
         is_subscribed = _coerce_bool(payload.get("is_subscribed"), True)
@@ -1643,6 +1659,7 @@ def update_customer_api(cust_id: int):
             dbmod.set_customer_tags(table, cust_id, tag_names)
         except Exception as e:
             app.logger.exception("Failed to save tags for customer %s", cust_id)
+            return jsonify({"error": f"Customer saved but tags failed to save: {e}"}), 500
         row["tags"] = dbmod.get_customer_tags(table, cust_id)
 
     return jsonify({"customer": _serialize_customer(row)})
