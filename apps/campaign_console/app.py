@@ -1705,11 +1705,13 @@ def update_customer_api(cust_id: int):
             "table_after_update": table_for_request,
         }, "H7")
         # #endregion
-    except dbmod.CustomerNotFoundError:
+    except dbmod.CustomerNotFoundError as e:
         # #region agent log
         _debug_log("6c455b", "app.py:update_customer_api:CustomerNotFoundError", "404 from update_customer", {
             "cust_id": cust_id,
             "table_at_catch": dbmod.get_customer_table_name(),
+            "table_passed": table_for_request,
+            "exception_message": str(e),
         }, "H6")
         # #endregion
         return jsonify({"error": "Customer not found."}), 404
