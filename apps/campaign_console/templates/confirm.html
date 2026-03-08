@@ -81,7 +81,7 @@
 
     {% if recipients %}
     {% set preview_limit = 5 %}
-    <section class="card confirm-recipients">
+    <section class="card confirm-recipients" data-confirm-recipients-section>
       <header class="card-header">
         <div>
           <p class="eyebrow">Recipients</p>
@@ -89,8 +89,27 @@
         </div>
       </header>
       <div class="recipient-list">
+        <div class="confirm-recipients-choice confirm-recipients-choice--in-section" data-recipients-choice>
+          <label class="radio-label">
+            <input type="radio" name="recipients_scope" value="all" checked data-send-to-all />
+            Send to all subscribed customers (<span data-all-count>{{ recipient_count }}</span>)
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="recipients_scope" value="tags" data-send-to-tags />
+            Send to selected tags only
+          </label>
+          <div class="tag-select-wrap tag-pills-wrap" data-tag-select-wrap hidden>
+            <label class="tag-pills-label">Select tags (click to toggle)</label>
+            <div class="confirm-tag-pills" data-confirm-tag-pills role="listbox" aria-multiselectable="true" aria-label="Select tags">
+              {% for tag in (all_tags or []) %}
+              <button type="button" class="confirm-tag-pill" data-tag-name="{{ tag.name }}" role="option" aria-selected="false">{{ tag.name }}{% if tag.customer_count is defined %} ({{ tag.customer_count }}){% endif %}</button>
+              {% endfor %}
+            </div>
+            <p class="tag-count-info" data-tag-count-info hidden></p>
+          </div>
+        </div>
         <div class="recipient-list__header">
-          <p class="muted">Showing up to {{ preview_limit }} rows by default</p>
+          <p class="muted recipient-list__count" data-recipient-list-count>{{ recipients|length }} recipient{{ "s" if recipients|length != 1 else "" }} in list</p>
           {% if recipients|length > preview_limit %}
           <button
             id="recipient-toggle"
@@ -110,15 +129,17 @@
                 <th scope="col">First name</th>
                 <th scope="col">Last name</th>
                 <th scope="col">Email</th>
+                <th scope="col">Tags</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-recipient-tbody>
               {% for customer in recipients %}
               <tr>
                 <td>{{ loop.index }}</td>
                 <td>{{ customer["FIRSTNAME"] }}</td>
                 <td>{{ customer["LASTNAME"] }}</td>
                 <td>{{ customer["EMAIL"] }}</td>
+                <td>{{ (customer.get("tags") or [])|map(attribute="name")|join(", ") }}</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -138,31 +159,13 @@
           <h3>Send to customers</h3>
         </div>
       </header>
-      <form method="post" action="/send">
+      <form id="confirm-send-form" method="post" action="/send">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <input type="hidden" name="file" value="{{ file }}" />
         <input type="hidden" name="subject" value="{{ subject }}" />
-        <div class="confirm-recipients-choice" data-recipients-choice>
-          <p class="eyebrow">Recipients</p>
-          <label class="radio-label">
-            <input type="radio" name="send_to" value="all" checked data-send-to-all />
-            Send to all subscribed customers (<span data-all-count>{{ recipient_count }}</span>)
-          </label>
-          <label class="radio-label">
-            <input type="radio" name="send_to" value="tags" data-send-to-tags />
-            Send to selected tags only
-          </label>
+        <input type="hidden" name="send_to" value="all" data-form-send-to />
+        <div data-form-tag-names-container></div>
         <div class="confirm-send-options-row">
-          <div class="tag-select-wrap" data-tag-select-wrap hidden>
-            <label for="confirmTagNames">Select tags</label>
-            <select id="confirmTagNames" name="tag_names" multiple size="4" data-confirm-tag-names>
-              {% for tag in (all_tags or []) %}
-              <option value="{{ tag.name }}">{{ tag.name }}{% if tag.customer_count is defined %} ({{ tag.customer_count }}){% endif %}</option>
-              {% endfor %}
-            </select>
-            <p class="help-text">Hold Ctrl/Cmd to select multiple. Only customers with at least one selected tag will receive the campaign.</p>
-            <p class="tag-count-info" data-tag-count-info hidden></p>
-          </div>
           <div class="confirm-form-grid confirm-form-grid--send-params">
             <label>
               <span>Batch size</span>
@@ -178,7 +181,6 @@
             </label>
           </div>
         </div>
-        </div>
 
         {% if estimated_send_time %}
         <p class="confirm-estimate muted">
@@ -192,7 +194,12 @@
         {% endif %}
 
         <div class="confirm-form-grid confirm-form-grid--restrict">
-          <p class="eyebrow">Restricted send hours (Pacific time)</p>
+          <p class="eyebrow confirm-restrict-heading">
+            <span class="confirm-restrict-heading__icon" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </span>
+            Restricted send hours (Pacific time)
+          </p>
           <label>
             <span>Start</span>
             <select name="restrict_start" class="restrict-time-select" data-restrict-start>
@@ -258,42 +265,8 @@
     <a href="{{ url_for('index') }}" class="button ghost full-width">Return to homepage</a>
   </div>
 </div>
-{% if recipients and recipients|length > preview_limit %}
-<script>
-  (function () {
-    const table = document.getElementById("recipient-table");
-    const toggle = document.getElementById("recipient-toggle");
-    if (!table || !toggle) return;
-
-    const previewLimit = parseInt(table.dataset.previewLimit || "0", 10);
-    const rows = Array.from(table.querySelectorAll("tbody tr"));
-
-    function render(expanded) {
-      rows.forEach((row, idx) => {
-        const shouldShow = expanded || idx < previewLimit;
-        row.style.display = shouldShow ? "" : "none";
-      });
-      toggle.dataset.expanded = expanded ? "true" : "false";
-      toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
-      if (expanded) {
-        toggle.textContent = "Collapse recipient list";
-      } else {
-        const remaining = Math.max(rows.length - previewLimit, 0);
-        toggle.textContent =
-          remaining > 0
-            ? `Show all recipients (${remaining} more)`
-            : "Show recipients";
-      }
-    }
-
-    toggle.addEventListener("click", () => {
-      const expanded = toggle.dataset.expanded === "true";
-      render(!expanded);
-    });
-
-    render(false);
-  })();
-</script>
+{% if recipients %}
+<script id="confirm-recipients-initial" type="application/json">{{ recipients|tojson }}</script>
 {% endif %}
 {% if preview_html %}
 <script>
@@ -478,46 +451,194 @@
 </script>
 <script>
   (function () {
-    const sendToAll = document.querySelector("[data-send-to-all]");
-    const sendToTags = document.querySelector("[data-send-to-tags]");
-    const tagSelectWrap = document.querySelector("[data-tag-select-wrap]");
-    const tagSelect = document.querySelector("[data-confirm-tag-names]");
-    const tagCountInfo = document.querySelector("[data-tag-count-info]");
-    if (!sendToAll || !sendToTags || !tagSelectWrap || !tagSelect) return;
+    const section = document.querySelector("[data-confirm-recipients-section]");
+    const sendToAll = section?.querySelector("[data-send-to-all]");
+    const sendToTags = section?.querySelector("[data-send-to-tags]");
+    const tagSelectWrap = section?.querySelector("[data-tag-select-wrap]");
+    const tagPills = section?.querySelector("[data-confirm-tag-pills]");
+    const tagCountInfo = section?.querySelector("[data-tag-count-info]");
+    const tbody = section?.querySelector("[data-recipient-tbody]");
+    const listCountEl = section?.querySelector("[data-recipient-list-count]");
+    const table = document.getElementById("recipient-table");
+    const recipientToggle = document.getElementById("recipient-toggle");
+    const form = document.getElementById("confirm-send-form");
+    const formSendTo = form?.querySelector("[data-form-send-to]");
+    const formTagNamesContainer = form?.querySelector("[data-form-tag-names-container]");
+    const estimatedRecipientCountEl = document.getElementById("estimatedRecipientCount");
+
+    const previewLimit = table ? parseInt(table.dataset.previewLimit || "5", 10) : 5;
+    let initialRecipients = [];
+    try {
+      const blob = document.getElementById("confirm-recipients-initial");
+      if (blob && blob.textContent) initialRecipients = JSON.parse(blob.textContent);
+    } catch (e) {}
+
+    function normalizeRecipient(r) {
+      return {
+        id: r.CUSTID ?? r.id,
+        firstname: (r.FIRSTNAME ?? r.firstname ?? "").toString(),
+        lastname: (r.LASTNAME ?? r.lastname ?? "").toString(),
+        email: (r.EMAIL ?? r.email ?? "").toString(),
+        tags: Array.isArray(r.tags) ? r.tags : [],
+      };
+    }
+
+    function getSelectedTagNames() {
+      if (!tagPills) return [];
+      return Array.from(tagPills.querySelectorAll(".confirm-tag-pill--selected"))
+        .map((b) => b.dataset.tagName)
+        .filter(Boolean);
+    }
+
+    function syncFormInputs() {
+      if (!formSendTo || !formTagNamesContainer) return;
+      const useTags = sendToTags?.checked ?? false;
+      formSendTo.value = useTags ? "tags" : "all";
+      formTagNamesContainer.innerHTML = "";
+      if (useTags) {
+        getSelectedTagNames().forEach((name) => {
+          const input = document.createElement("input");
+          input.type = "hidden";
+          input.name = "tag_names";
+          input.value = name;
+          formTagNamesContainer.appendChild(input);
+        });
+      }
+    }
+
+    function renderTableRows(recipients) {
+      if (!tbody) return;
+      const list = recipients.map(normalizeRecipient);
+      tbody.innerHTML = list
+        .map(
+          (r, idx) =>
+            "<tr><td>" +
+            (idx + 1) +
+            "</td><td>" +
+            escapeHtml(r.firstname) +
+            "</td><td>" +
+            escapeHtml(r.lastname) +
+            "</td><td>" +
+            escapeHtml(r.email) +
+            "</td><td>" +
+            escapeHtml(r.tags.map((t) => t.name || t).join(", ")) +
+            "</td></tr>"
+        )
+        .join("");
+      if (listCountEl) {
+        const n = list.length;
+        listCountEl.textContent = n + " recipient" + (n !== 1 ? "s" : "") + " in list";
+      }
+      if (estimatedRecipientCountEl) estimatedRecipientCountEl.textContent = String(list.length);
+
+      if (recipientToggle && table) {
+        const rows = Array.from(tbody.querySelectorAll("tr"));
+        const expanded = recipientToggle.dataset.expanded === "true";
+        rows.forEach((row, idx) => {
+          row.style.display = expanded || idx < previewLimit ? "" : "none";
+        });
+        if (rows.length > previewLimit) {
+          recipientToggle.style.display = "";
+          recipientToggle.dataset.expanded = expanded ? "true" : "false";
+          recipientToggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+          recipientToggle.textContent = expanded
+            ? "Collapse recipient list"
+            : "Show all recipients (" + (rows.length - previewLimit) + " more)";
+        } else {
+          recipientToggle.style.display = "none";
+        }
+        recipientToggle.onclick = function () {
+          const nowExpanded = recipientToggle.dataset.expanded !== "true";
+          recipientToggle.dataset.expanded = nowExpanded ? "true" : "false";
+          recipientToggle.setAttribute("aria-expanded", nowExpanded ? "true" : "false");
+          recipientToggle.textContent = nowExpanded ? "Collapse recipient list" : "Show all recipients (" + (rows.length - previewLimit) + " more)";
+          rows.forEach((row, idx) => {
+            row.style.display = nowExpanded || idx < previewLimit ? "" : "none";
+          });
+        };
+      }
+    }
+
+    function escapeHtml(s) {
+      if (s == null) return "";
+      const div = document.createElement("div");
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function loadRecipientsByTags(tagNames) {
+      if (!tagNames.length) {
+        renderTableRows([]);
+        if (tagCountInfo) {
+          tagCountInfo.hidden = false;
+          tagCountInfo.textContent = "Select one or more tags to see matching recipients.";
+        }
+        syncFormInputs();
+        return;
+      }
+      const params = new URLSearchParams();
+      params.set("tag_names", tagNames.join(","));
+      const dbMode = document.body.dataset.dbMode === "test" ? "test" : "production";
+      fetch("/api/recipients/list?" + params.toString(), {
+        credentials: "same-origin",
+        headers: { "X-DB-Mode": dbMode },
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          const list = (data && data.recipients) || [];
+          renderTableRows(list);
+          if (tagCountInfo) {
+            tagCountInfo.hidden = false;
+            tagCountInfo.textContent =
+              list.length + " subscriber" + (list.length !== 1 ? "s" : "") + " match the selected tags.";
+          }
+          syncFormInputs();
+        })
+        .catch(() => {
+          if (tagCountInfo) {
+            tagCountInfo.hidden = false;
+            tagCountInfo.textContent = "Unable to load recipients.";
+          }
+          syncFormInputs();
+        });
+    }
+
+    if (!sendToAll || !sendToTags) return;
 
     function toggleTagSelect() {
-      tagSelectWrap.hidden = !sendToTags.checked;
+      if (tagSelectWrap) tagSelectWrap.hidden = !sendToTags.checked;
+      if (sendToTags.checked) {
+        const selected = getSelectedTagNames();
+        loadRecipientsByTags(selected);
+      } else {
+        renderTableRows(initialRecipients);
+        if (tagCountInfo) tagCountInfo.hidden = true;
+        syncFormInputs();
+      }
     }
+
     sendToAll.addEventListener("change", toggleTagSelect);
     sendToTags.addEventListener("change", toggleTagSelect);
     toggleTagSelect();
 
-    let debounce = null;
-    tagSelect.addEventListener("change", function () {
-      const selected = Array.from(tagSelect.selectedOptions).map((o) => o.value);
-      if (!selected.length) {
-        if (tagCountInfo) { tagCountInfo.hidden = true; tagCountInfo.textContent = ""; }
-        return;
-      }
-      clearTimeout(debounce);
-      debounce = setTimeout(function () {
-        const params = new URLSearchParams();
-        params.set("tag_names", selected.join(","));
-        const dbMode = document.body.dataset.dbMode === "test" ? "test" : "production";
-        fetch("/api/recipients/count?" + params.toString(), {
-          credentials: "same-origin",
-          headers: { "X-DB-Mode": dbMode },
-        })
-          .then((r) => r.json())
-          .then((data) => {
-            if (tagCountInfo && data.count !== undefined) {
-              tagCountInfo.hidden = false;
-              tagCountInfo.textContent = data.count + " subscriber" + (data.count !== 1 ? "s" : "") + " match the selected tags.";
-            }
-          })
-          .catch(() => {});
-      }, 300);
-    });
+    if (tagPills) {
+      tagPills.querySelectorAll(".confirm-tag-pill").forEach((btn) => {
+        btn.addEventListener("click", function () {
+          const name = this.dataset.tagName;
+          if (!name) return;
+          const selected = this.getAttribute("aria-selected") === "true";
+          this.setAttribute("aria-selected", selected ? "false" : "true");
+          this.classList.toggle("confirm-tag-pill--selected", !selected);
+          if (sendToTags.checked) loadRecipientsByTags(getSelectedTagNames());
+          syncFormInputs();
+        });
+      });
+    }
+
+    syncFormInputs();
+    if (sendToAll?.checked && initialRecipients.length) {
+      renderTableRows(initialRecipients);
+    }
   })();
 </script>
 <script>

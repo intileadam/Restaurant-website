@@ -491,6 +491,69 @@ a {
   margin-top: 0.25rem;
 }
 
+.confirm-tag-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.confirm-tag-pill {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.9rem;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.confirm-tag-pill:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.confirm-tag-pill--selected,
+.confirm-tag-pill[aria-selected="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.confirm-tag-pill--selected:hover,
+.confirm-tag-pill[aria-selected="true"]:hover {
+  filter: brightness(1.08);
+}
+
+.tag-pills-wrap .tag-pills-label {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.25rem;
+}
+
+.confirm-recipients-choice--in-section {
+  margin-bottom: 1rem;
+}
+
+.confirm-restrict-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.confirm-restrict-heading__icon {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.confirm-restrict-heading__icon svg {
+  display: block;
+}
+
 .confirm-recipients,
 .confirm-send-log {
   grid-column: 1 / -1;
@@ -1515,6 +1578,31 @@ button:focus-visible,
   gap: 0.75rem;
 }
 
+.btn.icon-btn-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+}
+
+.btn.icon-btn-refresh:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--border);
+}
+
+.icon-btn-refresh .icon-refresh {
+  flex-shrink: 0;
+}
+
 .page-size-control,
 .customer-search-field {
   display: flex;
@@ -1740,7 +1828,7 @@ button:focus-visible,
 
 .bulk-modal {
   width: 100%;
-  max-width: 420px;
+  max-width: 520px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -1777,12 +1865,17 @@ button:focus-visible,
   margin-bottom: 0.75rem;
 }
 
+.bulk-panel--add-tags {
+  min-height: 360px;
+}
+
 .bulk-tag-input-wrap {
   max-width: 100%;
 }
 
 .bulk-tag-input-wrap .tag-dropdown {
   z-index: 1001;
+  max-height: 320px;
 }
 
 .bulk-remove-tags-list {

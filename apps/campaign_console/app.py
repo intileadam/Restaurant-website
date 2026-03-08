@@ -1905,6 +1905,12 @@ def _build_confirm_context(
         preview_error = f"Unable to render campaign preview: {e}"
 
     recipients = dbmod.fetch_subscribed_customers(tag_names=tag_names) or []
+    if recipients:
+        table = dbmod.get_customer_table_name()
+        custids = [r["CUSTID"] for r in recipients]
+        tags_by_cust = dbmod.fetch_tags_for_customers(table, custids)
+        for r in recipients:
+            r["tags"] = tags_by_cust.get(r["CUSTID"], [])
     recipient_count = len(recipients)
     num_batches = max(1, math.ceil(recipient_count / batch_size)) if recipient_count else 0
     total_cooldown = max(0, num_batches - 1) * cooldown_seconds
@@ -1971,7 +1977,7 @@ def confirm():
 
     all_tags = []
     try:
-        all_tags = dbmod.list_tags()
+        all_tags = dbmod.list_tags(include_count=True)
     except Exception:
         pass
 
@@ -2246,6 +2252,37 @@ def recipients_count_api():
     try:
         rows = dbmod.fetch_subscribed_customers(tag_names=tag_names)
         return jsonify({"count": len(rows)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.get("/api/recipients/list")
+def recipients_list_api():
+    """Return subscribed recipients for confirm preview, optionally filtered by tag names. Includes tags per recipient."""
+    tag_names_raw = request.args.get("tag_names", "").strip()
+    tag_names = [n.strip() for n in tag_names_raw.split(",") if n.strip()] if tag_names_raw else None
+    try:
+        rows = dbmod.fetch_subscribed_customers(tag_names=tag_names) or []
+        if rows:
+            table = dbmod.get_customer_table_name()
+            custids = [r["CUSTID"] for r in rows]
+            tags_by_cust = dbmod.fetch_tags_for_customers(table, custids)
+            for r in rows:
+                r["tags"] = tags_by_cust.get(r["CUSTID"], [])
+        for r in rows:
+            if "tags" not in r:
+                r["tags"] = []
+        out = [
+            {
+                "id": r["CUSTID"],
+                "firstname": r.get("FIRSTNAME") or "",
+                "lastname": r.get("LASTNAME") or "",
+                "email": r.get("EMAIL") or "",
+                "tags": [{"id": t.get("id"), "name": t.get("name", "")} for t in r.get("tags", [])],
+            }
+            for r in rows
+        ]
+        return jsonify({"recipients": out})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
