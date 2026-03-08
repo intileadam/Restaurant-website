@@ -484,8 +484,8 @@ def update_customer(
         custid,
         ),
         )
-        if cur.rowcount == 0:
-            raise CustomerNotFoundError(f"CUSTID {custid} not found in table {table!r} (UPDATE affected 0 rows).")
+        # Do not treat rowcount == 0 as "not found": MySQL reports rows changed, not matched.
+        # If payload is unchanged (e.g. only tags changed), UPDATE matches the row but affects 0 rows.
     except pymysql.MySQLError as exc:
         if getattr(exc, "errno", None) == ER.DUP_ENTRY:
             raise DuplicateCustomerError("Customer already exists.") from exc
