@@ -152,6 +152,7 @@
             <input type="radio" name="send_to" value="tags" data-send-to-tags />
             Send to selected tags only
           </label>
+        <div class="confirm-send-options-row">
           <div class="tag-select-wrap" data-tag-select-wrap hidden>
             <label for="confirmTagNames">Select tags</label>
             <select id="confirmTagNames" name="tag_names" multiple size="4" data-confirm-tag-names>
@@ -162,21 +163,21 @@
             <p class="help-text">Hold Ctrl/Cmd to select multiple. Only customers with at least one selected tag will receive the campaign.</p>
             <p class="tag-count-info" data-tag-count-info hidden></p>
           </div>
+          <div class="confirm-form-grid confirm-form-grid--send-params">
+            <label>
+              <span>Batch size</span>
+              <input type="number" name="batch_size" min="1" value="{{ batch_size }}" />
+            </label>
+            <label>
+              <span>Delay per email (secs)</span>
+              <input type="number" name="delay_seconds" min="0" value="{{ delay_seconds }}" />
+            </label>
+            <label>
+              <span>Cooldown between batches (mins)</span>
+              <input type="number" name="cooldown_minutes" min="0" value="{{ cooldown_minutes }}" />
+            </label>
+          </div>
         </div>
-
-        <div class="confirm-form-grid">
-          <label>
-            <span>Batch size</span>
-            <input type="number" name="batch_size" min="1" value="{{ batch_size }}" />
-          </label>
-          <label>
-            <span>Delay per email (seconds)</span>
-            <input type="number" name="delay_seconds" min="0" value="{{ delay_seconds }}" />
-          </label>
-          <label>
-            <span>Cooldown between batches (minutes)</span>
-            <input type="number" name="cooldown_minutes" min="0" value="{{ cooldown_minutes }}" />
-          </label>
         </div>
 
         {% if estimated_send_time %}

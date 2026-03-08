@@ -399,11 +399,29 @@ a {
   gap: 1.5rem;
 }
 
+.confirm-send-options-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 2rem;
+  margin-top: 0.5rem;
+}
+
+.confirm-send-options-row .tag-select-wrap {
+  margin-top: 0;
+}
+
 .confirm-form-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0.75rem;
   max-width: 600px;
+}
+
+.confirm-form-grid--send-params {
+  max-width: none;
+  grid-template-columns: repeat(3, minmax(12rem, 1fr));
+  min-width: 340px;
 }
 
 .confirm-form-grid label {
@@ -417,6 +435,10 @@ a {
   font-size: 0.9rem;
   color: var(--muted);
   font-weight: 600;
+}
+
+.confirm-form-grid--send-params span {
+  white-space: nowrap;
 }
 
 .confirm-preview .preview-frame {
