@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card tags-manager" data-tags-page>
+  <header class="tags-manager__header">
+    <div>
+      <p class="eyebrow">Tags</p>
+      <h2>Manage tags</h2>
+      <p class="muted">Add new tags or remove existing ones. Removing a tag deletes it from the system and removes it from all customers that had it.</p>
+    </div>
+  </header>
+
+  <div class="tags-manager__add">
+    <form class="tags-manager__add-form" data-tags-add-form>
+      <label for="newTagName">
+        <span class="visually-hidden">New tag name</span>
+      </label>
+      <input
+        type="text"
+        id="newTagName"
+        name="name"
+        placeholder="Tag name"
+        maxlength="191"
+        data-tags-new-name
+        autocomplete="off"
+      />
+      <button type="submit" class="button accent">Add tag</button>
+    </form>
+    <p class="tags-manager__add-error muted" data-tags-add-error hidden></p>
+  </div>
+
+  <div class="tags-manager__list-wrap">
+    <div class="tags-manager__loading" data-tags-loading hidden>Loading tags…</div>
+    <div class="tags-manager__error" data-tags-error hidden>
+      <p data-tags-error-message></p>
+      <button type="button" class="button ghost" data-tags-retry>Try again</button>
+    </div>
+    <table class="tags-table" data-tags-table>
+      <thead>
+        <tr>
+          <th scope="col">Tag name</th>
+          <th scope="col">Customers with this tag</th>
+          <th scope="col" class="th-actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody data-tags-tbody>
+        {% for tag in (all_tags or []) %}
+        <tr data-tag-id="{{ tag.id }}" data-tag-name="{{ tag.name }}" data-customer-count="{{ tag.get('customer_count', 0) }}">
+          <td>{{ tag.name }}</td>
+          <td>{{ tag.get('customer_count', 0) }}</td>
+          <td>
+            <button type="button" class="button ghost button--sm button--danger" data-tag-delete aria-label="Remove tag {{ tag.name }}">Remove</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="tags-manager__empty muted" data-tags-empty {% if all_tags and all_tags|length > 0 %}hidden{% endif %}>No tags yet. Add one above.</p>
+  </div>
+</section>
+
+<div id="tagDeleteModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="tagDeleteModalTitle" aria-describedby="tagDeleteModalDesc" hidden data-tag-delete-modal>
+  <div class="modal__backdrop" data-modal-close></div>
+  <div class="modal__content">
+    <h3 id="tagDeleteModalTitle" class="modal__title">Remove tag?</h3>
+    <p id="tagDeleteModalDesc" class="modal__desc" data-tag-delete-message></p>
+    <p class="modal__warning muted">This cannot be undone. The tag will be deleted from the system and removed from every customer that had it.</p>
+    <div class="modal__actions">
+      <button type="button" class="button ghost" data-modal-close>Cancel</button>
+      <button type="button" class="button accent button--danger" data-tag-delete-confirm>Remove tag</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const page = document.querySelector("[data-tags-page]");
+  if (!page) return;
+
+  const addForm = page.querySelector("[data-tags-add-form]");
+  const newNameInput = page.querySelector("[data-tags-new-name]");
+  const addErrorEl = page.querySelector("[data-tags-add-error]");
+  const tbody = page.querySelector("[data-tags-tbody]");
+  const emptyEl = page.querySelector("[data-tags-empty]");
+  const modal = document.getElementById("tagDeleteModal");
+  const modalMessage = document.querySelector("[data-tag-delete-message]");
+  const modalCloseButtons = document.querySelectorAll("[data-modal-close]");
+  const deleteConfirmBtn = document.querySelector("[data-tag-delete-confirm]");
+
+  let tagToDelete = null;
+
+  function setAddError(msg) {
+    addErrorEl.textContent = msg || "";
+    addErrorEl.hidden = !msg;
+  }
+
+  function hideEmpty() {
+    if (emptyEl) emptyEl.hidden = tbody && tbody.querySelectorAll("tr").length > 0;
+  }
+
+  function addTagRow(tag) {
+    if (!tbody) return;
+    const count = tag.customer_count != null ? tag.customer_count : 0;
+    const tr = document.createElement("tr");
+    tr.dataset.tagId = String(tag.id);
+    tr.dataset.tagName = tag.name;
+    tr.dataset.customerCount = String(count);
+    tr.innerHTML =
+      "<td>" + escapeHtml(tag.name) + "</td>" +
+      "<td>" + escapeHtml(String(count)) + "</td>" +
+      "<td><button type=\"button\" class=\"button ghost button--sm button--danger\" data-tag-delete aria-label=\"Remove tag " + escapeHtml(tag.name) + "\">Remove</button></td>";
+    tbody.appendChild(tr);
+    tr.querySelector("[data-tag-delete]").addEventListener("click", function () { openDeleteModal(tr); });
+    hideEmpty();
+  }
+
+  function escapeHtml(s) {
+    if (s == null) return "";
+    const div = document.createElement("div");
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  function openDeleteModal(row) {
+    const id = row.dataset.tagId;
+    const name = row.dataset.tagName || "this tag";
+    const count = parseInt(row.dataset.customerCount || "0", 10);
+    tagToDelete = { id: id, row: row };
+    modalMessage.textContent =
+      "“" + name + "” is on " + count + " customer" + (count !== 1 ? "s" : "") + ". Removing it will delete the tag from the system and remove it from all of them.";
+    modal.hidden = false;
+    modal.setAttribute("aria-hidden", "false");
+  }
+
+  function closeModal() {
+    modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
+    tagToDelete = null;
+  }
+
+  modalCloseButtons.forEach(function (btn) {
+    btn.addEventListener("click", closeModal);
+  });
+  if (modal) {
+    modal.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeModal();
+    });
+  }
+
+  deleteConfirmBtn.addEventListener("click", function () {
+    if (!tagToDelete) return;
+    const id = tagToDelete.id;
+    const row = tagToDelete.row;
+    closeModal();
+    deleteConfirmBtn.disabled = true;
+    const headers = { "Content-Type": "application/json", "X-CSRFToken": window.getCsrfToken ? window.getCsrfToken() : "" };
+    fetch("/api/tags/" + encodeURIComponent(id), { method: "DELETE", credentials: "same-origin", headers: headers })
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (d) { throw new Error(d.error || "Failed to remove tag"); });
+        if (row && row.parentNode) row.remove();
+        hideEmpty();
+      })
+      .catch(function (err) {
+        setAddError(err.message || "Failed to remove tag.");
+      })
+      .finally(function () { deleteConfirmBtn.disabled = false; });
+  });
+
+  page.querySelectorAll("[data-tag-delete]").forEach(function (btn) {
+    const row = btn.closest("tr");
+    if (row) btn.addEventListener("click", function () { openDeleteModal(row); });
+  });
+
+  addForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    const name = (newNameInput.value || "").trim();
+    if (!name) {
+      setAddError("Enter a tag name.");
+      return;
+    }
+    setAddError("");
+    addForm.querySelector('button[type="submit"]').disabled = true;
+    const headers = { "Content-Type": "application/json", "X-CSRFToken": window.getCsrfToken ? window.getCsrfToken() : "" };
+    fetch("/api/tags", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: headers,
+      body: JSON.stringify({ name: name }),
+    })
+      .then(function (r) {
+        return r.json().then(function (data) {
+          if (!r.ok) throw new Error(data.error || "Failed to add tag");
+          return data;
+        });
+      })
+      .then(function (data) {
+        if (data.tag) addTagRow(data.tag);
+        newNameInput.value = "";
+      })
+      .catch(function (err) {
+        setAddError(err.message || "Failed to add tag.");
+      })
+      .finally(function () {
+        addForm.querySelector('button[type="submit"]').disabled = false;
+      });
+  });
+
+  hideEmpty();
+})();
+</script>
+{% endblock %}

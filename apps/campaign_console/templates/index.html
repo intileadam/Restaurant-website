@@ -51,22 +51,33 @@
     <div class="focus-card__preview">
       <div class="preview-header">
         <h3>Email preview</h3>
-        <button
-          type="button"
-          class="button ghost"
-          id="reloadPreview"
-          data-requires-selection
-          disabled
-        >
-          Reload preview
-        </button>
+        <div class="preview-header__actions">
+          <button
+            type="button"
+            class="button ghost"
+            id="viewFullPreview"
+            disabled
+            aria-label="Open full preview in dialog"
+          >
+            View full preview
+          </button>
+          <button
+            type="button"
+            class="button ghost"
+            id="reloadPreview"
+            data-requires-selection
+            disabled
+          >
+            Reload preview
+          </button>
+        </div>
       </div>
       <div id="previewPlaceholder" class="preview-placeholder">
         Choose a campaign to render a fully responsive preview.
       </div>
       <iframe
         id="previewFrame"
-        class="preview-frame"
+        class="preview-frame preview-frame--peek"
         title="Email preview"
         hidden
       ></iframe>
@@ -306,6 +317,34 @@
   </div>
 </div>
 
+<div class="workflow-modal-backdrop" id="previewModal" hidden>
+  <div
+    class="workflow-modal file-preview-modal card"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="previewModalTitle"
+  >
+    <button
+      type="button"
+      class="workflow-modal__close"
+      data-close-preview-modal
+      aria-label="Close preview dialog"
+    >
+      &times;
+    </button>
+    <header class="card-header">
+      <h2 id="previewModalTitle">Email preview</h2>
+    </header>
+    <div class="file-preview-modal__body">
+      <iframe
+        id="previewModalFrame"
+        class="file-preview-modal__frame"
+        title="Full email preview"
+      ></iframe>
+    </div>
+  </div>
+</div>
+
 <script>
   (() => {
     const uploadModal = document.getElementById("uploadModal");
@@ -329,9 +368,13 @@
     const lintStatusTargets = document.querySelectorAll("[data-lint-status]");
     const testForm = document.getElementById("testEmailForm");
     const testStatus = document.getElementById("testEmailStatus");
+    const previewModal = document.getElementById("previewModal");
+    const viewFullPreviewBtn = document.getElementById("viewFullPreview");
+    const previewModalFrame = document.getElementById("previewModalFrame");
     let controller = null;
     let lintReport = null;
     let lintStatusMessage = "";
+    let storedPreviewHtml = "";
 
     const syncModalBodyState = () => {
       const anyOpen = document.querySelector(
@@ -536,6 +579,8 @@
 
     function resetPreview() {
       if (controller) controller.abort();
+      storedPreviewHtml = "";
+      if (viewFullPreviewBtn) viewFullPreviewBtn.disabled = true;
       previewFrame.hidden = true;
       previewFrame.removeAttribute("srcdoc");
       previewPlaceholder.hidden = false;
@@ -606,12 +651,17 @@
           throw new Error(payload.error || "Unable to load preview.");
         }
         const data = await resp.json();
+        storedPreviewHtml = data.html || "";
+        if (viewFullPreviewBtn) viewFullPreviewBtn.disabled = false;
         previewFrame.hidden = false;
-        previewFrame.srcdoc = data.html || "";
+        previewFrame.srcdoc = storedPreviewHtml;
         renderLint(data.lint);
         updateLintStatus({
           report: data.lint || { errors: [], warnings: [], notes: [] },
         });
+        if (previewModal && !previewModal.hidden && previewModalFrame) {
+          previewModalFrame.srcdoc = storedPreviewHtml;
+        }
       } catch (err) {
         if (err.name === "AbortError") return;
         previewFrame.hidden = true;
@@ -653,6 +703,30 @@
         loadPreview();
       }
     });
+
+    if (previewModal && viewFullPreviewBtn && previewModalFrame) {
+      const previewCloseBtn = previewModal.querySelector("[data-close-preview-modal]");
+      const openPreviewModal = () => {
+        previewModalFrame.srcdoc = storedPreviewHtml;
+        previewModal.removeAttribute("hidden");
+        syncModalBodyState();
+        requestAnimationFrame(() => previewCloseBtn?.focus());
+      };
+      const closePreviewModal = () => {
+        previewModal.setAttribute("hidden", "");
+        syncModalBodyState();
+      };
+      viewFullPreviewBtn.addEventListener("click", () => {
+        if (storedPreviewHtml) openPreviewModal();
+      });
+      if (previewCloseBtn) previewCloseBtn.addEventListener("click", closePreviewModal);
+      previewModal.addEventListener("click", (e) => {
+        if (e.target === previewModal) closePreviewModal();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && previewModal && !previewModal.hidden) closePreviewModal();
+      });
+    }
 
     if (testForm) {
       const submitButton = testForm.querySelector("button[type='submit']");

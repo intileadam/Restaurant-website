@@ -30,9 +30,19 @@
           <p class="eyebrow">Campaign preview</p>
           <h3>{{ file }}</h3>
         </div>
+        {% if preview_html %}
+        <button
+          type="button"
+          class="button ghost"
+          id="confirmViewFullPreview"
+          aria-label="Open full preview in dialog"
+        >
+          View full preview
+        </button>
+        {% endif %}
       </header>
       {% if preview_html %}
-      <iframe id="confirmPreviewFrame" class="preview-frame" title="Email preview"></iframe>
+      <iframe id="confirmPreviewFrame" class="preview-frame preview-frame--peek" title="Email preview"></iframe>
       {% else %}
       <div class="preview-error card muted">
         {{ preview_error or "Preview unavailable. Return to the dashboard to reload the preview." }}
@@ -269,12 +279,70 @@
 <script id="confirm-recipients-initial" type="application/json">{{ recipients|tojson }}</script>
 {% endif %}
 {% if preview_html %}
+<div class="workflow-modal-backdrop" id="confirmPreviewModal" hidden>
+  <div
+    class="workflow-modal file-preview-modal card"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="confirmPreviewModalTitle"
+  >
+    <button
+      type="button"
+      class="workflow-modal__close"
+      data-close-preview-modal
+      aria-label="Close preview dialog"
+    >
+      &times;
+    </button>
+    <header class="card-header">
+      <h2 id="confirmPreviewModalTitle">Email preview</h2>
+    </header>
+    <div class="file-preview-modal__body">
+      <iframe
+        id="confirmPreviewModalFrame"
+        class="file-preview-modal__frame"
+        title="Full email preview"
+      ></iframe>
+    </div>
+  </div>
+</div>
 <script>
   (function () {
     const frame = document.getElementById("confirmPreviewFrame");
     if (!frame) return;
     const html = {{ preview_html|tojson|safe }};
-    frame.srcdoc = html || "";
+    const previewHtml = html || "";
+    frame.srcdoc = previewHtml;
+
+    const modal = document.getElementById("confirmPreviewModal");
+    const modalFrame = document.getElementById("confirmPreviewModalFrame");
+    const viewBtn = document.getElementById("confirmViewFullPreview");
+    const closeBtn = modal?.querySelector("[data-close-preview-modal]");
+
+    function openPreviewModal() {
+      if (!modal || !modalFrame) return;
+      modalFrame.srcdoc = previewHtml;
+      modal.removeAttribute("hidden");
+      document.body.classList.add("modal-open");
+      requestAnimationFrame(function () {
+        closeBtn?.focus();
+      });
+    }
+
+    function closePreviewModal() {
+      if (!modal) return;
+      modal.setAttribute("hidden", "");
+      document.body.classList.remove("modal-open");
+    }
+
+    viewBtn?.addEventListener("click", openPreviewModal);
+    closeBtn?.addEventListener("click", closePreviewModal);
+    modal?.addEventListener("click", function (e) {
+      if (e.target === modal) closePreviewModal();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && modal && !modal.hidden) closePreviewModal();
+    });
   })();
 </script>
 {% endif %}

@@ -8,9 +8,12 @@
       <h2>Customer Directory</h2>
       <p class="muted">Click a row to preview details. Use the Edit button to update subscribers instantly.</p>
     </div>
-    <button type="button" class="btn primary" data-add-customer>
-      <span>+ Add customer</span>
-    </button>
+    <div class="customer-manager__header-actions">
+      <a href="{{ url_for('tags_page') }}" class="btn ghost">Manage tags</a>
+      <button type="button" class="btn primary" data-add-customer>
+        <span>+ Add customer</span>
+      </button>
+    </div>
   </header>
 
   <div class="customer-table-container">

@@ -1771,6 +1771,16 @@ def bulk_update_customers_api():
     return jsonify({"updated": updated, "errors": errors})
 
 
+@app.get("/tags")
+def tags_page():
+    """Render the tag management page (add/remove tags)."""
+    try:
+        all_tags = dbmod.list_tags(include_count=True)
+    except Exception:
+        all_tags = []
+    return render_template("tags.html", all_tags=all_tags)
+
+
 @app.get("/api/tags")
 def list_tags_api():
     try:
@@ -1804,7 +1814,7 @@ def create_tag_api():
     except Exception as e:
         app.logger.exception("Failed to create tag")
         return jsonify({"error": str(e)}), 500
-    return jsonify({"tag": {"id": tag["id"], "name": tag["name"]}}), 201
+    return jsonify({"tag": {"id": tag["id"], "name": tag["name"], "customer_count": 0}}), 201
 
 
 @app.delete("/api/tags/<int:tag_id>")
