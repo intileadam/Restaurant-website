@@ -316,11 +316,11 @@ def fetch_customers_paginated(
     return rows, total
 
 
-def fetch_customer_by_id(custid: int):
-    """Return a single customer row or None."""
+def fetch_customer_by_id(custid: int, customer_table: str | None = None):
+    """Return a single customer row or None. If customer_table is given, use it (avoids thread-local race)."""
     conn = get_connection()
     cur = conn.cursor(DictCursor)
-    table = get_customer_table_name()
+    table = _normalize_table(customer_table) if customer_table else get_customer_table_name()
     cur.execute(
     f"""
     SELECT {_CUSTOMER_FIELD_SET}
@@ -421,11 +421,12 @@ def update_customer(
     phone: str | None = None,
     comments: str | None = None,
     is_subscribed: bool = True,
+    customer_table: str | None = None,
 ):
-    """Update customer fields or raise errors."""
+    """Update customer fields or raise errors. If customer_table is given, use it (avoids thread-local race)."""
     conn = get_connection()
     cur = conn.cursor()
-    table = get_customer_table_name()
+    table = _normalize_table(customer_table) if customer_table else get_customer_table_name()
     try:
         cur.execute(
         f"""

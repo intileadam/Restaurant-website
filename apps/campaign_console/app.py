@@ -1677,10 +1677,11 @@ def update_customer_api(cust_id: int):
     else:
         is_subscribed = _bool_from_db(existing.get("IS_SUBSCRIBED"))
 
+    table_for_request = dbmod.get_customer_table_name()
     # #region agent log
     _debug_log("6c455b", "app.py:update_customer_api:before_update", "about to call update_customer", {
         "cust_id": cust_id,
-        "table_before_update": dbmod.get_customer_table_name(),
+        "table_before_update": table_for_request,
         "g_db_mode": getattr(g, "db_mode", None),
     }, "H6")
     # #endregion
@@ -1694,13 +1695,14 @@ def update_customer_api(cust_id: int):
         phone=phone,
         comments=comments,
         is_subscribed=is_subscribed,
+        customer_table=table_for_request,
         )
-        row = dbmod.fetch_customer_by_id(cust_id)
+        row = dbmod.fetch_customer_by_id(cust_id, customer_table=table_for_request)
         # #region agent log
         _debug_log("6c455b", "app.py:update_customer_api:after_second_fetch", "second fetch result", {
             "cust_id": cust_id,
             "row_is_none": row is None,
-            "table_after_update": dbmod.get_customer_table_name(),
+            "table_after_update": table_for_request,
         }, "H7")
         # #endregion
     except dbmod.CustomerNotFoundError:
@@ -1728,13 +1730,12 @@ def update_customer_api(cust_id: int):
 
     tag_names = payload.get("tags")
     if isinstance(tag_names, list):
-        table = dbmod.get_customer_table_name()
         try:
-            dbmod.set_customer_tags(table, cust_id, tag_names)
+            dbmod.set_customer_tags(table_for_request, cust_id, tag_names)
         except Exception as e:
             app.logger.exception("Failed to save tags for customer %s", cust_id)
             return jsonify({"error": f"Customer saved but tags failed to save: {e}"}), 500
-        row["tags"] = dbmod.get_customer_tags(table, cust_id)
+        row["tags"] = dbmod.get_customer_tags(table_for_request, cust_id)
 
     return jsonify({"customer": _serialize_customer(row)})
 
