@@ -2,15 +2,6 @@ from __future__ import annotations
 import csv
 import io
 import json, math, os, pathlib, re, secrets, socket, sys, threading, time as time_module
-# #region agent log
-def _debug_log(session_id: str, location: str, message: str, data: dict, hypothesis_id: str = ""):
-    try:
-        p = pathlib.Path(__file__).resolve().parent.parent.parent / ".cursor" / "debug-6c455b.log"
-        with open(p, "a") as f:
-            f.write(json.dumps({"sessionId": session_id, "location": location, "message": message, "data": data, "hypothesisId": hypothesis_id, "timestamp": time_module.time() * 1000}) + "\n")
-    except Exception:
-        pass
-# #endregion
 from datetime import datetime, timedelta, time as dt_time
 from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
@@ -109,7 +100,8 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = _is_production_env()
 app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 
-CAMPAIGNS_DIR = APP_ROOT / "campaigns"
+CAMPAIGNS_DIR = pathlib.Path(os.getenv("CAMPAIGNS_DIR", str(APP_ROOT / "campaigns")))
+CAMPAIGNS_DIR.mkdir(parents=True, exist_ok=True)
 INDIVIDUAL_EMAILS_DIR = APP_ROOT / "individual_emails"
 ALLOWED_CAMPAIGN_EXTS = {".html", ".htm"}
 INDIVIDUAL_EMAIL_EXTS = {".html", ".htm"}
@@ -1584,14 +1576,6 @@ def export_customers_api():
 @app.put("/api/customers/<int:cust_id>")
 def update_customer_api(cust_id: int):
     payload = request.get_json(silent=True) or {}
-    # #region agent log
-    _debug_log("6c455b", "app.py:update_customer_api:entry", "PUT update_customer_api", {
-        "cust_id": cust_id,
-        "query_db_mode_raw": request.args.get("db_mode"),
-        "body_db_mode_raw": payload.get("db_mode") if isinstance(payload, dict) else None,
-        "has_tags": isinstance(payload.get("tags"), list) if isinstance(payload, dict) else False,
-    }, "H1")
-    # #endregion
     query_mode = _normalize_customer_mode(request.args.get("db_mode"))
     body_mode = _normalize_customer_mode(payload.get("db_mode"))
     request_mode = query_mode or body_mode
@@ -1599,13 +1583,6 @@ def update_customer_api(cust_id: int):
         g.db_mode = request_mode
         dbmod.set_customer_table_mode(request_mode)
         session[CUSTOMER_MODE_SESSION_KEY] = request_mode
-    # #region agent log
-    _debug_log("6c455b", "app.py:update_customer_api:after_mode", "mode and table set", {
-        "request_mode": request_mode,
-        "g_db_mode": getattr(g, "db_mode", None),
-        "table_name": dbmod.get_customer_table_name(),
-    }, "H2")
-    # #endregion
     email_raw = _clean_field(payload, "email")
     if not email_raw:
         return jsonify({"error": "Email is required."}), 400
@@ -1627,14 +1604,6 @@ def update_customer_api(cust_id: int):
         app.logger.exception("fetch_customer_by_id(%s) failed (table=%s, mode=%s)",
                              cust_id, dbmod.get_customer_table_name(), getattr(g, "db_mode", "unknown"))
         return jsonify({"error": f"Database error: {e}"}), 500
-    # #region agent log
-    _debug_log("6c455b", "app.py:update_customer_api:after_first_fetch", "first fetch result", {
-        "cust_id": cust_id,
-        "existing_found": existing is not None,
-        "table_used": dbmod.get_customer_table_name(),
-        "g_db_mode": getattr(g, "db_mode", None),
-    }, "H3")
-    # #endregion
     if not existing:
         current_mode = getattr(g, "db_mode", "production")
         other_mode = "test" if current_mode == "production" else "production"
@@ -1651,23 +1620,7 @@ def update_customer_api(cust_id: int):
                 session[CUSTOMER_MODE_SESSION_KEY] = other_mode
             else:
                 dbmod.set_customer_table_mode(current_mode)
-        # #region agent log
-        _debug_log("6c455b", "app.py:update_customer_api:after_fallback", "fallback fetch result", {
-            "cust_id": cust_id,
-            "current_mode": current_mode,
-            "other_mode": other_mode,
-            "existing_after_fallback": existing is not None,
-            "table_after_fallback": dbmod.get_customer_table_name(),
-        }, "H4")
-        # #endregion
         if not existing:
-            # #region agent log
-            _debug_log("6c455b", "app.py:update_customer_api:returning_404", "returning 404", {
-                "cust_id": cust_id,
-                "final_table": dbmod.get_customer_table_name(),
-                "final_mode": getattr(g, "db_mode", None),
-            }, "H5")
-            # #endregion
             app.logger.warning("Customer %s not found in table %s (mode=%s)",
                                cust_id, dbmod.get_customer_table_name(), getattr(g, "db_mode", "unknown"))
             return jsonify({"error": "Customer not found."}), 404
@@ -1678,13 +1631,6 @@ def update_customer_api(cust_id: int):
         is_subscribed = _bool_from_db(existing.get("IS_SUBSCRIBED"))
 
     table_for_request = dbmod.get_customer_table_name()
-    # #region agent log
-    _debug_log("6c455b", "app.py:update_customer_api:before_update", "about to call update_customer", {
-        "cust_id": cust_id,
-        "table_before_update": table_for_request,
-        "g_db_mode": getattr(g, "db_mode", None),
-    }, "H6")
-    # #endregion
     try:
         dbmod.update_customer(
         cust_id,
@@ -1698,22 +1644,7 @@ def update_customer_api(cust_id: int):
         customer_table=table_for_request,
         )
         row = dbmod.fetch_customer_by_id(cust_id, customer_table=table_for_request)
-        # #region agent log
-        _debug_log("6c455b", "app.py:update_customer_api:after_second_fetch", "second fetch result", {
-            "cust_id": cust_id,
-            "row_is_none": row is None,
-            "table_after_update": table_for_request,
-        }, "H7")
-        # #endregion
-    except dbmod.CustomerNotFoundError as e:
-        # #region agent log
-        _debug_log("6c455b", "app.py:update_customer_api:CustomerNotFoundError", "404 from update_customer", {
-            "cust_id": cust_id,
-            "table_at_catch": dbmod.get_customer_table_name(),
-            "table_passed": table_for_request,
-            "exception_message": str(e),
-        }, "H6")
-        # #endregion
+    except dbmod.CustomerNotFoundError:
         return jsonify({"error": "Customer not found."}), 404
     except dbmod.DuplicateCustomerError:
         return jsonify({"error": "That email address is already subscribed."}), 409
@@ -1722,12 +1653,6 @@ def update_customer_api(cust_id: int):
         return jsonify({"error": f"Failed to update customer: {e}"}), 500
 
     if not row:
-        # #region agent log
-        _debug_log("6c455b", "app.py:update_customer_api:row_none_404", "404 because row is None after second fetch", {
-            "cust_id": cust_id,
-            "final_table": dbmod.get_customer_table_name(),
-        }, "H7")
-        # #endregion
         return jsonify({"error": "Customer not found."}), 404
 
     tag_names = payload.get("tags")
@@ -1757,6 +1682,93 @@ def delete_customer_api(cust_id: int):
         return jsonify({"error": f"Failed to delete customer: {e}"}), 500
 
     return jsonify({"status": "deleted"})
+
+
+@app.patch("/api/customers/bulk")
+def bulk_update_customers_api():
+    """Bulk update customers. Body: customer_ids (list of int), add_tags?, remove_tags?, set_subscribed?, comment? (replaces)."""
+    if not request.is_json:
+        return jsonify({"error": "JSON body required."}), 400
+    payload = request.get_json() or {}
+    raw_ids = payload.get("customer_ids")
+    if not isinstance(raw_ids, list):
+        return jsonify({"error": "customer_ids must be a list."}), 400
+    try:
+        customer_ids = [int(x) for x in raw_ids if x is not None]
+    except (TypeError, ValueError):
+        return jsonify({"error": "customer_ids must be integers."}), 400
+    if not customer_ids:
+        return jsonify({"error": "customer_ids cannot be empty."}), 400
+
+    add_tags = payload.get("add_tags")
+    if add_tags is not None and not isinstance(add_tags, list):
+        add_tags = None
+    if add_tags is not None:
+        add_tags = [str(t).strip() for t in add_tags if str(t).strip()]
+
+    remove_tags = payload.get("remove_tags")
+    if remove_tags is not None and not isinstance(remove_tags, list):
+        remove_tags = None
+    if remove_tags is not None:
+        remove_tags = [str(t).strip() for t in remove_tags if str(t).strip()]
+
+    set_subscribed = payload.get("set_subscribed")
+    if set_subscribed is not None:
+        set_subscribed = _coerce_bool(set_subscribed, True)
+
+    comment = payload.get("comment")
+    if comment is not None and not isinstance(comment, str):
+        comment = None
+    if comment is not None:
+        comment = comment.strip()
+
+    if not any([add_tags, remove_tags, set_subscribed is not None, comment is not None]):
+        return jsonify({"error": "Provide at least one of: add_tags, remove_tags, set_subscribed, comment."}), 400
+
+    table = dbmod.get_customer_table_name()
+    updated = 0
+    errors = []
+
+    for cust_id in customer_ids:
+        try:
+            existing = dbmod.fetch_customer_by_id(cust_id, customer_table=table)
+            if not existing:
+                errors.append(f"Customer {cust_id} not found")
+                continue
+
+            if add_tags or remove_tags:
+                current = dbmod.get_customer_tags(table, cust_id)
+                names = [t.get("name") or "" for t in current if t.get("name")]
+                names_set = set(names)
+                for t in add_tags or []:
+                    if t:
+                        names_set.add(t)
+                for t in remove_tags or []:
+                    names_set.discard(t)
+                dbmod.set_customer_tags(table, cust_id, list(names_set))
+
+            if set_subscribed is not None or comment is not None:
+                comments_new = comment if comment is not None else (existing.get("COMMENTS") or "")
+                is_subscribed = set_subscribed if set_subscribed is not None else _bool_from_db(existing.get("IS_SUBSCRIBED"))
+                dbmod.update_customer(
+                    cust_id,
+                    email=existing.get("EMAIL") or "",
+                    firstname=existing.get("FIRSTNAME") or None,
+                    lastname=existing.get("LASTNAME") or None,
+                    company=existing.get("COMPANY") or None,
+                    phone=existing.get("PHONE") or None,
+                    comments=comments_new or None,
+                    is_subscribed=is_subscribed,
+                    customer_table=table,
+                )
+            updated += 1
+        except dbmod.DuplicateCustomerError:
+            errors.append(f"Customer {cust_id}: duplicate email")
+        except Exception as e:
+            app.logger.exception("Bulk update failed for customer %s", cust_id)
+            errors.append(f"Customer {cust_id}: {e}")
+
+    return jsonify({"updated": updated, "errors": errors})
 
 
 @app.get("/api/tags")

@@ -424,16 +424,7 @@ def update_customer(
     customer_table: str | None = None,
 ):
     """Update customer fields or raise errors. If customer_table is given, use it (avoids thread-local race)."""
-    # #region agent log
     table = _normalize_table(customer_table) if customer_table else get_customer_table_name()
-    try:
-        import json as _json
-        _lp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".cursor", "debug-6c455b.log")
-        with open(_lp, "a") as _f:
-            _f.write(_json.dumps({"sessionId": "6c455b", "location": "db.py:update_customer:entry", "message": "table resolved", "data": {"custid": custid, "customer_table_arg": customer_table, "table_used": table}, "hypothesisId": "H6", "timestamp": __import__("time").time() * 1000}) + "\n")
-    except Exception:
-        pass
-    # #endregion
     conn = get_connection()
     cur = conn.cursor()
     try:
@@ -446,7 +437,7 @@ def update_customer(
         (custid,),
         )
         if not cur.fetchone():
-            raise CustomerNotFoundError(f"CUSTID {custid} not found in table {table!r}.")
+            raise CustomerNotFoundError(f"CUSTID {custid} not found.")
 
         cur.execute(
         f"""
