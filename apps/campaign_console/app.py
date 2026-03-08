@@ -19,6 +19,7 @@ from flask import (
     session,
     g,
     abort,
+    send_file,
 )
 from dotenv import load_dotenv
 from email_validator import validate_email, EmailNotValidError
@@ -1155,28 +1156,80 @@ def list_operators():
     return jsonify({"ok": True, "users": out, "operators": out})
 
 
+@app.get("/api/campaigns")
+def api_campaigns_list():
+    """Return list of campaign filenames for modal/dropdown refresh."""
+    return jsonify({"files": list_campaign_files()})
+
+
+@app.get("/campaigns/download")
+def download_campaign():
+    file_param = (request.args.get("file") or "").strip()
+    if not file_param:
+        return jsonify({"error": "No campaign file was specified."}), 400
+    try:
+        campaign_path = resolve_campaign_path(file_param)
+        return send_file(
+            campaign_path,
+            as_attachment=True,
+            download_name=campaign_path.name,
+            mimetype="text/html",
+        )
+    except FileNotFoundError:
+        return jsonify({"error": "Campaign file not found."}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.post("/campaigns/delete")
+def delete_campaign():
+    file_param = (request.form.get("file") or (request.get_json(silent=True) or {}).get("file") or "").strip()
+    if not file_param:
+        return jsonify({"error": "No campaign file was specified."}), 400
+    try:
+        campaign_path = resolve_campaign_path(file_param)
+        campaign_path.unlink(missing_ok=False)
+        return jsonify({"ok": True})
+    except FileNotFoundError:
+        return jsonify({"error": "Campaign file not found."}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except OSError as e:
+        app.logger.exception("Failed to delete campaign file")
+        return jsonify({"error": f"Unable to delete file: {e}"}), 500
+
+
 @app.post("/campaigns/upload")
 def upload_campaign():
     upload = request.files.get("campaign_file")
     desired_name = (request.form.get("filename") or "").strip()
+    wants_json = _wants_json_response()
 
     if not upload or not upload.filename:
+        if wants_json:
+            return jsonify({"error": "Choose an HTML file to upload."}), 400
         flash("Choose an HTML file to upload.", "error")
         return redirect(url_for("queue_campaign"))
 
     try:
         filename = _sanitize_campaign_filename(desired_name or upload.filename)
     except ValueError as e:
+        if wants_json:
+            return jsonify({"error": str(e)}), 400
         flash(str(e), "error")
         return redirect(url_for("queue_campaign"))
 
     target_path = (CAMPAIGNS_DIR / filename).resolve()
     base = CAMPAIGNS_DIR.resolve()
     if base not in target_path.parents:
+        if wants_json:
+            return jsonify({"error": "Invalid upload path."}), 400
         flash("Invalid upload path.", "error")
         return redirect(url_for("queue_campaign"))
 
     if target_path.exists():
+        if wants_json:
+            return jsonify({"error": "A campaign with that name already exists."}), 409
         flash("A campaign with that name already exists.", "error")
         return redirect(url_for("queue_campaign"))
 
@@ -1184,9 +1237,13 @@ def upload_campaign():
         CAMPAIGNS_DIR.mkdir(parents=True, exist_ok=True)
         upload.save(target_path)
     except Exception as e:
+        if wants_json:
+            return jsonify({"error": f"Unable to save campaign: {e}"}), 500
         flash(f"Unable to save campaign: {e}", "error")
         return redirect(url_for("queue_campaign"))
 
+    if wants_json:
+        return jsonify({"ok": True, "filename": filename})
     flash(f"Uploaded {filename}. It is now available in the campaign list.", "success")
     return redirect(url_for("queue_campaign"))
 

@@ -882,6 +882,28 @@ a {
   min-width: 0;
 }
 
+.manage-file-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.manage-file-item__download {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 0.3rem 0.6rem;
+  border-radius: 8px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.manage-file-item__download:hover {
+  background: var(--card-soft);
+  color: var(--accent-strong, var(--accent));
+}
+
 .manage-file-item__delete {
   flex-shrink: 0;
   padding: 0.3rem 0.7rem;
@@ -1148,6 +1170,10 @@ a {
   display: flex;
   flex-direction: column;
   padding: 1.25rem 1.75rem 1.75rem;
+}
+
+.workflow-modal.manage-html-modal {
+  width: min(720px, 100%);
 }
 
 .workflow-modal__close {

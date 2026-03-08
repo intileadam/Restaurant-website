@@ -8,15 +8,15 @@
       is selected.
     </p>
     <p>
-      Need a new template? Upload an HTML file below and it will be available
-      for preview, lint, and send.
+      Manage your campaign templates: upload, download, or remove HTML files
+      stored on this server.
     </p>
     <button
       type="button"
       class="button outline hero-upload-button"
-      id="openUploadModal"
+      id="openManageModal"
     >
-      Upload HTML
+      Manage HTML
     </button>
   </div>
 </section>
@@ -256,64 +256,104 @@
   </div>
 </div>
 
-<div class="workflow-modal-backdrop" id="uploadModal" hidden>
+<div class="workflow-modal-backdrop" id="manageModal" hidden>
   <div
-    class="workflow-modal card upload-card"
+    class="workflow-modal manage-html-modal card manage-card"
     role="dialog"
     aria-modal="true"
-    aria-labelledby="uploadModalTitle"
+    aria-labelledby="manageModalTitle"
   >
     <button
       type="button"
       class="workflow-modal__close"
       data-close-modal
-      aria-label="Close upload dialog"
+      aria-label="Close Manage HTML dialog"
     >
       &times;
     </button>
     <header class="card-header">
       <div>
-        <h2 id="uploadModalTitle">Upload a campaign</h2>
+        <h2 id="manageModalTitle">Manage HTML</h2>
       </div>
       <span class="badge">Optional</span>
     </header>
-    <p class="upload-card__lead">
-      Upload an HTML file and it will be saved for this workflow. You can then
-      preview, lint, and send it from here.
-    </p>
-    <form
-      method="post"
-      action="{{ url_for('upload_campaign') }}"
-      class="upload-card__form form-grid"
-      enctype="multipart/form-data"
-    >
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-      <label for="campaign_file">HTML file</label>
-      <input
-        type="file"
-        id="campaign_file"
-        name="campaign_file"
-        accept=".html,text/html"
-        required
-      />
 
-      <label for="campaign_filename">Save as (optional)</label>
-      <input
-        type="text"
-        id="campaign_filename"
-        name="filename"
-        placeholder="my-email.html"
-        inputmode="text"
-      />
-
-      <button type="submit" class="button secondary full-width">
-        Upload HTML
-      </button>
-      <p class="upload-card__note">
-        Existing names stay protected, so choose a unique filename when keeping
-        previous drafts.
+    <section class="manage-section">
+      <h3 class="manage-section__title">Campaigns in storage</h3>
+      <p class="manage-section__lead">
+        Download or remove files stored on this server.
       </p>
-    </form>
+      <div id="manageCampaignList" class="manage-file-list">
+        {% if campaign_files %}
+        {% for f in campaign_files %}
+        <div class="manage-file-item" data-filename="{{ f }}">
+          <span class="manage-file-item__name">{{ f }}</span>
+          <div class="manage-file-item__actions">
+            <a
+              href="{{ url_for('download_campaign', file=f) }}"
+              class="manage-file-item__download"
+              download
+              aria-label="Download {{ f }}"
+            >Download</a>
+            <button
+              type="button"
+              class="manage-file-item__delete"
+              data-remove-campaign
+              aria-label="Remove {{ f }}"
+            >Remove</button>
+          </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="manage-file-list__empty">No campaigns yet. Upload one below.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    <hr class="manage-divider" />
+
+    <section class="manage-section">
+      <h3 class="manage-section__title">Upload new campaign</h3>
+      <p class="manage-section__lead">
+        Upload an HTML file and it will be saved for this workflow. You can then
+        preview, lint, and send it from here.
+      </p>
+      <div id="manageUploadStatus" class="manage-status manage-status--info" role="status" aria-live="polite" hidden></div>
+      <form
+        id="manageUploadForm"
+        method="post"
+        action="{{ url_for('upload_campaign') }}"
+        class="upload-card__form form-grid"
+        enctype="multipart/form-data"
+      >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <label for="campaign_file">HTML file</label>
+        <input
+          type="file"
+          id="campaign_file"
+          name="campaign_file"
+          accept=".html,text/html"
+          required
+        />
+
+        <label for="campaign_filename">Save as (optional)</label>
+        <input
+          type="text"
+          id="campaign_filename"
+          name="filename"
+          placeholder="my-email.html"
+          inputmode="text"
+        />
+
+        <button type="submit" class="button secondary full-width">
+          Upload HTML
+        </button>
+        <p class="upload-card__note">
+          Existing names stay protected, so choose a unique filename when keeping
+          previous drafts.
+        </p>
+      </form>
+    </section>
   </div>
 </div>
 
@@ -347,8 +387,8 @@
 
 <script>
   (() => {
-    const uploadModal = document.getElementById("uploadModal");
-    const uploadTrigger = document.getElementById("openUploadModal");
+    const manageModal = document.getElementById("manageModal");
+    const manageTrigger = document.getElementById("openManageModal");
     const userModal = document.getElementById("userModal");
     const userTrigger = document.querySelector("[data-open-user-modal]");
     const select = document.getElementById("campaignSelect");
@@ -415,8 +455,151 @@
       });
     };
 
-    setupModal(uploadModal, uploadTrigger, "#campaign_file");
+    setupModal(manageModal, manageTrigger, "#campaign_file");
     setupModal(userModal, userTrigger, "#operator_email");
+
+    const manageCampaignList = document.getElementById("manageCampaignList");
+    const manageUploadForm = document.getElementById("manageUploadForm");
+    const manageUploadStatus = document.getElementById("manageUploadStatus");
+
+    function showManageStatus(message, type) {
+      if (!manageUploadStatus) return;
+      manageUploadStatus.hidden = !message;
+      manageUploadStatus.textContent = message || "";
+      manageUploadStatus.className = "manage-status " + (type === "error" ? "manage-status--error" : type === "success" ? "manage-status--success" : "manage-status--info");
+    }
+
+    function buildCampaignListHtml(files) {
+      if (!files || files.length === 0) {
+        return '<p class="manage-file-list__empty">No campaigns yet. Upload one below.</p>';
+      }
+      return files
+        .map(
+          (f) =>
+            '<div class="manage-file-item" data-filename="' +
+            escapeAttr(f) +
+            '"><span class="manage-file-item__name">' +
+            escapeHtml(f) +
+            '</span><div class="manage-file-item__actions"><a href="/campaigns/download?file=' +
+            encodeURIComponent(f) +
+            '" class="manage-file-item__download" download aria-label="Download ' +
+            escapeAttr(f) +
+            '">Download</a><button type="button" class="manage-file-item__delete" data-remove-campaign aria-label="Remove ' +
+            escapeAttr(f) +
+            '">Remove</button></div></div>'
+        )
+        .join("");
+    }
+
+    function bindRemoveHandlers() {
+      if (!manageCampaignList) return;
+      manageCampaignList.querySelectorAll("[data-remove-campaign]").forEach((btn) => {
+        const row = btn.closest(".manage-file-item");
+        const filename = row ? row.getAttribute("data-filename") : "";
+        if (!filename) return;
+        btn.addEventListener("click", () => {
+          if (!confirm("Remove " + filename + "? This cannot be undone.")) return;
+          const csrfToken = window.getCsrfToken ? window.getCsrfToken() : "";
+          const headers = {
+            "X-Requested-With": "XMLHttpRequest",
+            Accept: "application/json",
+          };
+          if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+          fetch("/campaigns/delete", {
+            method: "POST",
+            headers,
+            credentials: "same-origin",
+            body: new URLSearchParams({ file: filename }),
+          })
+            .then((resp) => resp.json().catch(() => ({})))
+            .then((data) => {
+              if (data.ok) {
+                showManageStatus("", null);
+                refreshCampaignList();
+              } else {
+                showManageStatus(data.error || "Failed to remove file.", "error");
+              }
+            })
+            .catch(() => {
+              showManageStatus("Failed to remove file.", "error");
+            });
+        });
+      });
+    }
+
+    async function refreshCampaignList() {
+      try {
+        const resp = await fetch("/api/campaigns", { credentials: "same-origin" });
+        const data = await resp.json();
+        if (!resp.ok) {
+          showManageStatus("Unable to load campaign list.", "error");
+          return;
+        }
+        const files = data.files || [];
+        if (manageCampaignList) {
+          manageCampaignList.innerHTML = buildCampaignListHtml(files);
+          bindRemoveHandlers();
+        }
+        const currentValue = select.value;
+        select.innerHTML =
+          '<option value="" selected>Select a campaign...</option>' +
+          files.map((f) => '<option value="' + escapeAttr(f) + '">' + escapeHtml(f) + "</option>").join("");
+        if (currentValue && files.indexOf(currentValue) === -1) {
+          select.value = "";
+          syncInputs.forEach((input) => {
+            input.value = "";
+          });
+          gatedControls.forEach((control) => {
+            control.disabled = true;
+          });
+          resetPreview();
+        } else if (currentValue) {
+          select.value = currentValue;
+        }
+      } catch (err) {
+        showManageStatus("Unable to load campaign list.", "error");
+      }
+    }
+
+    if (manageUploadForm) {
+      manageUploadForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!manageUploadForm.reportValidity()) return;
+        const fileInput = manageUploadForm.querySelector('input[name="campaign_file"]');
+        if (!fileInput || !fileInput.files || !fileInput.files.length) {
+          showManageStatus("Choose an HTML file to upload.", "error");
+          return;
+        }
+        showManageStatus("", null);
+        const formData = new FormData(manageUploadForm);
+        const headers = {
+          "X-Requested-With": "XMLHttpRequest",
+          Accept: "application/json",
+        };
+        const csrfToken = window.getCsrfToken ? window.getCsrfToken() : "";
+        if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+        try {
+          const resp = await fetch(manageUploadForm.action, {
+            method: "POST",
+            body: formData,
+            credentials: "same-origin",
+            headers,
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (resp.ok && data.ok) {
+            showManageStatus("Uploaded " + (data.filename || "file") + ".", "success");
+            manageUploadForm.reset();
+            refreshCampaignList();
+          } else {
+            showManageStatus(data.error || "Upload failed.", "error");
+          }
+        } catch (err) {
+          showManageStatus("Upload failed.", "error");
+        }
+      });
+    }
+
+    bindRemoveHandlers();
 
     function formatLastLoginLocal() {
       document.querySelectorAll("#operatorsTableBody [data-last-login]").forEach((el) => {
