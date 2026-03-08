@@ -1677,6 +1677,13 @@ def update_customer_api(cust_id: int):
     else:
         is_subscribed = _bool_from_db(existing.get("IS_SUBSCRIBED"))
 
+    # #region agent log
+    _debug_log("6c455b", "app.py:update_customer_api:before_update", "about to call update_customer", {
+        "cust_id": cust_id,
+        "table_before_update": dbmod.get_customer_table_name(),
+        "g_db_mode": getattr(g, "db_mode", None),
+    }, "H6")
+    # #endregion
     try:
         dbmod.update_customer(
         cust_id,
@@ -1689,7 +1696,20 @@ def update_customer_api(cust_id: int):
         is_subscribed=is_subscribed,
         )
         row = dbmod.fetch_customer_by_id(cust_id)
+        # #region agent log
+        _debug_log("6c455b", "app.py:update_customer_api:after_second_fetch", "second fetch result", {
+            "cust_id": cust_id,
+            "row_is_none": row is None,
+            "table_after_update": dbmod.get_customer_table_name(),
+        }, "H7")
+        # #endregion
     except dbmod.CustomerNotFoundError:
+        # #region agent log
+        _debug_log("6c455b", "app.py:update_customer_api:CustomerNotFoundError", "404 from update_customer", {
+            "cust_id": cust_id,
+            "table_at_catch": dbmod.get_customer_table_name(),
+        }, "H6")
+        # #endregion
         return jsonify({"error": "Customer not found."}), 404
     except dbmod.DuplicateCustomerError:
         return jsonify({"error": "That email address is already subscribed."}), 409
@@ -1698,6 +1718,12 @@ def update_customer_api(cust_id: int):
         return jsonify({"error": f"Failed to update customer: {e}"}), 500
 
     if not row:
+        # #region agent log
+        _debug_log("6c455b", "app.py:update_customer_api:row_none_404", "404 because row is None after second fetch", {
+            "cust_id": cust_id,
+            "final_table": dbmod.get_customer_table_name(),
+        }, "H7")
+        # #endregion
         return jsonify({"error": "Customer not found."}), 404
 
     tag_names = payload.get("tags")
