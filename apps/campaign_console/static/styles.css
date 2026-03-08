@@ -2979,7 +2979,7 @@ button:focus-visible,
 
 .history-card__archive {
   position: absolute;
-  top: 1rem;
+  bottom: 1rem;
   right: 1rem;
   z-index: 1;
   margin: 0;

@@ -2,7 +2,7 @@ from __future__ import annotations
 import csv
 import io
 import json, math, os, pathlib, re, secrets, socket, sys, threading, time as time_module
-from datetime import datetime, timedelta, time as dt_time
+from datetime import date, datetime, timedelta, time as dt_time
 from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
 
@@ -182,6 +182,37 @@ def default_controls():
     }
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
+UTC = ZoneInfo("UTC")
+
+
+def _pacific_time_str_to_utc(pacific_hhmm: str | None) -> str | None:
+    """Convert a Pacific time string (HH:MM) to UTC (HH:MM) using today's date for DST. Used when saving restrict window."""
+    if not pacific_hhmm:
+        return None
+    t = _parse_time_string(pacific_hhmm)
+    if t is None:
+        return None
+    today = date.today()
+    dt_pacific = datetime.combine(today, t, tzinfo=PACIFIC)
+    dt_utc = dt_pacific.astimezone(UTC)
+    return dt_utc.strftime("%H:%M")
+
+
+def _utc_time_str_to_pacific_display(utc_hhmm: str | None) -> str:
+    """Convert a UTC time string (HH:MM) to Pacific display e.g. '10:00 AM'. Returns empty string if invalid."""
+    if not utc_hhmm:
+        return ""
+    t = _parse_time_string(utc_hhmm)
+    if t is None:
+        return ""
+    today = date.today()
+    dt_utc = datetime.combine(today, t, tzinfo=UTC)
+    dt_pacific = dt_utc.astimezone(PACIFIC)
+    pt = dt_pacific.time()
+    h, m = pt.hour, pt.minute
+    display_h = (h % 12) or 12
+    ampm = "AM" if h < 12 else "PM"
+    return f"{display_h}:{m:02d} {ampm}"
 
 
 def _validate_send_controls(
@@ -245,7 +276,7 @@ def _in_window(t: dt_time, start_t: dt_time, end_t: dt_time) -> bool:
 
 
 def _next_window_start(now: datetime, start_t: dt_time, end_t: dt_time, tz: ZoneInfo) -> datetime:
-    """Return the next moment when the window opens (Pacific)."""
+    """Return the next moment when the window opens in the given timezone."""
     today = now.date()
     start_dt = datetime.combine(today, start_t, tzinfo=tz)
     end_dt = datetime.combine(today, end_t, tzinfo=tz)
@@ -258,16 +289,16 @@ def _next_window_start(now: datetime, start_t: dt_time, end_t: dt_time, tz: Zone
 
 
 def _sleep_until_in_window(restrict_start: dt_time, restrict_end: dt_time) -> bool:
-    """Block until current Pacific time is inside the send window. Returns True if we had to sleep (waited)."""
+    """Block until current UTC time is inside the send window (stored times are UTC). Returns True if we had to sleep (waited)."""
     waited = False
     while True:
-        now_pt = datetime.now(PACIFIC)
-        tod = now_pt.timetz().replace(tzinfo=None) if now_pt.tzinfo else now_pt.time()
+        now_utc = datetime.now(UTC)
+        tod = now_utc.timetz().replace(tzinfo=None) if now_utc.tzinfo else now_utc.time()
         if _in_window(tod, restrict_start, restrict_end):
             return waited
         waited = True
-        next_start = _next_window_start(now_pt, restrict_start, restrict_end, PACIFIC)
-        delta = (next_start - now_pt).total_seconds()
+        next_start = _next_window_start(now_utc, restrict_start, restrict_end, UTC)
+        delta = (next_start - now_utc).total_seconds()
         if delta > 0:
             time_module.sleep(min(delta, 3600))
         else:
@@ -279,41 +310,51 @@ def estimate_completion_utc(
     delay_ms: int,
     restrict_start_s: str | None,
     restrict_end_s: str | None,
+    *,
+    batch_size: int = 0,
+    cooldown_seconds: int = 0,
+    seconds_until_first_batch: float = 0.0,
 ) -> datetime | None:
-    """Estimate completion time (UTC). If restricted hours, walk through Pacific windows."""
+    """Estimate completion time (UTC). Accounts for batching and cooldown between batches.
+    If restricted hours, walks through UTC windows (stored times are UTC)."""
     if recipient_count <= 0 or delay_ms < 0:
         return None
     restrict_start = _parse_time_string(restrict_start_s)
     restrict_end = _parse_time_string(restrict_end_s)
-    if restrict_start is None or restrict_end is None:
-        duration_ms = recipient_count * delay_ms
-        return datetime.now(ZoneInfo("UTC")) + timedelta(milliseconds=duration_ms)
-    now_utc = datetime.now(ZoneInfo("UTC"))
-    now_pt = now_utc.astimezone(PACIFIC)
-    remaining = recipient_count
-    t_pt = now_pt
     delay_sec = delay_ms / 1000.0
-    while remaining > 0:
-        tod = t_pt.timetz().replace(tzinfo=None) if t_pt.tzinfo else t_pt.time()
+    # Time from start until last email is sent: (N-1) gaps of delay_sec (no delay after the last email)
+    total_send_sec = max(0.0, (recipient_count - 1) * delay_sec)
+    # Cooldown between batches: (num_batches - 1) * cooldown_seconds
+    num_batches = math.ceil(recipient_count / batch_size) if batch_size > 0 else 1
+    total_cooldown_sec = (num_batches - 1) * cooldown_seconds if cooldown_seconds > 0 else 0
+    total_seconds = seconds_until_first_batch + total_send_sec + total_cooldown_sec
+
+    if restrict_start is None or restrict_end is None:
+        return datetime.now(UTC) + timedelta(seconds=total_seconds)
+
+    # Place send + cooldown time within send windows (time-based consumption).
+    # When batching is used, cooldown is modeled as time consumed inside windows;
+    # if a cooldown would span past window end in reality, this can slightly underestimate finish time.
+    now_utc = datetime.now(UTC)
+    t_utc = now_utc + timedelta(seconds=seconds_until_first_batch)
+    remaining_seconds = total_send_sec + total_cooldown_sec
+    while remaining_seconds > 0:
+        tod = t_utc.timetz().replace(tzinfo=None) if t_utc.tzinfo else t_utc.time()
         if not _in_window(tod, restrict_start, restrict_end):
-            t_pt = _next_window_start(t_pt, restrict_start, restrict_end, PACIFIC)
+            t_utc = _next_window_start(t_utc, restrict_start, restrict_end, UTC)
             continue
-        today = t_pt.date()
-        end_dt = datetime.combine(today, restrict_end, tzinfo=PACIFIC)
+        today = t_utc.date()
+        end_dt = datetime.combine(today, restrict_end, tzinfo=UTC)
         if restrict_end <= restrict_start:
             end_dt += timedelta(days=1)
-        window_sec = (end_dt - t_pt).total_seconds()
+        window_sec = (end_dt - t_utc).total_seconds()
         if window_sec <= 0:
-            t_pt = _next_window_start(t_pt, restrict_start, restrict_end, PACIFIC)
+            t_utc = _next_window_start(t_utc, restrict_start, restrict_end, UTC)
             continue
-        capacity = int(window_sec / delay_sec)
-        if capacity <= 0:
-            t_pt = end_dt
-            continue
-        send_now = min(remaining, capacity)
-        t_pt = t_pt + timedelta(seconds=send_now * delay_sec)
-        remaining -= send_now
-    return t_pt.astimezone(ZoneInfo("UTC"))
+        consume = min(remaining_seconds, window_sec)
+        t_utc = t_utc + timedelta(seconds=consume)
+        remaining_seconds -= consume
+    return t_utc
 
 
 def resolve_campaign_path(file_field: str) -> pathlib.Path:
@@ -1924,8 +1965,20 @@ def _build_confirm_context(
     recipient_count = len(recipients)
     num_batches = max(1, math.ceil(recipient_count / batch_size)) if recipient_count else 0
     total_cooldown = max(0, num_batches - 1) * cooldown_seconds
-    estimated_seconds = total_cooldown + recipient_count * (delay_ms / 1000)
-    eta_utc = estimate_completion_utc(recipient_count, delay_ms, restrict_start, restrict_end)
+    # Send time: (N-1) delays between N emails
+    send_time_sec = max(0, (recipient_count - 1) * (delay_ms / 1000))
+    estimated_seconds = total_cooldown + send_time_sec
+    # Confirm form uses Pacific; ETA expects UTC (same as stored in DB)
+    restrict_start_utc = _pacific_time_str_to_utc(restrict_start) if restrict_start else None
+    restrict_end_utc = _pacific_time_str_to_utc(restrict_end) if restrict_end else None
+    eta_utc = estimate_completion_utc(
+        recipient_count,
+        delay_ms,
+        restrict_start_utc,
+        restrict_end_utc,
+        batch_size=batch_size,
+        cooldown_seconds=cooldown_seconds,
+    )
     return {
         "file": file,
         "subject": subject,
@@ -2068,12 +2121,16 @@ def queue_campaign_post():
     total = len(recipients)
     send_id = secrets.token_hex(16)
 
+    # Store restricted send window in UTC so server (UTC) can compare directly
+    restrict_start_utc = _pacific_time_str_to_utc(restrict_start) if restrict_start else None
+    restrict_end_utc = _pacific_time_str_to_utc(restrict_end) if restrict_end else None
+
     try:
         dbmod.insert_campaign_send(
             send_id, file, subject, None, mode, total,
             batch_size=batch_size, delay_ms=delay_ms, cooldown_seconds=cooldown_seconds,
-            restrict_start=restrict_start or None,
-            restrict_end=restrict_end or None,
+            restrict_start=restrict_start_utc,
+            restrict_end=restrict_end_utc,
         )
         dbmod.bulk_insert_send_recipients(send_id, recipients)
         dbmod.activate_campaign_send(send_id)
@@ -2131,20 +2188,61 @@ def send_progress(send_id: str):
     if not row:
         return jsonify({"error": "Send not found."}), 404
     counts = dbmod.count_send_results(send_id)
-    return jsonify({
+    total = int(row.get("TOTAL_RECIPIENTS") or 0)
+    sent = int(row.get("SENT_COUNT") or 0)
+    failed = int(row.get("FAILED_COUNT") or 0)
+    pending = counts.get("pending", 0)
+    delay_ms = int(row.get("DELAY_MS") or 0)
+    restrict_start_s = (row.get("RESTRICT_START") or "").strip() or None
+    restrict_end_s = (row.get("RESTRICT_END") or "").strip() or None
+
+    batch_size = int(row.get("BATCH_SIZE") or 0)
+    cooldown_seconds = int(row.get("COOLDOWN_SECONDS") or 0)
+    last_batch_at = row.get("LAST_BATCH_AT")
+    now_utc = datetime.now(UTC)
+    seconds_until_first_batch = 0.0
+    if pending > 0 and cooldown_seconds > 0 and isinstance(last_batch_at, datetime):
+        # Last batch at from DB is typically naive UTC; make it comparable to now_utc
+        lb = last_batch_at if last_batch_at.tzinfo else last_batch_at.replace(tzinfo=UTC)
+        next_batch_at = lb + timedelta(seconds=cooldown_seconds)
+        if next_batch_at > now_utc:
+            seconds_until_first_batch = (next_batch_at - now_utc).total_seconds()
+
+    eta_utc_iso = None
+    status = row["STATUS"]
+    if status in ("running", "paused", "queued") and pending > 0 and delay_ms >= 0:
+        eta_utc = estimate_completion_utc(
+            pending,
+            delay_ms,
+            restrict_start_s,
+            restrict_end_s,
+            batch_size=batch_size,
+            cooldown_seconds=cooldown_seconds,
+            seconds_until_first_batch=seconds_until_first_batch,
+        )
+        if eta_utc:
+            eta_utc_iso = eta_utc.isoformat()
+
+    payload = {
         "send_id": send_id,
-        "status": row["STATUS"],
-        "total": int(row.get("TOTAL_RECIPIENTS") or 0),
-        "sent": int(row.get("SENT_COUNT") or 0),
-        "failed": int(row.get("FAILED_COUNT") or 0),
-        "pending": counts.get("pending", 0),
+        "status": status,
+        "total": total,
+        "sent": sent,
+        "failed": failed,
+        "pending": pending,
         "batch_size": int(row.get("BATCH_SIZE") or 0),
-        "delay_ms": int(row.get("DELAY_MS") or 0),
+        "delay_ms": delay_ms,
         "cooldown_seconds": int(row.get("COOLDOWN_SECONDS") or 0),
         "started_at": (row.get("STARTED_AT").isoformat() + "Z") if row.get("STARTED_AT") else None,
         "finished_at": (row.get("FINISHED_AT").isoformat() + "Z") if row.get("FINISHED_AT") else None,
         "last_batch_at": (row.get("LAST_BATCH_AT").isoformat() + "Z") if row.get("LAST_BATCH_AT") else None,
-    })
+        "restrict_start": restrict_start_s or "",
+        "restrict_end": restrict_end_s or "",
+        "restrict_start_display": _utc_time_str_to_pacific_display(restrict_start_s) if restrict_start_s else "",
+        "restrict_end_display": _utc_time_str_to_pacific_display(restrict_end_s) if restrict_end_s else "",
+        "eta_utc_iso": eta_utc_iso,
+    }
+    return jsonify(payload)
 
 
 @app.post("/send/<send_id>/pause")
@@ -2383,12 +2481,21 @@ def campaign_history_detail(send_id: str):
     if status_filter:
         filtered_results = [r for r in results if r["STATUS"] == status_filter]
 
+    # Stored restrict times are UTC; surface Pacific for display
+    restrict_start_display = ""
+    restrict_end_display = ""
+    if send_row.get("RESTRICT_START") and send_row.get("RESTRICT_END"):
+        restrict_start_display = _utc_time_str_to_pacific_display((send_row.get("RESTRICT_START") or "").strip())
+        restrict_end_display = _utc_time_str_to_pacific_display((send_row.get("RESTRICT_END") or "").strip())
+
     return render_template(
         "history_detail.html",
         send=send_row,
         results=filtered_results,
         all_results=results,
         status_filter=status_filter or "all",
+        restrict_start_display=restrict_start_display,
+        restrict_end_display=restrict_end_display,
     )
 
 
