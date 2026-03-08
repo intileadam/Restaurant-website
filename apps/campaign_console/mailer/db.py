@@ -991,6 +991,9 @@ def ensure_campaign_tables():
             ("CLAIMED_BY", "VARCHAR(64) NULL"),
             ("CLAIMED_AT", "DATETIME NULL"),
             ("QUEUED_AT", "DATETIME NULL"),
+            ("RESTRICT_START", "VARCHAR(5) NULL"),
+            ("RESTRICT_END", "VARCHAR(5) NULL"),
+            ("ARCHIVED", "TINYINT(1) NOT NULL DEFAULT 0"),
         ]
         def _is_dup_field(exc):
             errno = getattr(exc, "errno", None)
@@ -1061,6 +1064,8 @@ def insert_campaign_send(
     batch_size: int | None = None,
     delay_ms: int | None = None,
     cooldown_seconds: int | None = None,
+    restrict_start: str | None = None,
+    restrict_end: str | None = None,
 ):
     """Create the initial CAMPAIGN_SENDS row when a campaign is queued."""
     conn = get_connection()
@@ -1070,12 +1075,13 @@ def insert_campaign_send(
         """
         INSERT INTO CAMPAIGN_SENDS
             (SEND_ID, CAMPAIGN_FILE, SUBJECT, CAMPAIGN_NAME, MODE, TOTAL_RECIPIENTS,
-             STATUS, QUEUED_AT, BATCH_SIZE, DELAY_MS, COOLDOWN_SECONDS)
+             STATUS, QUEUED_AT, BATCH_SIZE, DELAY_MS, COOLDOWN_SECONDS,
+             RESTRICT_START, RESTRICT_END)
         VALUES
-            (%s, %s, %s, %s, %s, %s, 'queued', UTC_TIMESTAMP(), %s, %s, %s)
+            (%s, %s, %s, %s, %s, %s, 'queued', UTC_TIMESTAMP(), %s, %s, %s, %s, %s)
         """,
         (send_id, campaign_file, subject, campaign_name, mode, total_recipients,
-         batch_size, delay_ms, cooldown_seconds),
+         batch_size, delay_ms, cooldown_seconds, restrict_start or None, restrict_end or None),
         )
     finally:
         cur.close()
@@ -1260,7 +1266,8 @@ def get_send_status(send_id: str) -> dict | None:
         SELECT SEND_ID, CAMPAIGN_FILE, SUBJECT, CAMPAIGN_NAME, MODE,
                TOTAL_RECIPIENTS, SENT_COUNT, FAILED_COUNT, STATUS,
                QUEUED_AT, STARTED_AT, FINISHED_AT, LAST_BATCH_AT,
-               BATCH_SIZE, DELAY_MS, COOLDOWN_SECONDS
+               BATCH_SIZE, DELAY_MS, COOLDOWN_SECONDS,
+               RESTRICT_START, RESTRICT_END
         FROM CAMPAIGN_SENDS
         WHERE SEND_ID = %s
         """,
@@ -1462,7 +1469,7 @@ def fetch_send_recipients_paginated(
 
 
 def fetch_campaign_history(mode_filter: str | None = None):
-    """Return all campaign sends ordered by most recent first."""
+    """Return all campaign sends ordered by most recent first. Excludes archived."""
     conn = get_connection()
     cur = conn.cursor(DictCursor)
     try:
@@ -1470,7 +1477,7 @@ def fetch_campaign_history(mode_filter: str | None = None):
             cur.execute(
             """
             SELECT * FROM CAMPAIGN_SENDS
-            WHERE MODE = %s
+            WHERE MODE = %s AND (ARCHIVED IS NULL OR ARCHIVED = 0)
             ORDER BY STARTED_AT DESC
             """,
             (mode_filter,),
@@ -1479,10 +1486,29 @@ def fetch_campaign_history(mode_filter: str | None = None):
             cur.execute(
             """
             SELECT * FROM CAMPAIGN_SENDS
+            WHERE ARCHIVED IS NULL OR ARCHIVED = 0
             ORDER BY STARTED_AT DESC
             """,
             )
         return cur.fetchall()
+    finally:
+        cur.close()
+
+
+def archive_campaign_send(send_id: str) -> bool:
+    """Mark a campaign send as archived so it no longer appears in the history list. Returns True if updated."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE CAMPAIGN_SENDS
+            SET ARCHIVED = 1
+            WHERE SEND_ID = %s
+            """,
+            (send_id,),
+        )
+        return cur.rowcount > 0
     finally:
         cur.close()
 

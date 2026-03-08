@@ -2044,6 +2044,20 @@ def queue_campaign_post():
         flash("Resolve lint errors before queuing the campaign.", "error")
         return redirect(url_for("confirm", file=file, subject=subject, batch_size=batch_size, delay_seconds=delay_seconds, cooldown_minutes=cooldown_minutes))
 
+    # Validate restricted hours: both or neither, and valid
+    start_s = (restrict_start or "").strip() or None
+    end_s = (restrict_end or "").strip() or None
+    if start_s is not None and end_s is not None:
+        if _parse_time_string(start_s) is None or _parse_time_string(end_s) is None:
+            flash("Restricted hours must be valid times (e.g. 10:00 and 22:00).", "error")
+            return redirect(url_for("queue_campaign"))
+        if _parse_time_string(start_s) == _parse_time_string(end_s):
+            flash("Start and end times cannot be the same.", "error")
+            return redirect(url_for("queue_campaign"))
+    elif start_s is not None or end_s is not None:
+        flash("Provide both start and end times for restricted hours, or leave both empty.", "error")
+        return redirect(url_for("queue_campaign"))
+
     active = dbmod.fetch_active_send()
     if active:
         flash("A campaign is already queued or in progress.", "error")
@@ -2058,6 +2072,8 @@ def queue_campaign_post():
         dbmod.insert_campaign_send(
             send_id, file, subject, None, mode, total,
             batch_size=batch_size, delay_ms=delay_ms, cooldown_seconds=cooldown_seconds,
+            restrict_start=restrict_start or None,
+            restrict_end=restrict_end or None,
         )
         dbmod.bulk_insert_send_recipients(send_id, recipients)
         dbmod.activate_campaign_send(send_id)
@@ -2330,6 +2346,22 @@ def campaign_history():
     return redirect(url_for("index", **request.args))
 
 
+@app.post("/history/<send_id>/archive")
+def archive_campaign(send_id: str):
+    """Mark a campaign send as archived so it no longer appears on the front page."""
+    try:
+        updated = dbmod.archive_campaign_send(send_id)
+    except Exception as exc:
+        app.logger.exception("Failed to archive campaign %s: %s", send_id, exc)
+        flash("Unable to archive campaign.", "error")
+        return redirect(url_for("index", **request.args))
+    if updated:
+        flash("Campaign archived. It will no longer appear in the list.", "success")
+    else:
+        flash("Campaign not found or already archived.", "error")
+    return redirect(url_for("index", **request.args))
+
+
 @app.get("/history/<send_id>")
 def campaign_history_detail(send_id: str):
     try:
@@ -2411,6 +2443,17 @@ def _process_one_batch(send_row: dict):
     def emit(text: str):
         if bus:
             bus.emit(text)
+
+    # If restricted send hours are set, wait until we're inside the window (Pacific)
+    restrict_start_s = (send_row.get("RESTRICT_START") or "").strip() or None
+    restrict_end_s = (send_row.get("RESTRICT_END") or "").strip() or None
+    if restrict_start_s and restrict_end_s:
+        r_start = _parse_time_string(restrict_start_s)
+        r_end = _parse_time_string(restrict_end_s)
+        if r_start is not None and r_end is not None and r_start != r_end:
+            waited = _sleep_until_in_window(r_start, r_end)
+            if waited and bus:
+                bus.emit("Resumed within restricted send window.")
 
     batch = dbmod.fetch_pending_recipients(send_id, limit=batch_size)
     if not batch:
