@@ -582,28 +582,41 @@ def ensure_tag_tables():
         cur.close()
 
 
-def list_tags(*, include_count: bool = False) -> list[dict]:
+def list_tags(*, include_count: bool = False, subscriber_aware: bool = True) -> list[dict]:
     """Return all tags (id, name). When include_count=True, add customer_count per tag (current table only).
-    The count is subscriber-aware: only customers with IS_SUBSCRIBED=1 and valid EMAIL are counted,
-    so the number matches how many recipients would appear when sending to that tag."""
+    When subscriber_aware=True (default), only customers with IS_SUBSCRIBED=1 and valid EMAIL are counted.
+    When subscriber_aware=False, all customers with the tag are counted (for manage-tags UI)."""
     conn = get_connection()
     cur = conn.cursor(DictCursor)
     try:
         if include_count:
             table = get_customer_table_name()
-            cur.execute(
-                f"""
-                SELECT t.id, t.name,
-                    (SELECT COUNT(DISTINCT ct.custid)
-                     FROM customer_tags ct
-                     INNER JOIN {table} c ON c.CUSTID = ct.custid
-                     WHERE ct.tag_id = t.id AND ct.customer_table = %s
-                       AND c.IS_SUBSCRIBED = 1 AND c.EMAIL IS NOT NULL AND c.EMAIL <> '') AS customer_count
-                FROM tags t
-                ORDER BY t.name
-                """,
-                (table,),
-            )
+            if subscriber_aware:
+                cur.execute(
+                    f"""
+                    SELECT t.id, t.name,
+                        (SELECT COUNT(DISTINCT ct.custid)
+                         FROM customer_tags ct
+                         INNER JOIN {table} c ON c.CUSTID = ct.custid
+                         WHERE ct.tag_id = t.id AND ct.customer_table = %s
+                           AND c.IS_SUBSCRIBED = 1 AND c.EMAIL IS NOT NULL AND c.EMAIL <> '') AS customer_count
+                    FROM tags t
+                    ORDER BY t.name
+                    """,
+                    (table,),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT t.id, t.name,
+                        (SELECT COUNT(DISTINCT ct.custid)
+                         FROM customer_tags ct
+                         WHERE ct.tag_id = t.id AND ct.customer_table = %s) AS customer_count
+                    FROM tags t
+                    ORDER BY t.name
+                    """,
+                    (table,),
+                )
         else:
             cur.execute(
                 """

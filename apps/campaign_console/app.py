@@ -1773,9 +1773,9 @@ def bulk_update_customers_api():
 
 @app.get("/tags")
 def tags_page():
-    """Render the tag management page (add/remove tags)."""
+    """Render the tag management page (add/remove tags). Counts are all customers with the tag, not just subscribed."""
     try:
-        all_tags = dbmod.list_tags(include_count=True)
+        all_tags = dbmod.list_tags(include_count=True, subscriber_aware=False)
     except Exception:
         all_tags = []
     return render_template("tags.html", all_tags=all_tags)

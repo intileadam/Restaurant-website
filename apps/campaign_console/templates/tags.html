@@ -86,7 +86,16 @@
   const modalCloseButtons = document.querySelectorAll("[data-modal-close]");
   const deleteConfirmBtn = document.querySelector("[data-tag-delete-confirm]");
 
+  function getCsrfHeaders() {
+    const token = typeof window.getCsrfToken === "function" ? window.getCsrfToken() : "";
+    return { "Content-Type": "application/json", "X-CSRF-Token": token };
+  }
+
   let tagToDelete = null;
+
+  window.addEventListener("db-mode-changed", function () {
+    window.location.reload();
+  });
 
   function setAddError(msg) {
     addErrorEl.textContent = msg || "";
@@ -152,8 +161,7 @@
     const row = tagToDelete.row;
     closeModal();
     deleteConfirmBtn.disabled = true;
-    const headers = { "Content-Type": "application/json", "X-CSRFToken": window.getCsrfToken ? window.getCsrfToken() : "" };
-    fetch("/api/tags/" + encodeURIComponent(id), { method: "DELETE", credentials: "same-origin", headers: headers })
+    fetch("/api/tags/" + encodeURIComponent(id), { method: "DELETE", credentials: "same-origin", headers: getCsrfHeaders() })
       .then(function (r) {
         if (!r.ok) return r.json().then(function (d) { throw new Error(d.error || "Failed to remove tag"); });
         if (row && row.parentNode) row.remove();
@@ -179,11 +187,10 @@
     }
     setAddError("");
     addForm.querySelector('button[type="submit"]').disabled = true;
-    const headers = { "Content-Type": "application/json", "X-CSRFToken": window.getCsrfToken ? window.getCsrfToken() : "" };
     fetch("/api/tags", {
       method: "POST",
       credentials: "same-origin",
-      headers: headers,
+      headers: getCsrfHeaders(),
       body: JSON.stringify({ name: name }),
     })
       .then(function (r) {
