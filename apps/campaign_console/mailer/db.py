@@ -316,11 +316,11 @@ def fetch_customers_paginated(
     return rows, total
 
 
-def fetch_customer_by_id(custid: int):
-    """Return a single customer row or None."""
+def fetch_customer_by_id(custid: int, customer_table: str | None = None):
+    """Return a single customer row or None. If customer_table is given, use it (avoids thread-local race)."""
     conn = get_connection()
     cur = conn.cursor(DictCursor)
-    table = get_customer_table_name()
+    table = _normalize_table(customer_table) if customer_table else get_customer_table_name()
     cur.execute(
     f"""
     SELECT {_CUSTOMER_FIELD_SET}
@@ -421,11 +421,12 @@ def update_customer(
     phone: str | None = None,
     comments: str | None = None,
     is_subscribed: bool = True,
+    customer_table: str | None = None,
 ):
-    """Update customer fields or raise errors."""
+    """Update customer fields or raise errors. If customer_table is given, use it (avoids thread-local race)."""
+    table = _normalize_table(customer_table) if customer_table else get_customer_table_name()
     conn = get_connection()
     cur = conn.cursor()
-    table = get_customer_table_name()
     try:
         cur.execute(
         f"""
@@ -474,8 +475,8 @@ def update_customer(
         custid,
         ),
         )
-        if cur.rowcount == 0:
-            raise CustomerNotFoundError(f"CUSTID {custid} not found.")
+        # Do not treat rowcount == 0 as "not found": MySQL reports rows changed, not matched.
+        # If payload is unchanged (e.g. only tags changed), UPDATE matches the row but affects 0 rows.
     except pymysql.MySQLError as exc:
         if getattr(exc, "errno", None) == ER.DUP_ENTRY:
             raise DuplicateCustomerError("Customer already exists.") from exc
@@ -581,24 +582,41 @@ def ensure_tag_tables():
         cur.close()
 
 
-def list_tags(*, include_count: bool = False) -> list[dict]:
-    """Return all tags (id, name). When include_count=True, add customer_count per tag (current table only)."""
+def list_tags(*, include_count: bool = False, subscriber_aware: bool = True) -> list[dict]:
+    """Return all tags (id, name). When include_count=True, add customer_count per tag (current table only).
+    When subscriber_aware=True (default), only customers with IS_SUBSCRIBED=1 and valid EMAIL are counted.
+    When subscriber_aware=False, all customers with the tag are counted (for manage-tags UI)."""
     conn = get_connection()
     cur = conn.cursor(DictCursor)
     try:
         if include_count:
             table = get_customer_table_name()
-            cur.execute(
-                """
-                SELECT t.id, t.name,
-                    (SELECT COUNT(DISTINCT ct.custid)
-                     FROM customer_tags ct
-                     WHERE ct.tag_id = t.id AND ct.customer_table = %s) AS customer_count
-                FROM tags t
-                ORDER BY t.name
-                """,
-                (table,),
-            )
+            if subscriber_aware:
+                cur.execute(
+                    f"""
+                    SELECT t.id, t.name,
+                        (SELECT COUNT(DISTINCT ct.custid)
+                         FROM customer_tags ct
+                         INNER JOIN {table} c ON c.CUSTID = ct.custid
+                         WHERE ct.tag_id = t.id AND ct.customer_table = %s
+                           AND c.IS_SUBSCRIBED = 1 AND c.EMAIL IS NOT NULL AND c.EMAIL <> '') AS customer_count
+                    FROM tags t
+                    ORDER BY t.name
+                    """,
+                    (table,),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT t.id, t.name,
+                        (SELECT COUNT(DISTINCT ct.custid)
+                         FROM customer_tags ct
+                         WHERE ct.tag_id = t.id AND ct.customer_table = %s) AS customer_count
+                    FROM tags t
+                    ORDER BY t.name
+                    """,
+                    (table,),
+                )
         else:
             cur.execute(
                 """
@@ -973,6 +991,9 @@ def ensure_campaign_tables():
             ("CLAIMED_BY", "VARCHAR(64) NULL"),
             ("CLAIMED_AT", "DATETIME NULL"),
             ("QUEUED_AT", "DATETIME NULL"),
+            ("RESTRICT_START", "VARCHAR(5) NULL"),
+            ("RESTRICT_END", "VARCHAR(5) NULL"),
+            ("ARCHIVED", "TINYINT(1) NOT NULL DEFAULT 0"),
         ]
         def _is_dup_field(exc):
             errno = getattr(exc, "errno", None)
@@ -1043,6 +1064,8 @@ def insert_campaign_send(
     batch_size: int | None = None,
     delay_ms: int | None = None,
     cooldown_seconds: int | None = None,
+    restrict_start: str | None = None,
+    restrict_end: str | None = None,
 ):
     """Create the initial CAMPAIGN_SENDS row when a campaign is queued."""
     conn = get_connection()
@@ -1052,12 +1075,13 @@ def insert_campaign_send(
         """
         INSERT INTO CAMPAIGN_SENDS
             (SEND_ID, CAMPAIGN_FILE, SUBJECT, CAMPAIGN_NAME, MODE, TOTAL_RECIPIENTS,
-             STATUS, QUEUED_AT, BATCH_SIZE, DELAY_MS, COOLDOWN_SECONDS)
+             STATUS, QUEUED_AT, BATCH_SIZE, DELAY_MS, COOLDOWN_SECONDS,
+             RESTRICT_START, RESTRICT_END)
         VALUES
-            (%s, %s, %s, %s, %s, %s, 'queued', UTC_TIMESTAMP(), %s, %s, %s)
+            (%s, %s, %s, %s, %s, %s, 'queued', UTC_TIMESTAMP(), %s, %s, %s, %s, %s)
         """,
         (send_id, campaign_file, subject, campaign_name, mode, total_recipients,
-         batch_size, delay_ms, cooldown_seconds),
+         batch_size, delay_ms, cooldown_seconds, restrict_start or None, restrict_end or None),
         )
     finally:
         cur.close()
@@ -1242,7 +1266,8 @@ def get_send_status(send_id: str) -> dict | None:
         SELECT SEND_ID, CAMPAIGN_FILE, SUBJECT, CAMPAIGN_NAME, MODE,
                TOTAL_RECIPIENTS, SENT_COUNT, FAILED_COUNT, STATUS,
                QUEUED_AT, STARTED_AT, FINISHED_AT, LAST_BATCH_AT,
-               BATCH_SIZE, DELAY_MS, COOLDOWN_SECONDS
+               BATCH_SIZE, DELAY_MS, COOLDOWN_SECONDS,
+               RESTRICT_START, RESTRICT_END
         FROM CAMPAIGN_SENDS
         WHERE SEND_ID = %s
         """,
@@ -1444,7 +1469,7 @@ def fetch_send_recipients_paginated(
 
 
 def fetch_campaign_history(mode_filter: str | None = None):
-    """Return all campaign sends ordered by most recent first."""
+    """Return all campaign sends ordered by most recent first. Excludes archived."""
     conn = get_connection()
     cur = conn.cursor(DictCursor)
     try:
@@ -1452,7 +1477,7 @@ def fetch_campaign_history(mode_filter: str | None = None):
             cur.execute(
             """
             SELECT * FROM CAMPAIGN_SENDS
-            WHERE MODE = %s
+            WHERE MODE = %s AND (ARCHIVED IS NULL OR ARCHIVED = 0)
             ORDER BY STARTED_AT DESC
             """,
             (mode_filter,),
@@ -1461,10 +1486,29 @@ def fetch_campaign_history(mode_filter: str | None = None):
             cur.execute(
             """
             SELECT * FROM CAMPAIGN_SENDS
+            WHERE ARCHIVED IS NULL OR ARCHIVED = 0
             ORDER BY STARTED_AT DESC
             """,
             )
         return cur.fetchall()
+    finally:
+        cur.close()
+
+
+def archive_campaign_send(send_id: str) -> bool:
+    """Mark a campaign send as archived so it no longer appears in the history list. Returns True if updated."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE CAMPAIGN_SENDS
+            SET ARCHIVED = 1
+            WHERE SEND_ID = %s
+            """,
+            (send_id,),
+        )
+        return cur.rowcount > 0
     finally:
         cur.close()
 

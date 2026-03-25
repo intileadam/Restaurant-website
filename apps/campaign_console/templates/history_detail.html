@@ -86,6 +86,11 @@
           {% endif %}
         </div>
       </div>
+      {% if restrict_start_display and restrict_end_display %}
+      <p class="muted" style="margin:0 0 0.5rem;font-size:0.85rem;">
+        <strong>Send window (Pacific):</strong> {{ restrict_start_display }} – {{ restrict_end_display }}
+      </p>
+      {% endif %}
       {% if send.STATUS in ('running', 'paused', 'queued') %}
       <div style="padding-top:0.5rem;border-top:1px solid var(--color-surface-alt,#eee)">
         <p class="muted" id="nextBatchInfo" style="margin:0 0 0.25rem;font-size:0.8rem;">
@@ -281,20 +286,36 @@
 
       if (etaInfo) {
         const status = d.status || "";
-        if (total > 0 && done > 0 && (status === "running" || status === "paused" || status === "queued") && !d.finished_at && d.started_at) {
-          let startedAt = new Date(d.started_at);
-          if (Number.isNaN(startedAt.getTime())) startedAt = new Date(d.started_at + "Z");
-          if (!Number.isNaN(startedAt.getTime())) {
-            const now = new Date();
-            const elapsedMs = now.getTime() - startedAt.getTime();
-            const fraction = done / total;
-            if (fraction > 0 && elapsedMs > 0) {
-              const totalMsEstimate = elapsedMs / fraction;
-              const remainingMs = Math.max(0, totalMsEstimate - elapsedMs);
+        if (total > 0 && (status === "running" || status === "paused" || status === "queued") && !d.finished_at) {
+          if (d.eta_utc_iso) {
+            const finishTime = new Date(d.eta_utc_iso);
+            if (!Number.isNaN(finishTime.getTime())) {
+              const now = new Date();
+              const remainingMs = Math.max(0, finishTime.getTime() - now.getTime());
               const remainingSeconds = Math.round(remainingMs / 1000);
-              const finishTime = new Date(now.getTime() + remainingMs);
               const finishLabel = finishTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-              etaInfo.textContent = "Estimated completion around " + finishLabel + " (" + formatDurationShort(remainingSeconds) + " remaining).";
+              const windowNote = (d.restrict_start && d.restrict_end) ? " (within send window)" : "";
+              etaInfo.textContent = "Estimated completion around " + finishLabel + windowNote + " (" + formatDurationShort(remainingSeconds) + " remaining).";
+            } else {
+              etaInfo.textContent = "";
+            }
+          } else if (done > 0 && d.started_at) {
+            let startedAt = new Date(d.started_at);
+            if (Number.isNaN(startedAt.getTime())) startedAt = new Date(d.started_at + "Z");
+            if (!Number.isNaN(startedAt.getTime())) {
+              const now = new Date();
+              const elapsedMs = now.getTime() - startedAt.getTime();
+              const fraction = done / total;
+              if (fraction > 0 && elapsedMs > 0) {
+                const totalMsEstimate = elapsedMs / fraction;
+                const remainingMs = Math.max(0, totalMsEstimate - elapsedMs);
+                const remainingSeconds = Math.round(remainingMs / 1000);
+                const finishTime = new Date(now.getTime() + remainingMs);
+                const finishLabel = finishTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+                etaInfo.textContent = "Estimated completion around " + finishLabel + " (" + formatDurationShort(remainingSeconds) + " remaining).";
+              } else {
+                etaInfo.textContent = "";
+              }
             } else {
               etaInfo.textContent = "";
             }

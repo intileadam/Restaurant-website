@@ -2,7 +2,7 @@ from __future__ import annotations
 import csv
 import io
 import json, math, os, pathlib, re, secrets, socket, sys, threading, time as time_module
-from datetime import datetime, timedelta, time as dt_time
+from datetime import date, datetime, timedelta, time as dt_time
 from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
 
@@ -19,6 +19,7 @@ from flask import (
     session,
     g,
     abort,
+    send_file,
 )
 from dotenv import load_dotenv
 from email_validator import validate_email, EmailNotValidError
@@ -100,7 +101,8 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = _is_production_env()
 app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 
-CAMPAIGNS_DIR = APP_ROOT / "campaigns"
+CAMPAIGNS_DIR = pathlib.Path(os.getenv("CAMPAIGNS_DIR", str(APP_ROOT / "campaigns")))
+CAMPAIGNS_DIR.mkdir(parents=True, exist_ok=True)
 INDIVIDUAL_EMAILS_DIR = APP_ROOT / "individual_emails"
 ALLOWED_CAMPAIGN_EXTS = {".html", ".htm"}
 INDIVIDUAL_EMAIL_EXTS = {".html", ".htm"}
@@ -181,6 +183,37 @@ def default_controls():
     }
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
+UTC = ZoneInfo("UTC")
+
+
+def _pacific_time_str_to_utc(pacific_hhmm: str | None) -> str | None:
+    """Convert a Pacific time string (HH:MM) to UTC (HH:MM) using today's date for DST. Used when saving restrict window."""
+    if not pacific_hhmm:
+        return None
+    t = _parse_time_string(pacific_hhmm)
+    if t is None:
+        return None
+    today = date.today()
+    dt_pacific = datetime.combine(today, t, tzinfo=PACIFIC)
+    dt_utc = dt_pacific.astimezone(UTC)
+    return dt_utc.strftime("%H:%M")
+
+
+def _utc_time_str_to_pacific_display(utc_hhmm: str | None) -> str:
+    """Convert a UTC time string (HH:MM) to Pacific display e.g. '10:00 AM'. Returns empty string if invalid."""
+    if not utc_hhmm:
+        return ""
+    t = _parse_time_string(utc_hhmm)
+    if t is None:
+        return ""
+    today = date.today()
+    dt_utc = datetime.combine(today, t, tzinfo=UTC)
+    dt_pacific = dt_utc.astimezone(PACIFIC)
+    pt = dt_pacific.time()
+    h, m = pt.hour, pt.minute
+    display_h = (h % 12) or 12
+    ampm = "AM" if h < 12 else "PM"
+    return f"{display_h}:{m:02d} {ampm}"
 
 
 def _validate_send_controls(
@@ -244,7 +277,7 @@ def _in_window(t: dt_time, start_t: dt_time, end_t: dt_time) -> bool:
 
 
 def _next_window_start(now: datetime, start_t: dt_time, end_t: dt_time, tz: ZoneInfo) -> datetime:
-    """Return the next moment when the window opens (Pacific)."""
+    """Return the next moment when the window opens in the given timezone."""
     today = now.date()
     start_dt = datetime.combine(today, start_t, tzinfo=tz)
     end_dt = datetime.combine(today, end_t, tzinfo=tz)
@@ -257,16 +290,16 @@ def _next_window_start(now: datetime, start_t: dt_time, end_t: dt_time, tz: Zone
 
 
 def _sleep_until_in_window(restrict_start: dt_time, restrict_end: dt_time) -> bool:
-    """Block until current Pacific time is inside the send window. Returns True if we had to sleep (waited)."""
+    """Block until current UTC time is inside the send window (stored times are UTC). Returns True if we had to sleep (waited)."""
     waited = False
     while True:
-        now_pt = datetime.now(PACIFIC)
-        tod = now_pt.timetz().replace(tzinfo=None) if now_pt.tzinfo else now_pt.time()
+        now_utc = datetime.now(UTC)
+        tod = now_utc.timetz().replace(tzinfo=None) if now_utc.tzinfo else now_utc.time()
         if _in_window(tod, restrict_start, restrict_end):
             return waited
         waited = True
-        next_start = _next_window_start(now_pt, restrict_start, restrict_end, PACIFIC)
-        delta = (next_start - now_pt).total_seconds()
+        next_start = _next_window_start(now_utc, restrict_start, restrict_end, UTC)
+        delta = (next_start - now_utc).total_seconds()
         if delta > 0:
             time_module.sleep(min(delta, 3600))
         else:
@@ -278,41 +311,51 @@ def estimate_completion_utc(
     delay_ms: int,
     restrict_start_s: str | None,
     restrict_end_s: str | None,
+    *,
+    batch_size: int = 0,
+    cooldown_seconds: int = 0,
+    seconds_until_first_batch: float = 0.0,
 ) -> datetime | None:
-    """Estimate completion time (UTC). If restricted hours, walk through Pacific windows."""
+    """Estimate completion time (UTC). Accounts for batching and cooldown between batches.
+    If restricted hours, walks through UTC windows (stored times are UTC)."""
     if recipient_count <= 0 or delay_ms < 0:
         return None
     restrict_start = _parse_time_string(restrict_start_s)
     restrict_end = _parse_time_string(restrict_end_s)
-    if restrict_start is None or restrict_end is None:
-        duration_ms = recipient_count * delay_ms
-        return datetime.now(ZoneInfo("UTC")) + timedelta(milliseconds=duration_ms)
-    now_utc = datetime.now(ZoneInfo("UTC"))
-    now_pt = now_utc.astimezone(PACIFIC)
-    remaining = recipient_count
-    t_pt = now_pt
     delay_sec = delay_ms / 1000.0
-    while remaining > 0:
-        tod = t_pt.timetz().replace(tzinfo=None) if t_pt.tzinfo else t_pt.time()
+    # Time from start until last email is sent: (N-1) gaps of delay_sec (no delay after the last email)
+    total_send_sec = max(0.0, (recipient_count - 1) * delay_sec)
+    # Cooldown between batches: (num_batches - 1) * cooldown_seconds
+    num_batches = math.ceil(recipient_count / batch_size) if batch_size > 0 else 1
+    total_cooldown_sec = (num_batches - 1) * cooldown_seconds if cooldown_seconds > 0 else 0
+    total_seconds = seconds_until_first_batch + total_send_sec + total_cooldown_sec
+
+    if restrict_start is None or restrict_end is None:
+        return datetime.now(UTC) + timedelta(seconds=total_seconds)
+
+    # Place send + cooldown time within send windows (time-based consumption).
+    # When batching is used, cooldown is modeled as time consumed inside windows;
+    # if a cooldown would span past window end in reality, this can slightly underestimate finish time.
+    now_utc = datetime.now(UTC)
+    t_utc = now_utc + timedelta(seconds=seconds_until_first_batch)
+    remaining_seconds = total_send_sec + total_cooldown_sec
+    while remaining_seconds > 0:
+        tod = t_utc.timetz().replace(tzinfo=None) if t_utc.tzinfo else t_utc.time()
         if not _in_window(tod, restrict_start, restrict_end):
-            t_pt = _next_window_start(t_pt, restrict_start, restrict_end, PACIFIC)
+            t_utc = _next_window_start(t_utc, restrict_start, restrict_end, UTC)
             continue
-        today = t_pt.date()
-        end_dt = datetime.combine(today, restrict_end, tzinfo=PACIFIC)
+        today = t_utc.date()
+        end_dt = datetime.combine(today, restrict_end, tzinfo=UTC)
         if restrict_end <= restrict_start:
             end_dt += timedelta(days=1)
-        window_sec = (end_dt - t_pt).total_seconds()
+        window_sec = (end_dt - t_utc).total_seconds()
         if window_sec <= 0:
-            t_pt = _next_window_start(t_pt, restrict_start, restrict_end, PACIFIC)
+            t_utc = _next_window_start(t_utc, restrict_start, restrict_end, UTC)
             continue
-        capacity = int(window_sec / delay_sec)
-        if capacity <= 0:
-            t_pt = end_dt
-            continue
-        send_now = min(remaining, capacity)
-        t_pt = t_pt + timedelta(seconds=send_now * delay_sec)
-        remaining -= send_now
-    return t_pt.astimezone(ZoneInfo("UTC"))
+        consume = min(remaining_seconds, window_sec)
+        t_utc = t_utc + timedelta(seconds=consume)
+        remaining_seconds -= consume
+    return t_utc
 
 
 def resolve_campaign_path(file_field: str) -> pathlib.Path:
@@ -638,6 +681,13 @@ def _load_logged_in_user():
 
     g.db_mode = _ensure_customer_mode()
     dbmod.set_customer_table_mode(g.db_mode)
+    header_mode = _normalize_customer_mode(request.headers.get("X-DB-Mode"))
+    query_mode = _normalize_customer_mode(request.args.get("db_mode"))
+    request_mode = query_mode or header_mode
+    if request_mode is not None:
+        g.db_mode = request_mode
+        dbmod.set_customer_table_mode(request_mode)
+        session[CUSTOMER_MODE_SESSION_KEY] = request_mode
 
     if _should_skip_auth(request.endpoint):
         return
@@ -1106,28 +1156,80 @@ def list_operators():
     return jsonify({"ok": True, "users": out, "operators": out})
 
 
+@app.get("/api/campaigns")
+def api_campaigns_list():
+    """Return list of campaign filenames for modal/dropdown refresh."""
+    return jsonify({"files": list_campaign_files()})
+
+
+@app.get("/campaigns/download")
+def download_campaign():
+    file_param = (request.args.get("file") or "").strip()
+    if not file_param:
+        return jsonify({"error": "No campaign file was specified."}), 400
+    try:
+        campaign_path = resolve_campaign_path(file_param)
+        return send_file(
+            campaign_path,
+            as_attachment=True,
+            download_name=campaign_path.name,
+            mimetype="text/html",
+        )
+    except FileNotFoundError:
+        return jsonify({"error": "Campaign file not found."}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.post("/campaigns/delete")
+def delete_campaign():
+    file_param = (request.form.get("file") or (request.get_json(silent=True) or {}).get("file") or "").strip()
+    if not file_param:
+        return jsonify({"error": "No campaign file was specified."}), 400
+    try:
+        campaign_path = resolve_campaign_path(file_param)
+        campaign_path.unlink(missing_ok=False)
+        return jsonify({"ok": True})
+    except FileNotFoundError:
+        return jsonify({"error": "Campaign file not found."}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except OSError as e:
+        app.logger.exception("Failed to delete campaign file")
+        return jsonify({"error": f"Unable to delete file: {e}"}), 500
+
+
 @app.post("/campaigns/upload")
 def upload_campaign():
     upload = request.files.get("campaign_file")
     desired_name = (request.form.get("filename") or "").strip()
+    wants_json = _wants_json_response()
 
     if not upload or not upload.filename:
+        if wants_json:
+            return jsonify({"error": "Choose an HTML file to upload."}), 400
         flash("Choose an HTML file to upload.", "error")
         return redirect(url_for("queue_campaign"))
 
     try:
         filename = _sanitize_campaign_filename(desired_name or upload.filename)
     except ValueError as e:
+        if wants_json:
+            return jsonify({"error": str(e)}), 400
         flash(str(e), "error")
         return redirect(url_for("queue_campaign"))
 
     target_path = (CAMPAIGNS_DIR / filename).resolve()
     base = CAMPAIGNS_DIR.resolve()
     if base not in target_path.parents:
+        if wants_json:
+            return jsonify({"error": "Invalid upload path."}), 400
         flash("Invalid upload path.", "error")
         return redirect(url_for("queue_campaign"))
 
     if target_path.exists():
+        if wants_json:
+            return jsonify({"error": "A campaign with that name already exists."}), 409
         flash("A campaign with that name already exists.", "error")
         return redirect(url_for("queue_campaign"))
 
@@ -1135,9 +1237,13 @@ def upload_campaign():
         CAMPAIGNS_DIR.mkdir(parents=True, exist_ok=True)
         upload.save(target_path)
     except Exception as e:
+        if wants_json:
+            return jsonify({"error": f"Unable to save campaign: {e}"}), 500
         flash(f"Unable to save campaign: {e}", "error")
         return redirect(url_for("queue_campaign"))
 
+    if wants_json:
+        return jsonify({"ok": True, "filename": filename})
     flash(f"Uploaded {filename}. It is now available in the campaign list.", "success")
     return redirect(url_for("queue_campaign"))
 
@@ -1382,7 +1488,9 @@ def list_customers_api():
     "has_next": total > 0 and page < total_pages,
     "has_prev": total > 0 and page > 1,
     }
-    return jsonify({"customers": serialized, "pagination": pagination, "search": search_term or ""})
+    response = jsonify({"customers": serialized, "pagination": pagination, "search": search_term or ""})
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.post("/api/customers")
@@ -1566,6 +1674,13 @@ def export_customers_api():
 @app.put("/api/customers/<int:cust_id>")
 def update_customer_api(cust_id: int):
     payload = request.get_json(silent=True) or {}
+    query_mode = _normalize_customer_mode(request.args.get("db_mode"))
+    body_mode = _normalize_customer_mode(payload.get("db_mode"))
+    request_mode = query_mode or body_mode
+    if request_mode is not None:
+        g.db_mode = request_mode
+        dbmod.set_customer_table_mode(request_mode)
+        session[CUSTOMER_MODE_SESSION_KEY] = request_mode
     email_raw = _clean_field(payload, "email")
     if not email_raw:
         return jsonify({"error": "Email is required."}), 400
@@ -1588,15 +1703,32 @@ def update_customer_api(cust_id: int):
                              cust_id, dbmod.get_customer_table_name(), getattr(g, "db_mode", "unknown"))
         return jsonify({"error": f"Database error: {e}"}), 500
     if not existing:
-        app.logger.warning("Customer %s not found in table %s (mode=%s)",
-                           cust_id, dbmod.get_customer_table_name(), getattr(g, "db_mode", "unknown"))
-        return jsonify({"error": "Customer not found."}), 404
+        current_mode = getattr(g, "db_mode", "production")
+        other_mode = "test" if current_mode == "production" else "production"
+        dbmod.set_customer_table_mode(other_mode)
+        try:
+            existing = dbmod.fetch_customer_by_id(cust_id)
+        except Exception:
+            existing = None
+        finally:
+            if existing:
+                app.logger.info("Customer %s found in %s table (request was using %s); syncing mode",
+                                cust_id, other_mode, current_mode)
+                g.db_mode = other_mode
+                session[CUSTOMER_MODE_SESSION_KEY] = other_mode
+            else:
+                dbmod.set_customer_table_mode(current_mode)
+        if not existing:
+            app.logger.warning("Customer %s not found in table %s (mode=%s)",
+                               cust_id, dbmod.get_customer_table_name(), getattr(g, "db_mode", "unknown"))
+            return jsonify({"error": "Customer not found."}), 404
 
     if "is_subscribed" in payload:
         is_subscribed = _coerce_bool(payload.get("is_subscribed"), True)
     else:
         is_subscribed = _bool_from_db(existing.get("IS_SUBSCRIBED"))
 
+    table_for_request = dbmod.get_customer_table_name()
     try:
         dbmod.update_customer(
         cust_id,
@@ -1607,8 +1739,9 @@ def update_customer_api(cust_id: int):
         phone=phone,
         comments=comments,
         is_subscribed=is_subscribed,
+        customer_table=table_for_request,
         )
-        row = dbmod.fetch_customer_by_id(cust_id)
+        row = dbmod.fetch_customer_by_id(cust_id, customer_table=table_for_request)
     except dbmod.CustomerNotFoundError:
         return jsonify({"error": "Customer not found."}), 404
     except dbmod.DuplicateCustomerError:
@@ -1622,12 +1755,12 @@ def update_customer_api(cust_id: int):
 
     tag_names = payload.get("tags")
     if isinstance(tag_names, list):
-        table = dbmod.get_customer_table_name()
         try:
-            dbmod.set_customer_tags(table, cust_id, tag_names)
+            dbmod.set_customer_tags(table_for_request, cust_id, tag_names)
         except Exception as e:
             app.logger.exception("Failed to save tags for customer %s", cust_id)
-        row["tags"] = dbmod.get_customer_tags(table, cust_id)
+            return jsonify({"error": f"Customer saved but tags failed to save: {e}"}), 500
+        row["tags"] = dbmod.get_customer_tags(table_for_request, cust_id)
 
     return jsonify({"customer": _serialize_customer(row)})
 
@@ -1647,6 +1780,103 @@ def delete_customer_api(cust_id: int):
         return jsonify({"error": f"Failed to delete customer: {e}"}), 500
 
     return jsonify({"status": "deleted"})
+
+
+@app.patch("/api/customers/bulk")
+def bulk_update_customers_api():
+    """Bulk update customers. Body: customer_ids (list of int), add_tags?, remove_tags?, set_subscribed?, comment? (replaces)."""
+    if not request.is_json:
+        return jsonify({"error": "JSON body required."}), 400
+    payload = request.get_json() or {}
+    raw_ids = payload.get("customer_ids")
+    if not isinstance(raw_ids, list):
+        return jsonify({"error": "customer_ids must be a list."}), 400
+    try:
+        customer_ids = [int(x) for x in raw_ids if x is not None]
+    except (TypeError, ValueError):
+        return jsonify({"error": "customer_ids must be integers."}), 400
+    if not customer_ids:
+        return jsonify({"error": "customer_ids cannot be empty."}), 400
+
+    add_tags = payload.get("add_tags")
+    if add_tags is not None and not isinstance(add_tags, list):
+        add_tags = None
+    if add_tags is not None:
+        add_tags = [str(t).strip() for t in add_tags if str(t).strip()]
+
+    remove_tags = payload.get("remove_tags")
+    if remove_tags is not None and not isinstance(remove_tags, list):
+        remove_tags = None
+    if remove_tags is not None:
+        remove_tags = [str(t).strip() for t in remove_tags if str(t).strip()]
+
+    set_subscribed = payload.get("set_subscribed")
+    if set_subscribed is not None:
+        set_subscribed = _coerce_bool(set_subscribed, True)
+
+    comment = payload.get("comment")
+    if comment is not None and not isinstance(comment, str):
+        comment = None
+    if comment is not None:
+        comment = comment.strip()
+
+    if not any([add_tags, remove_tags, set_subscribed is not None, comment is not None]):
+        return jsonify({"error": "Provide at least one of: add_tags, remove_tags, set_subscribed, comment."}), 400
+
+    table = dbmod.get_customer_table_name()
+    updated = 0
+    errors = []
+
+    for cust_id in customer_ids:
+        try:
+            existing = dbmod.fetch_customer_by_id(cust_id, customer_table=table)
+            if not existing:
+                errors.append(f"Customer {cust_id} not found")
+                continue
+
+            if add_tags or remove_tags:
+                current = dbmod.get_customer_tags(table, cust_id)
+                names = [t.get("name") or "" for t in current if t.get("name")]
+                names_set = set(names)
+                for t in add_tags or []:
+                    if t:
+                        names_set.add(t)
+                for t in remove_tags or []:
+                    names_set.discard(t)
+                dbmod.set_customer_tags(table, cust_id, list(names_set))
+
+            if set_subscribed is not None or comment is not None:
+                comments_new = comment if comment is not None else (existing.get("COMMENTS") or "")
+                is_subscribed = set_subscribed if set_subscribed is not None else _bool_from_db(existing.get("IS_SUBSCRIBED"))
+                dbmod.update_customer(
+                    cust_id,
+                    email=existing.get("EMAIL") or "",
+                    firstname=existing.get("FIRSTNAME") or None,
+                    lastname=existing.get("LASTNAME") or None,
+                    company=existing.get("COMPANY") or None,
+                    phone=existing.get("PHONE") or None,
+                    comments=comments_new or None,
+                    is_subscribed=is_subscribed,
+                    customer_table=table,
+                )
+            updated += 1
+        except dbmod.DuplicateCustomerError:
+            errors.append(f"Customer {cust_id}: duplicate email")
+        except Exception as e:
+            app.logger.exception("Bulk update failed for customer %s", cust_id)
+            errors.append(f"Customer {cust_id}: {e}")
+
+    return jsonify({"updated": updated, "errors": errors})
+
+
+@app.get("/tags")
+def tags_page():
+    """Render the tag management page (add/remove tags). Counts are all customers with the tag, not just subscribed."""
+    try:
+        all_tags = dbmod.list_tags(include_count=True, subscriber_aware=False)
+    except Exception:
+        all_tags = []
+    return render_template("tags.html", all_tags=all_tags)
 
 
 @app.get("/api/tags")
@@ -1682,7 +1912,7 @@ def create_tag_api():
     except Exception as e:
         app.logger.exception("Failed to create tag")
         return jsonify({"error": str(e)}), 500
-    return jsonify({"tag": {"id": tag["id"], "name": tag["name"]}}), 201
+    return jsonify({"tag": {"id": tag["id"], "name": tag["name"], "customer_count": 0}}), 201
 
 
 @app.delete("/api/tags/<int:tag_id>")
@@ -1783,11 +2013,29 @@ def _build_confirm_context(
         preview_error = f"Unable to render campaign preview: {e}"
 
     recipients = dbmod.fetch_subscribed_customers(tag_names=tag_names) or []
+    if recipients:
+        table = dbmod.get_customer_table_name()
+        custids = [r["CUSTID"] for r in recipients]
+        tags_by_cust = dbmod.fetch_tags_for_customers(table, custids)
+        for r in recipients:
+            r["tags"] = tags_by_cust.get(r["CUSTID"], [])
     recipient_count = len(recipients)
     num_batches = max(1, math.ceil(recipient_count / batch_size)) if recipient_count else 0
     total_cooldown = max(0, num_batches - 1) * cooldown_seconds
-    estimated_seconds = total_cooldown + recipient_count * (delay_ms / 1000)
-    eta_utc = estimate_completion_utc(recipient_count, delay_ms, restrict_start, restrict_end)
+    # Send time: (N-1) delays between N emails
+    send_time_sec = max(0, (recipient_count - 1) * (delay_ms / 1000))
+    estimated_seconds = total_cooldown + send_time_sec
+    # Confirm form uses Pacific; ETA expects UTC (same as stored in DB)
+    restrict_start_utc = _pacific_time_str_to_utc(restrict_start) if restrict_start else None
+    restrict_end_utc = _pacific_time_str_to_utc(restrict_end) if restrict_end else None
+    eta_utc = estimate_completion_utc(
+        recipient_count,
+        delay_ms,
+        restrict_start_utc,
+        restrict_end_utc,
+        batch_size=batch_size,
+        cooldown_seconds=cooldown_seconds,
+    )
     return {
         "file": file,
         "subject": subject,
@@ -1849,7 +2097,7 @@ def confirm():
 
     all_tags = []
     try:
-        all_tags = dbmod.list_tags()
+        all_tags = dbmod.list_tags(include_count=True)
     except Exception:
         pass
 
@@ -1906,6 +2154,20 @@ def queue_campaign_post():
         flash("Resolve lint errors before queuing the campaign.", "error")
         return redirect(url_for("confirm", file=file, subject=subject, batch_size=batch_size, delay_seconds=delay_seconds, cooldown_minutes=cooldown_minutes))
 
+    # Validate restricted hours: both or neither, and valid
+    start_s = (restrict_start or "").strip() or None
+    end_s = (restrict_end or "").strip() or None
+    if start_s is not None and end_s is not None:
+        if _parse_time_string(start_s) is None or _parse_time_string(end_s) is None:
+            flash("Restricted hours must be valid times (e.g. 10:00 and 22:00).", "error")
+            return redirect(url_for("queue_campaign"))
+        if _parse_time_string(start_s) == _parse_time_string(end_s):
+            flash("Start and end times cannot be the same.", "error")
+            return redirect(url_for("queue_campaign"))
+    elif start_s is not None or end_s is not None:
+        flash("Provide both start and end times for restricted hours, or leave both empty.", "error")
+        return redirect(url_for("queue_campaign"))
+
     active = dbmod.fetch_active_send()
     if active:
         flash("A campaign is already queued or in progress.", "error")
@@ -1916,10 +2178,16 @@ def queue_campaign_post():
     total = len(recipients)
     send_id = secrets.token_hex(16)
 
+    # Store restricted send window in UTC so server (UTC) can compare directly
+    restrict_start_utc = _pacific_time_str_to_utc(restrict_start) if restrict_start else None
+    restrict_end_utc = _pacific_time_str_to_utc(restrict_end) if restrict_end else None
+
     try:
         dbmod.insert_campaign_send(
             send_id, file, subject, None, mode, total,
             batch_size=batch_size, delay_ms=delay_ms, cooldown_seconds=cooldown_seconds,
+            restrict_start=restrict_start_utc,
+            restrict_end=restrict_end_utc,
         )
         dbmod.bulk_insert_send_recipients(send_id, recipients)
         dbmod.activate_campaign_send(send_id)
@@ -1977,20 +2245,61 @@ def send_progress(send_id: str):
     if not row:
         return jsonify({"error": "Send not found."}), 404
     counts = dbmod.count_send_results(send_id)
-    return jsonify({
+    total = int(row.get("TOTAL_RECIPIENTS") or 0)
+    sent = int(row.get("SENT_COUNT") or 0)
+    failed = int(row.get("FAILED_COUNT") or 0)
+    pending = counts.get("pending", 0)
+    delay_ms = int(row.get("DELAY_MS") or 0)
+    restrict_start_s = (row.get("RESTRICT_START") or "").strip() or None
+    restrict_end_s = (row.get("RESTRICT_END") or "").strip() or None
+
+    batch_size = int(row.get("BATCH_SIZE") or 0)
+    cooldown_seconds = int(row.get("COOLDOWN_SECONDS") or 0)
+    last_batch_at = row.get("LAST_BATCH_AT")
+    now_utc = datetime.now(UTC)
+    seconds_until_first_batch = 0.0
+    if pending > 0 and cooldown_seconds > 0 and isinstance(last_batch_at, datetime):
+        # Last batch at from DB is typically naive UTC; make it comparable to now_utc
+        lb = last_batch_at if last_batch_at.tzinfo else last_batch_at.replace(tzinfo=UTC)
+        next_batch_at = lb + timedelta(seconds=cooldown_seconds)
+        if next_batch_at > now_utc:
+            seconds_until_first_batch = (next_batch_at - now_utc).total_seconds()
+
+    eta_utc_iso = None
+    status = row["STATUS"]
+    if status in ("running", "paused", "queued") and pending > 0 and delay_ms >= 0:
+        eta_utc = estimate_completion_utc(
+            pending,
+            delay_ms,
+            restrict_start_s,
+            restrict_end_s,
+            batch_size=batch_size,
+            cooldown_seconds=cooldown_seconds,
+            seconds_until_first_batch=seconds_until_first_batch,
+        )
+        if eta_utc:
+            eta_utc_iso = eta_utc.isoformat()
+
+    payload = {
         "send_id": send_id,
-        "status": row["STATUS"],
-        "total": int(row.get("TOTAL_RECIPIENTS") or 0),
-        "sent": int(row.get("SENT_COUNT") or 0),
-        "failed": int(row.get("FAILED_COUNT") or 0),
-        "pending": counts.get("pending", 0),
+        "status": status,
+        "total": total,
+        "sent": sent,
+        "failed": failed,
+        "pending": pending,
         "batch_size": int(row.get("BATCH_SIZE") or 0),
-        "delay_ms": int(row.get("DELAY_MS") or 0),
+        "delay_ms": delay_ms,
         "cooldown_seconds": int(row.get("COOLDOWN_SECONDS") or 0),
         "started_at": (row.get("STARTED_AT").isoformat() + "Z") if row.get("STARTED_AT") else None,
         "finished_at": (row.get("FINISHED_AT").isoformat() + "Z") if row.get("FINISHED_AT") else None,
         "last_batch_at": (row.get("LAST_BATCH_AT").isoformat() + "Z") if row.get("LAST_BATCH_AT") else None,
-    })
+        "restrict_start": restrict_start_s or "",
+        "restrict_end": restrict_end_s or "",
+        "restrict_start_display": _utc_time_str_to_pacific_display(restrict_start_s) if restrict_start_s else "",
+        "restrict_end_display": _utc_time_str_to_pacific_display(restrict_end_s) if restrict_end_s else "",
+        "eta_utc_iso": eta_utc_iso,
+    }
+    return jsonify(payload)
 
 
 @app.post("/send/<send_id>/pause")
@@ -2128,6 +2437,37 @@ def recipients_count_api():
         return jsonify({"error": str(e)}), 500
 
 
+@app.get("/api/recipients/list")
+def recipients_list_api():
+    """Return subscribed recipients for confirm preview, optionally filtered by tag names. Includes tags per recipient."""
+    tag_names_raw = request.args.get("tag_names", "").strip()
+    tag_names = [n.strip() for n in tag_names_raw.split(",") if n.strip()] if tag_names_raw else None
+    try:
+        rows = dbmod.fetch_subscribed_customers(tag_names=tag_names) or []
+        if rows:
+            table = dbmod.get_customer_table_name()
+            custids = [r["CUSTID"] for r in rows]
+            tags_by_cust = dbmod.fetch_tags_for_customers(table, custids)
+            for r in rows:
+                r["tags"] = tags_by_cust.get(r["CUSTID"], [])
+        for r in rows:
+            if "tags" not in r:
+                r["tags"] = []
+        out = [
+            {
+                "id": r["CUSTID"],
+                "firstname": r.get("FIRSTNAME") or "",
+                "lastname": r.get("LASTNAME") or "",
+                "email": r.get("EMAIL") or "",
+                "tags": [{"id": t.get("id"), "name": t.get("name", "")} for t in r.get("tags", [])],
+            }
+            for r in rows
+        ]
+        return jsonify({"recipients": out})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.get("/logs/stream")
 def logs_stream():
     token = (request.args.get("token") or "").strip()
@@ -2161,6 +2501,22 @@ def campaign_history():
     return redirect(url_for("index", **request.args))
 
 
+@app.post("/history/<send_id>/archive")
+def archive_campaign(send_id: str):
+    """Mark a campaign send as archived so it no longer appears on the front page."""
+    try:
+        updated = dbmod.archive_campaign_send(send_id)
+    except Exception as exc:
+        app.logger.exception("Failed to archive campaign %s: %s", send_id, exc)
+        flash("Unable to archive campaign.", "error")
+        return redirect(url_for("index", **request.args))
+    if updated:
+        flash("Campaign archived. It will no longer appear in the list.", "success")
+    else:
+        flash("Campaign not found or already archived.", "error")
+    return redirect(url_for("index", **request.args))
+
+
 @app.get("/history/<send_id>")
 def campaign_history_detail(send_id: str):
     try:
@@ -2182,12 +2538,21 @@ def campaign_history_detail(send_id: str):
     if status_filter:
         filtered_results = [r for r in results if r["STATUS"] == status_filter]
 
+    # Stored restrict times are UTC; surface Pacific for display
+    restrict_start_display = ""
+    restrict_end_display = ""
+    if send_row.get("RESTRICT_START") and send_row.get("RESTRICT_END"):
+        restrict_start_display = _utc_time_str_to_pacific_display((send_row.get("RESTRICT_START") or "").strip())
+        restrict_end_display = _utc_time_str_to_pacific_display((send_row.get("RESTRICT_END") or "").strip())
+
     return render_template(
         "history_detail.html",
         send=send_row,
         results=filtered_results,
         all_results=results,
         status_filter=status_filter or "all",
+        restrict_start_display=restrict_start_display,
+        restrict_end_display=restrict_end_display,
     )
 
 
@@ -2242,6 +2607,17 @@ def _process_one_batch(send_row: dict):
     def emit(text: str):
         if bus:
             bus.emit(text)
+
+    # If restricted send hours are set, wait until we're inside the window (Pacific)
+    restrict_start_s = (send_row.get("RESTRICT_START") or "").strip() or None
+    restrict_end_s = (send_row.get("RESTRICT_END") or "").strip() or None
+    if restrict_start_s and restrict_end_s:
+        r_start = _parse_time_string(restrict_start_s)
+        r_end = _parse_time_string(restrict_end_s)
+        if r_start is not None and r_end is not None and r_start != r_end:
+            waited = _sleep_until_in_window(r_start, r_end)
+            if waited and bus:
+                bus.emit("Resumed within restricted send window.")
 
     batch = dbmod.fetch_pending_recipients(send_id, limit=batch_size)
     if not batch:

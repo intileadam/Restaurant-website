@@ -8,9 +8,12 @@
       <h2>Customer Directory</h2>
       <p class="muted">Click a row to preview details. Use the Edit button to update subscribers instantly.</p>
     </div>
-    <button type="button" class="btn primary" data-add-customer>
-      <span>+ Add customer</span>
-    </button>
+    <div class="customer-manager__header-actions">
+      <a href="{{ url_for('tags_page') }}" class="btn ghost">Manage tags</a>
+      <button type="button" class="btn primary" data-add-customer>
+        <span>+ Add customer</span>
+      </button>
+    </div>
   </header>
 
   <div class="customer-table-container">
@@ -24,6 +27,12 @@
     </div>
     <div class="customer-table-shell" data-customers-shell hidden>
       <div class="customer-table-toolbar">
+        <button type="button" class="btn icon-btn-refresh" data-refresh-table aria-label="Refresh table">
+          <svg class="icon-refresh" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/>
+            <path d="M21 3v5h-5"/>
+          </svg>
+        </button>
         <label class="page-size-control">
           <span>Rows per page</span>
           <select data-customers-page-size>
@@ -48,6 +57,17 @@
           </select>
         </label>
       </div>
+      <div class="bulk-action-bar" data-bulk-action-bar hidden>
+        <span class="bulk-action-bar__count" data-bulk-count></span>
+        <button type="button" class="btn ghost btn--sm" data-bulk-clear>Clear selection</button>
+        <div class="bulk-action-bar__actions">
+          <button type="button" class="btn ghost btn--sm" data-bulk-add-tags>Add tags</button>
+          <button type="button" class="btn ghost btn--sm" data-bulk-remove-tags>Remove tags</button>
+          <button type="button" class="btn ghost btn--sm" data-bulk-subscribe>Subscribe</button>
+          <button type="button" class="btn ghost btn--sm" data-bulk-unsubscribe>Unsubscribe</button>
+          <button type="button" class="btn ghost btn--sm" data-bulk-comment>Update comment</button>
+        </div>
+      </div>
       <div class="table-scroll">
         <table class="customer-table">
           <thead>
@@ -60,6 +80,7 @@
               <th>Tags</th>
               <th>Status</th>
               <th>Comments</th>
+              <th class="th-select"><input type="checkbox" data-bulk-select-all aria-label="Select all on this page" /></th>
             </tr>
           </thead>
           <tbody data-customers-body></tbody>
@@ -120,9 +141,9 @@
             <div class="customer-form-tags" data-tags-container>
               <span class="form-label">Tags</span>
               <div class="tag-chips" data-tag-chips></div>
-              <div class="tag-input-row">
-                <input type="text" data-tag-input placeholder="Add or create tag" autocomplete="off" list="tag-datalist" />
-                <datalist id="tag-datalist" data-tag-datalist></datalist>
+              <div class="tag-input-row tag-input-wrap" data-tag-input-wrap>
+                <input type="text" data-tag-input placeholder="Add or create tag" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="tag-dropdown" aria-activedescendant="" />
+                <div class="tag-dropdown" id="tag-dropdown" data-tag-dropdown role="listbox" hidden></div>
               </div>
             </div>
           </div>
@@ -177,6 +198,36 @@
   </div>
 </div>
 
+<div class="bulk-modal-backdrop" data-bulk-modal hidden>
+  <div class="bulk-modal card" role="dialog" aria-modal="true" aria-labelledby="bulkModalTitle">
+    <header class="bulk-modal__header">
+      <h3 id="bulkModalTitle" data-bulk-modal-title>Bulk update</h3>
+      <button type="button" class="icon-button" aria-label="Close" data-bulk-modal-close>&times;</button>
+    </header>
+    <div class="bulk-modal__body">
+      <div class="bulk-panel bulk-panel--add-tags" data-bulk-panel-add-tags hidden>
+        <p class="muted">Add this tag to all selected customers.</p>
+        <div class="tag-input-wrap bulk-tag-input-wrap" data-bulk-tag-input-wrap>
+          <input type="text" data-bulk-tag-input placeholder="Type or choose tag" autocomplete="off" />
+          <div class="tag-dropdown" data-bulk-tag-dropdown role="listbox" hidden></div>
+        </div>
+      </div>
+      <div class="bulk-panel bulk-panel--remove-tags" data-bulk-panel-remove-tags hidden>
+        <p class="muted">Remove these tags from all selected customers.</p>
+        <div class="bulk-remove-tags-list" data-bulk-remove-tags-list></div>
+      </div>
+      <div class="bulk-panel bulk-panel--comment" data-bulk-panel-comment hidden>
+        <p class="muted">Replace the comment for all selected customers.</p>
+        <textarea data-bulk-comment-input rows="3" placeholder="New comment"></textarea>
+      </div>
+    </div>
+    <footer class="bulk-modal__footer">
+      <button type="button" class="btn ghost" data-bulk-modal-cancel>Cancel</button>
+      <button type="button" class="btn primary" data-bulk-apply>Apply</button>
+    </footer>
+  </div>
+</div>
+
 <script>
   (() => {
     const root = document.querySelector("[data-customers-page]");
@@ -190,6 +241,7 @@
       errorMessage: root.querySelector("[data-customers-error-message]"),
       empty: root.querySelector("[data-customers-empty]"),
       reloadBtn: root.querySelector("[data-reload-customers]"),
+      refreshTableBtn: root.querySelector("[data-refresh-table]"),
       addBtn: root.querySelector("[data-add-customer]"),
       container: root.querySelector(".customer-table-container"),
       modal: document.querySelector("[data-customer-modal]"),
@@ -211,7 +263,30 @@
       tagsContainer: document.querySelector("[data-tags-container]"),
       tagChips: document.querySelector("[data-tag-chips]"),
       tagInput: document.querySelector("[data-tag-input]"),
-      tagDatalist: document.querySelector("[data-tag-datalist]"),
+      tagInputWrap: document.querySelector("[data-tag-input-wrap]"),
+      tagDropdown: document.querySelector("[data-tag-dropdown]"),
+      bulkActionBar: root.querySelector("[data-bulk-action-bar]"),
+      bulkCount: root.querySelector("[data-bulk-count]"),
+      bulkClear: root.querySelector("[data-bulk-clear]"),
+      bulkSelectAll: root.querySelector("[data-bulk-select-all]"),
+      bulkAddTags: root.querySelector("[data-bulk-add-tags]"),
+      bulkRemoveTags: root.querySelector("[data-bulk-remove-tags]"),
+      bulkSubscribe: root.querySelector("[data-bulk-subscribe]"),
+      bulkUnsubscribe: root.querySelector("[data-bulk-unsubscribe]"),
+      bulkComment: root.querySelector("[data-bulk-comment]"),
+      bulkModal: document.querySelector("[data-bulk-modal]"),
+      bulkModalTitle: document.querySelector("[data-bulk-modal-title]"),
+      bulkModalClose: document.querySelector("[data-bulk-modal-close]"),
+      bulkModalCancel: document.querySelector("[data-bulk-modal-cancel]"),
+      bulkApply: document.querySelector("[data-bulk-apply]"),
+      bulkPanelAddTags: document.querySelector("[data-bulk-panel-add-tags]"),
+      bulkPanelRemoveTags: document.querySelector("[data-bulk-panel-remove-tags]"),
+      bulkPanelComment: document.querySelector("[data-bulk-panel-comment]"),
+      bulkTagInput: document.querySelector("[data-bulk-tag-input]"),
+      bulkTagInputWrap: document.querySelector("[data-bulk-tag-input-wrap]"),
+      bulkTagDropdown: document.querySelector("[data-bulk-tag-dropdown]"),
+      bulkRemoveTagsList: document.querySelector("[data-bulk-remove-tags-list]"),
+      bulkCommentInput: document.querySelector("[data-bulk-comment-input]"),
       paginationInfo: root.querySelector("[data-pagination-info]"),
       prevBtn: root.querySelector("[data-pagination-prev]"),
       nextBtn: root.querySelector("[data-pagination-next]"),
@@ -258,7 +333,13 @@
       emailCustomerId: null,
       viewMode: "form",
       modalTagNames: [],
+      tagDropdownHighlightIndex: 0,
+      selectedCustomerIds: new Set(),
+      bulkAction: null,
+      bulkTagDropdownHighlightIndex: 0,
     };
+    let tagDropdownBlurTimer = null;
+    let bulkTagDropdownBlurTimer = null;
 
     async function loadTags() {
       try {
@@ -281,12 +362,21 @@
           });
           if (current) elements.tagFilterSelect.value = current;
         }
-        if (elements.tagDatalist) {
-          elements.tagDatalist.innerHTML = "";
+        if (elements.tagInput && document.activeElement === elements.tagInput) {
+          openTagDropdown();
+        }
+        if (state.bulkAction === "remove_tags" && elements.bulkRemoveTagsList) {
+          elements.bulkRemoveTagsList.innerHTML = "";
           state.allTags.forEach((t) => {
-            const opt = document.createElement("option");
-            opt.value = t.name;
-            elements.tagDatalist.appendChild(opt);
+            const label = document.createElement("label");
+            label.className = "bulk-checkbox-label";
+            const check = document.createElement("input");
+            check.type = "checkbox";
+            check.value = t.name;
+            check.dataset.tagName = t.name;
+            label.appendChild(check);
+            label.appendChild(document.createTextNode(t.name));
+            elements.bulkRemoveTagsList.appendChild(label);
           });
         }
       } catch (e) {
@@ -300,6 +390,9 @@
       if (csrfToken && !headers.has("X-CSRF-Token")) {
         headers.set("X-CSRF-Token", csrfToken);
       }
+      const rawMode = document.body.dataset.dbMode || "production";
+      const dbMode = rawMode === "test" ? "test" : "production";
+      headers.set("X-DB-Mode", dbMode);
       return fetch(input, { credentials: "same-origin", ...init, headers });
     }
 
@@ -384,10 +477,192 @@
         commentsTd.title = comments;
         row.appendChild(commentsTd);
 
+        const selectTd = document.createElement("td");
+        selectTd.className = "td-select";
+        const check = document.createElement("input");
+        check.type = "checkbox";
+        check.checked = state.selectedCustomerIds.has(customer.id);
+        check.setAttribute("aria-label", `Select ${customer.email}`);
+        check.dataset.customerId = String(customer.id);
+        check.addEventListener("change", () => toggleCustomerSelection(customer.id));
+        selectTd.appendChild(check);
+        row.appendChild(selectTd);
+
         fragment.appendChild(row);
       });
 
       elements.tableBody.appendChild(fragment);
+      updateBulkBar();
+    }
+
+    function toggleCustomerSelection(id) {
+      const s = state.selectedCustomerIds;
+      if (s.has(id)) s.delete(id);
+      else s.add(id);
+      updateBulkBar();
+      renderCustomers();
+    }
+
+    function selectAllOnPage(checked) {
+      if (checked) {
+        state.customers.forEach((c) => state.selectedCustomerIds.add(c.id));
+      } else {
+        state.customers.forEach((c) => state.selectedCustomerIds.delete(c.id));
+      }
+      updateBulkBar();
+      renderCustomers();
+    }
+
+    function updateBulkBar() {
+      const n = state.selectedCustomerIds.size;
+      if (elements.bulkActionBar) {
+        elements.bulkActionBar.hidden = n === 0;
+      }
+      if (elements.bulkCount) {
+        elements.bulkCount.textContent = n === 1 ? "1 selected" : `${n} selected`;
+      }
+      if (elements.bulkSelectAll) {
+        const total = state.customers.length;
+        elements.bulkSelectAll.checked = total > 0 && n === total;
+        elements.bulkSelectAll.indeterminate = n > 0 && n < total;
+      }
+    }
+
+    function openBulkModal(action) {
+      state.bulkAction = action;
+      if (elements.bulkPanelAddTags) elements.bulkPanelAddTags.hidden = true;
+      if (elements.bulkPanelRemoveTags) elements.bulkPanelRemoveTags.hidden = true;
+      if (elements.bulkPanelComment) elements.bulkPanelComment.hidden = true;
+      if (elements.bulkModalTitle) {
+        elements.bulkModalTitle.textContent =
+          action === "add_tags" ? "Add tag" : action === "remove_tags" ? "Remove tags" : "Update comment";
+      }
+      if (action === "add_tags" && elements.bulkPanelAddTags) {
+        elements.bulkPanelAddTags.hidden = false;
+        if (elements.bulkTagInput) {
+          elements.bulkTagInput.value = "";
+          elements.bulkTagInput.focus();
+        }
+        if (!state.allTags.length) loadTags();
+      } else if (action === "remove_tags" && elements.bulkPanelRemoveTags) {
+        elements.bulkPanelRemoveTags.hidden = false;
+        if (!state.allTags.length) loadTags();
+        if (elements.bulkRemoveTagsList) {
+          elements.bulkRemoveTagsList.innerHTML = "";
+          state.allTags.forEach((t) => {
+            const label = document.createElement("label");
+            label.className = "bulk-checkbox-label";
+            const check = document.createElement("input");
+            check.type = "checkbox";
+            check.value = t.name;
+            check.dataset.tagName = t.name;
+            label.appendChild(check);
+            label.appendChild(document.createTextNode(t.name));
+            elements.bulkRemoveTagsList.appendChild(label);
+          });
+        }
+        if (!state.allTags.length) loadTags();
+      } else if (action === "comment" && elements.bulkPanelComment) {
+        elements.bulkPanelComment.hidden = false;
+        if (elements.bulkCommentInput) {
+          elements.bulkCommentInput.value = "";
+          elements.bulkCommentInput.focus();
+        }
+      }
+      if (elements.bulkModal) {
+        elements.bulkModal.hidden = false;
+        document.body.classList.add("modal-open");
+      }
+      if (elements.bulkApply) {
+        elements.bulkApply.textContent = "Apply to " + state.selectedCustomerIds.size + " customer" + (state.selectedCustomerIds.size !== 1 ? "s" : "");
+      }
+    }
+
+    function closeBulkModal() {
+      state.bulkAction = null;
+      if (elements.bulkModal) {
+        elements.bulkModal.hidden = true;
+        document.body.classList.remove("modal-open");
+      }
+      closeBulkTagDropdown();
+    }
+
+    function closeBulkTagDropdown() {
+      if (!elements.bulkTagDropdown) return;
+      elements.bulkTagDropdown.hidden = true;
+      elements.bulkTagDropdown.innerHTML = "";
+    }
+
+    function renderBulkTagDropdown(options, highlightIndex) {
+      if (!elements.bulkTagDropdown || !elements.bulkTagInput) return;
+      state.bulkTagDropdownHighlightIndex = Math.max(0, Math.min(highlightIndex, options.length - 1));
+      elements.bulkTagDropdown.innerHTML = "";
+      elements.bulkTagDropdown.hidden = options.length === 0;
+      if (options.length === 0) return;
+      options.forEach((opt, i) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "tag-dropdown-option" + (opt.type === "create" ? " tag-dropdown-option--create" : "");
+        btn.setAttribute("role", "option");
+        btn.setAttribute("id", "bulk-tag-option-" + i);
+        btn.setAttribute("aria-selected", i === state.bulkTagDropdownHighlightIndex ? "true" : "false");
+        btn.textContent = opt.type === "create" ? `Create new "${opt.name}" tag` : opt.name;
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          elements.bulkTagInput.value = opt.name;
+          closeBulkTagDropdown();
+        });
+        elements.bulkTagDropdown.appendChild(btn);
+      });
+    }
+
+    async function runBulkUpdate(payload) {
+      const ids = Array.from(state.selectedCustomerIds);
+      if (!ids.length) return;
+      const body = { customer_ids: ids, ...payload };
+      try {
+        const response = await authorizedFetch("/api/customers/bulk", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Bulk update failed.");
+        }
+        closeBulkModal();
+        state.selectedCustomerIds.clear();
+        updateBulkBar();
+        await loadCustomers();
+      } catch (err) {
+        console.error(err);
+        alert(err.message || "Bulk update failed.");
+      }
+    }
+
+    function handleBulkApply() {
+      const action = state.bulkAction;
+      if (!action) return;
+      if (action === "add_tags") {
+        const name = elements.bulkTagInput ? elements.bulkTagInput.value.trim() : "";
+        if (!name) {
+          alert("Enter or select a tag.");
+          return;
+        }
+        runBulkUpdate({ add_tags: [name] });
+      } else if (action === "remove_tags") {
+        const checked = elements.bulkRemoveTagsList
+          ? Array.from(elements.bulkRemoveTagsList.querySelectorAll("input:checked")).map((el) => el.value)
+          : [];
+        if (!checked.length) {
+          alert("Select at least one tag to remove.");
+          return;
+        }
+        runBulkUpdate({ remove_tags: checked });
+      } else if (action === "comment") {
+        const comment = elements.bulkCommentInput ? elements.bulkCommentInput.value.trim() : "";
+        runBulkUpdate({ comment });
+      }
     }
 
     function renderPagination() {
@@ -427,6 +702,7 @@
         const params = new URLSearchParams();
         params.set("page", String(state.page));
         params.set("per_page", String(state.perPage));
+        params.set("db_mode", document.body.dataset.dbMode === "test" ? "test" : "production");
         if (state.search) {
           params.set("search", state.search);
         }
@@ -514,15 +790,80 @@
       });
     }
 
-    function addTagFromInput() {
-      if (!elements.tagInput) return;
-      const name = elements.tagInput.value.trim();
-      if (!name) return;
-      if (!state.modalTagNames.includes(name)) {
-        state.modalTagNames = state.modalTagNames.concat(name);
+    /** Returns list of dropdown options: existing tags (filtered, not already on customer) + optional "Create new 'xyz'" when query has no exact match. alreadyAddedNames defaults to state.modalTagNames. */
+    function getTagDropdownOptions(query, alreadyAddedNames) {
+      const q = query.trim().toLowerCase();
+      const source = alreadyAddedNames !== undefined ? alreadyAddedNames : state.modalTagNames;
+      const alreadyAdded = new Set((Array.isArray(source) ? source : []).map((n) => String(n).trim().toLowerCase()));
+      const existing = state.allTags
+        .map((t) => (t && t.name) || "")
+        .filter((name) => name && !alreadyAdded.has(name.trim().toLowerCase()));
+      const filtered = q
+        ? existing.filter((name) => name.toLowerCase().includes(q))
+        : existing;
+      const options = filtered.map((name) => ({ type: "existing", name }));
+      const exactMatch = q && existing.some((n) => n.trim().toLowerCase() === q);
+      if (query.trim() && !exactMatch) {
+        options.push({ type: "create", name: query.trim() });
+      }
+      return options;
+    }
+
+    function renderTagDropdown(options, highlightIndex) {
+      if (!elements.tagDropdown || !elements.tagInput) return;
+      state.tagDropdownHighlightIndex = Math.max(0, Math.min(highlightIndex, options.length - 1));
+      elements.tagDropdown.innerHTML = "";
+      elements.tagDropdown.hidden = options.length === 0;
+      if (options.length === 0) {
+        elements.tagInput.setAttribute("aria-expanded", "false");
+        elements.tagInput.removeAttribute("aria-activedescendant");
+        return;
+      }
+      elements.tagInput.setAttribute("aria-expanded", "true");
+      options.forEach((opt, i) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "tag-dropdown-option" + (opt.type === "create" ? " tag-dropdown-option--create" : "");
+        btn.setAttribute("role", "option");
+        btn.setAttribute("id", "tag-option-" + i);
+        btn.setAttribute("aria-selected", i === state.tagDropdownHighlightIndex ? "true" : "false");
+        btn.textContent = opt.type === "create" ? `Create new "${opt.name}" tag` : opt.name;
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          addTagByName(opt.name);
+          closeTagDropdown();
+        });
+        elements.tagDropdown.appendChild(btn);
+      });
+      const activeId = "tag-option-" + state.tagDropdownHighlightIndex;
+      elements.tagInput.setAttribute("aria-activedescendant", activeId);
+      const activeEl = elements.tagDropdown.querySelector("#" + activeId);
+      if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
+    }
+
+    function openTagDropdown() {
+      if (!elements.tagDropdown || !elements.tagInput) return;
+      const query = elements.tagInput.value;
+      const options = getTagDropdownOptions(query);
+      renderTagDropdown(options, 0);
+    }
+
+    function closeTagDropdown() {
+      if (!elements.tagDropdown || !elements.tagInput) return;
+      elements.tagDropdown.hidden = true;
+      elements.tagDropdown.innerHTML = "";
+      elements.tagInput.setAttribute("aria-expanded", "false");
+      elements.tagInput.removeAttribute("aria-activedescendant");
+    }
+
+    function addTagByName(name) {
+      if (!name || !name.trim()) return;
+      const trimmed = name.trim();
+      if (!state.modalTagNames.includes(trimmed)) {
+        state.modalTagNames = state.modalTagNames.concat(trimmed);
         renderTagChips();
       }
-      elements.tagInput.value = "";
+      if (elements.tagInput) elements.tagInput.value = "";
     }
 
     function updateSendEmailButton(customer) {
@@ -588,6 +929,8 @@
       }
       renderTagChips();
       if (elements.tagInput) elements.tagInput.value = "";
+      closeTagDropdown();
+      if (!state.allTags.length) loadTags();
 
       if (elements.deleteBtn) {
         const canDelete = mode === "edit";
@@ -827,6 +1170,7 @@
     }
 
     elements.tableBody.addEventListener("click", (event) => {
+      if (event.target.closest(".td-select") || event.target.closest("input[type=checkbox]")) return;
       const row = event.target.closest("tr");
       if (!row) return;
       const id = Number(row.dataset.id);
@@ -842,6 +1186,9 @@
     if (elements.reloadBtn) {
       elements.reloadBtn.addEventListener("click", () => loadCustomers({ allowRetry: true }));
     }
+    if (elements.refreshTableBtn) {
+      elements.refreshTableBtn.addEventListener("click", () => loadCustomers({ allowRetry: true }));
+    }
     elements.form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const formData = new FormData(elements.form);
@@ -849,6 +1196,7 @@
         const value = formData.get(field);
         return value ? value.toString().trim() : "";
       };
+      const dbMode = document.body.dataset.dbMode === "test" ? "test" : "production";
       const payload = {
         email: valueFor("email"),
         firstname: valueFor("firstname"),
@@ -858,6 +1206,7 @@
         comments: valueFor("comments"),
         is_subscribed: elements.form.querySelector("[data-field-subscribed]").checked,
         tags: state.modalTagNames.slice(),
+        db_mode: dbMode,
       };
 
       elements.saveBtn.disabled = true;
@@ -866,10 +1215,13 @@
       elements.alert.textContent = "";
 
       try {
-        const url =
+        const baseUrl =
           state.mode === "create"
             ? "/api/customers"
             : `/api/customers/${encodeURIComponent(state.activeId)}`;
+        const url = state.mode === "create"
+          ? baseUrl
+          : `${baseUrl}?db_mode=${encodeURIComponent(dbMode)}`;
         const response = await authorizedFetch(url, {
           method: state.mode === "create" ? "POST" : "PUT",
           headers: { "Content-Type": "application/json" },
@@ -984,7 +1336,12 @@
     }
 
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !elements.modal.hidden) {
+      if (event.key !== "Escape") return;
+      if (elements.bulkModal && !elements.bulkModal.hidden) {
+        closeBulkModal();
+        return;
+      }
+      if (elements.modal && !elements.modal.hidden) {
         if (state.viewMode === "email") {
           setModalView("form");
           resetEmailPanel();
@@ -1016,14 +1373,154 @@
       });
     }
 
-    if (elements.tagInput) {
+    if (elements.tagInput && elements.tagDropdown) {
+      elements.tagDropdown.addEventListener("mousedown", (e) => e.preventDefault());
+      elements.tagInput.addEventListener("focus", () => {
+        if (tagDropdownBlurTimer) {
+          clearTimeout(tagDropdownBlurTimer);
+          tagDropdownBlurTimer = null;
+        }
+        if (!state.allTags.length) loadTags();
+        openTagDropdown();
+      });
+      elements.tagInput.addEventListener("input", () => openTagDropdown());
+      elements.tagInput.addEventListener("blur", () => {
+        tagDropdownBlurTimer = setTimeout(() => {
+          tagDropdownBlurTimer = null;
+          closeTagDropdown();
+        }, 180);
+      });
       elements.tagInput.addEventListener("keydown", (event) => {
+        const options = getTagDropdownOptions(elements.tagInput.value);
+        if (options.length === 0) {
+          if (event.key === "Enter") {
+            const name = elements.tagInput.value.trim();
+            if (name) {
+              event.preventDefault();
+              addTagByName(name);
+              closeTagDropdown();
+            }
+          }
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          renderTagDropdown(options, state.tagDropdownHighlightIndex + 1);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          renderTagDropdown(options, state.tagDropdownHighlightIndex - 1);
+          return;
+        }
         if (event.key === "Enter") {
           event.preventDefault();
-          addTagFromInput();
+          const opt = options[state.tagDropdownHighlightIndex];
+          if (opt) {
+            addTagByName(opt.name);
+            closeTagDropdown();
+          }
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeTagDropdown();
         }
       });
-      elements.tagInput.addEventListener("blur", () => addTagFromInput());
+    }
+
+    if (elements.bulkClear) {
+      elements.bulkClear.addEventListener("click", () => {
+        state.selectedCustomerIds.clear();
+        updateBulkBar();
+        renderCustomers();
+      });
+    }
+    if (elements.bulkSelectAll) {
+      elements.bulkSelectAll.addEventListener("change", (e) => selectAllOnPage(e.target.checked));
+    }
+    if (elements.bulkAddTags) {
+      elements.bulkAddTags.addEventListener("click", () => openBulkModal("add_tags"));
+    }
+    if (elements.bulkRemoveTags) {
+      elements.bulkRemoveTags.addEventListener("click", () => openBulkModal("remove_tags"));
+    }
+    if (elements.bulkSubscribe) {
+      elements.bulkSubscribe.addEventListener("click", () => {
+        const n = state.selectedCustomerIds.size;
+        if (confirm(`Subscribe ${n} customer${n !== 1 ? "s" : ""}?`)) {
+          runBulkUpdate({ set_subscribed: true });
+        }
+      });
+    }
+    if (elements.bulkUnsubscribe) {
+      elements.bulkUnsubscribe.addEventListener("click", () => {
+        const n = state.selectedCustomerIds.size;
+        if (confirm(`Unsubscribe ${n} customer${n !== 1 ? "s" : ""}?`)) {
+          runBulkUpdate({ set_subscribed: false });
+        }
+      });
+    }
+    if (elements.bulkComment) {
+      elements.bulkComment.addEventListener("click", () => openBulkModal("comment"));
+    }
+
+    if (elements.bulkModalClose || elements.bulkModalCancel) {
+      [elements.bulkModalClose, elements.bulkModalCancel].filter(Boolean).forEach((btn) => {
+        btn.addEventListener("click", closeBulkModal);
+      });
+    }
+    if (elements.bulkApply) {
+      elements.bulkApply.addEventListener("click", handleBulkApply);
+    }
+
+    if (elements.bulkTagInput && elements.bulkTagDropdown) {
+      elements.bulkTagDropdown.addEventListener("mousedown", (e) => e.preventDefault());
+      elements.bulkTagInput.addEventListener("focus", () => {
+        if (bulkTagDropdownBlurTimer) {
+          clearTimeout(bulkTagDropdownBlurTimer);
+          bulkTagDropdownBlurTimer = null;
+        }
+        if (!state.allTags.length) loadTags();
+        const options = getTagDropdownOptions(elements.bulkTagInput.value, []);
+        renderBulkTagDropdown(options, 0);
+      });
+      elements.bulkTagInput.addEventListener("input", () => {
+        const options = getTagDropdownOptions(elements.bulkTagInput.value, []);
+        renderBulkTagDropdown(options, 0);
+      });
+      elements.bulkTagInput.addEventListener("blur", () => {
+        bulkTagDropdownBlurTimer = setTimeout(() => {
+          bulkTagDropdownBlurTimer = null;
+          closeBulkTagDropdown();
+        }, 180);
+      });
+      elements.bulkTagInput.addEventListener("keydown", (event) => {
+        const options = getTagDropdownOptions(elements.bulkTagInput.value, []);
+        if (options.length === 0) return;
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          renderBulkTagDropdown(options, state.bulkTagDropdownHighlightIndex + 1);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          renderBulkTagDropdown(options, state.bulkTagDropdownHighlightIndex - 1);
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          const opt = options[state.bulkTagDropdownHighlightIndex];
+          if (opt) {
+            elements.bulkTagInput.value = opt.name;
+            closeBulkTagDropdown();
+          }
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeBulkTagDropdown();
+        }
+      });
     }
 
     if (elements.pageSizeSelect) {
@@ -1046,6 +1543,9 @@
     }
 
     window.addEventListener("db-mode-changed", (event) => {
+      if (elements.modal && !elements.modal.hidden) {
+        closeModal();
+      }
       state.page = 1;
       if (elements.loading) {
         const modeLabel = event?.detail?.mode === "test" ? "test" : "production";

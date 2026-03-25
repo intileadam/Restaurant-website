@@ -33,61 +33,85 @@
 <div class="history-list">
   {% for send in sends %}
   {% set display_name = send.CAMPAIGN_NAME or send.CAMPAIGN_FILE %}
-  <a href="{{ url_for('campaign_history_detail', send_id=send.SEND_ID) }}" class="card history-card">
-    <div class="history-card__header">
-      <div class="history-card__title">
-        <h3>{{ display_name }}</h3>
-        <p class="muted history-card__subject">
-          File: {{ send.CAMPAIGN_FILE }}
-          {% if send.SUBJECT %} · Subject: {{ send.SUBJECT }}{% endif %}
-        </p>
+  <div class="card history-card">
+    <a href="{{ url_for('campaign_history_detail', send_id=send.SEND_ID) }}" class="history-card__link">
+      <div class="history-card__header">
+        <div class="history-card__title">
+          <h3>{{ display_name }}</h3>
+          <p class="muted history-card__subject">
+            File: {{ send.CAMPAIGN_FILE }}
+            {% if send.SUBJECT %} · Subject: {{ send.SUBJECT }}{% endif %}
+          </p>
+        </div>
+        <div class="history-card__badges">
+          <span class="badge badge--{{ send.MODE }}">{{ send.MODE|capitalize }}</span>
+          <span class="badge badge--{{ send.STATUS }}">{% if send.STATUS == 'running' %}In Progress{% else %}{{ send.STATUS|capitalize }}{% endif %}</span>
+        </div>
       </div>
-      <div class="history-card__badges">
-        <span class="badge badge--{{ send.MODE }}">{{ send.MODE|capitalize }}</span>
-        <span class="badge badge--{{ send.STATUS }}">{% if send.STATUS == 'running' %}In Progress{% else %}{{ send.STATUS|capitalize }}{% endif %}</span>
-      </div>
-    </div>
-    <div class="history-card__stats">
-      {% set total = send.TOTAL_RECIPIENTS|int %}
-      {% set sent = send.SENT_COUNT|int %}
-      {% set failed = send.FAILED_COUNT|int %}
-      {% set pending = (total - sent - failed)|int %}
-      <div class="history-card__stat">
-        <span class="history-card__stat-value">{{ total }}</span>
-        <span class="history-card__stat-label">Recipients</span>
-      </div>
-      <div class="history-card__stat">
-        <span class="history-card__stat-value history-card__stat-value--sent">{{ sent }}</span>
-        <span class="history-card__stat-label">Sent</span>
-      </div>
-      <div class="history-card__stat">
-        <span class="history-card__stat-value history-card__stat-value--failed">{{ failed }}</span>
-        <span class="history-card__stat-label">Failed</span>
-      </div>
-      <div class="history-card__stat">
-        <span class="history-card__stat-value">{{ pending if pending > 0 else 0 }}</span>
-        <span class="history-card__stat-label">Pending</span>
-      </div>
-      <div class="history-card__stat">
-        <span
-          class="history-card__stat-value"
-        >
-          {% if send.STARTED_AT %}
-          <time
-            class="history-card__time"
-            data-datetime="{{ send.STARTED_AT.isoformat() }}Z"
+      <div class="history-card__stats">
+        {% set total = send.TOTAL_RECIPIENTS|int %}
+        {% set sent = send.SENT_COUNT|int %}
+        {% set failed = send.FAILED_COUNT|int %}
+        {% set pending = (total - sent - failed)|int %}
+        <div class="history-card__stat">
+          <span class="history-card__stat-value">{{ total }}</span>
+          <span class="history-card__stat-label">Recipients</span>
+        </div>
+        <div class="history-card__stat">
+          <span class="history-card__stat-value history-card__stat-value--sent">{{ sent }}</span>
+          <span class="history-card__stat-label">Sent</span>
+        </div>
+        <div class="history-card__stat">
+          <span class="history-card__stat-value history-card__stat-value--failed">{{ failed }}</span>
+          <span class="history-card__stat-label">Failed</span>
+        </div>
+        <div class="history-card__stat">
+          <span class="history-card__stat-value">{{ pending if pending > 0 else 0 }}</span>
+          <span class="history-card__stat-label">Pending</span>
+        </div>
+        <div class="history-card__stat">
+          <span
+            class="history-card__stat-value"
           >
-            {{ send.STARTED_AT.strftime('%b %d, %Y at %I:%M %p') }}
-          </time>
-          {% else %}
-          —
-          {% endif %}
-        </span>
-        <span class="history-card__stat-label">Date</span>
+            {% if send.STARTED_AT %}
+            <time
+              class="history-card__time"
+              data-datetime="{{ send.STARTED_AT.isoformat() }}Z"
+            >
+              {{ send.STARTED_AT.strftime('%b %d, %Y at %I:%M %p') }}
+            </time>
+            {% else %}
+            —
+            {% endif %}
+          </span>
+          <span class="history-card__stat-label">Date</span>
+        </div>
       </div>
+    </a>
+    <form id="archive-form-{{ send.SEND_ID }}" method="post" action="{{ url_for('archive_campaign', send_id=send.SEND_ID) }}" hidden aria-hidden="true">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    </form>
+    <div class="history-card__archive">
+      <button type="button" class="button ghost button--small history-card__archive-trigger" data-archive-form-id="archive-form-{{ send.SEND_ID }}" aria-label="Archive this campaign">Archive</button>
     </div>
-  </a>
+  </div>
   {% endfor %}
+</div>
+
+<div class="workflow-modal-backdrop" id="archiveConfirmModal" hidden aria-hidden="true">
+  <div class="workflow-modal card" role="dialog" aria-modal="true" aria-labelledby="archiveConfirmModalTitle">
+    <button type="button" class="workflow-modal__close" data-close-archive-modal aria-label="Close">&times;</button>
+    <header class="card-header">
+      <h2 id="archiveConfirmModalTitle">Archive campaign?</h2>
+    </header>
+    <p class="muted" style="margin: 0 0 1.25rem;">
+      This campaign will be removed from the list on this page. Its history and send data remain in the database; you just won’t see it here anymore. You can’t undo this from the UI.
+    </p>
+    <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+      <button type="button" class="button ghost" data-close-archive-modal>Cancel</button>
+      <button type="button" class="button accent" id="archiveConfirmSubmit">Confirm archive</button>
+    </div>
+  </div>
 </div>
 {% else %}
 <div class="card history-empty">
@@ -102,7 +126,6 @@
       if (!raw) return;
       let d = new Date(raw);
       if (Number.isNaN(d.getTime())) {
-        // Try treating the value as UTC.
         d = new Date(raw + "Z");
         if (Number.isNaN(d.getTime())) return;
       }
@@ -115,9 +138,67 @@
           minute: "2-digit",
         });
       } catch {
-        // ignore formatting errors
+        // ignore
       }
     });
+
+    const archiveModal = document.getElementById("archiveConfirmModal");
+    const archiveTriggers = document.querySelectorAll(".history-card__archive-trigger");
+    const archiveConfirmSubmit = document.getElementById("archiveConfirmSubmit");
+    const closeArchiveButtons = document.querySelectorAll("[data-close-archive-modal]");
+    let pendingArchiveFormId = null;
+
+    function openArchiveModal(formId) {
+      pendingArchiveFormId = formId;
+      if (archiveModal) {
+        archiveModal.removeAttribute("hidden");
+        archiveModal.setAttribute("aria-hidden", "false");
+        document.body.classList.add("modal-open");
+      }
+    }
+
+    function closeArchiveModal() {
+      pendingArchiveFormId = null;
+      if (archiveModal) {
+        archiveModal.setAttribute("hidden", "");
+        archiveModal.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("modal-open");
+      }
+    }
+
+    archiveTriggers.forEach((btn) => {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const formId = this.getAttribute("data-archive-form-id");
+        if (formId) openArchiveModal(formId);
+      });
+    });
+
+    if (archiveConfirmSubmit) {
+      archiveConfirmSubmit.addEventListener("click", function () {
+        if (pendingArchiveFormId) {
+          const form = document.getElementById(pendingArchiveFormId);
+          if (form) form.submit();
+        }
+        closeArchiveModal();
+      });
+    }
+
+    closeArchiveButtons.forEach((btn) => {
+      btn.addEventListener("click", closeArchiveModal);
+    });
+
+    if (archiveModal) {
+      archiveModal.addEventListener("click", function (e) {
+        if (e.target === archiveModal) closeArchiveModal();
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && !archiveModal.hasAttribute("hidden")) {
+          closeArchiveModal();
+        }
+      });
+    }
   })();
 </script>
 {% endblock %}
