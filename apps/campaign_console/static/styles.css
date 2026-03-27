@@ -99,13 +99,15 @@ a {
 
 .header-stat {
   display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.4rem 0.75rem;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--card-soft);
   min-width: 0;
+  white-space: nowrap;
 }
 
 .header-stat--subscribers {
@@ -119,11 +121,12 @@ a {
 }
 
 .header-stat__label {
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--muted);
+  flex-shrink: 0;
 }
 
 .header-stat--subscribers .header-stat__label {

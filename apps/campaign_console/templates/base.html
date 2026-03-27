@@ -45,6 +45,7 @@
         </div>
         {% if customer_stats %}
         <div
+          id="headerCustomerStats"
           class="header-stats"
           role="region"
           aria-label="Customer subscription overview"
@@ -52,14 +53,14 @@
           <div class="header-stat header-stat--subscribers">
             <span class="header-stat__label">Subscribers</span>
             <span class="header-stat__value" aria-label="{{ customer_stats.subscribed }} subscribed of {{ customer_stats.total }} total customers">
-              <span class="header-stat__num header-stat__num--emphasis">{{ customer_stats.subscribed }}</span>
+              <span class="header-stat__num header-stat__num--emphasis" data-stat="subscribed">{{ customer_stats.subscribed }}</span>
               <span class="header-stat__sep">/</span>
-              <span class="header-stat__num">{{ customer_stats.total }}</span>
+              <span class="header-stat__num" data-stat="total">{{ customer_stats.total }}</span>
             </span>
           </div>
           <div class="header-stat header-stat--unsubscribed">
             <span class="header-stat__label">Unsubscribed</span>
-            <span class="header-stat__value header-stat__num header-stat__num--alert" aria-label="{{ customer_stats.unsubscribed }} unsubscribed customers">{{ customer_stats.unsubscribed }}</span>
+            <span class="header-stat__value header-stat__num header-stat__num--alert" data-stat="unsubscribed" aria-label="{{ customer_stats.unsubscribed }} unsubscribed customers">{{ customer_stats.unsubscribed }}</span>
           </div>
         </div>
         {% endif %}
@@ -475,6 +476,54 @@
         });
 
         setModeUI(activeMode);
+      })();
+      (function () {
+        async function refreshHeaderCustomerStats() {
+          const root = document.getElementById("headerCustomerStats");
+          if (!root) return;
+          try {
+            const resp = await fetch("/api/customer-stats", {
+              headers: {
+                Accept: "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+              },
+              credentials: "same-origin",
+            });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (
+              typeof data.subscribed !== "number" ||
+              typeof data.total !== "number" ||
+              typeof data.unsubscribed !== "number"
+            ) {
+              return;
+            }
+            const subEl = root.querySelector('[data-stat="subscribed"]');
+            const totEl = root.querySelector('[data-stat="total"]');
+            const unsEl = root.querySelector('[data-stat="unsubscribed"]');
+            const subValueRow = root.querySelector(".header-stat--subscribers .header-stat__value");
+            if (subEl) subEl.textContent = String(data.subscribed);
+            if (totEl) totEl.textContent = String(data.total);
+            if (unsEl) {
+              unsEl.textContent = String(data.unsubscribed);
+              unsEl.setAttribute(
+                "aria-label",
+                data.unsubscribed + " unsubscribed customers"
+              );
+            }
+            if (subValueRow) {
+              subValueRow.setAttribute(
+                "aria-label",
+                data.subscribed + " subscribed of " + data.total + " total customers"
+              );
+            }
+          } catch (err) {
+            /* ignore transient network errors */
+          }
+        }
+        window.addEventListener("db-mode-changed", function () {
+          refreshHeaderCustomerStats();
+        });
       })();
     </script>
   </body>

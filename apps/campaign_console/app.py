@@ -2490,6 +2490,23 @@ def active_send_api():
     })
 
 
+@app.get("/api/customer-stats")
+def customer_subscription_stats_api():
+    """Return subscriber / total / unsubscribed counts for the current DB mode (session)."""
+    try:
+        stats = dbmod.fetch_customer_subscription_stats()
+    except Exception as exc:
+        app.logger.warning("Unable to load customer subscription stats: %s", exc)
+        return jsonify({"error": "Unable to load stats."}), 500
+    return jsonify(
+        {
+            "subscribed": stats["subscribed"],
+            "total": stats["total"],
+            "unsubscribed": stats["unsubscribed"],
+        }
+    )
+
+
 @app.get("/api/recipients/count")
 def recipients_count_api():
     """Return the count of subscribed recipients, optionally filtered by tag names."""
