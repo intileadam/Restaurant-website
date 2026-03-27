@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block app_main_class %} app-main--wide{% endblock %}
 {% block content %}
+{% set csv_template_href = url_for('static', filename='customers_import_template.csv') %}
 <section class="card customer-manager" data-customers-page>
   <header class="customer-manager__header">
     <div>
@@ -8,8 +9,11 @@
       <h2>Customer Directory</h2>
       <p class="muted">Click a row to preview details. Use the Edit button to update subscribers instantly.</p>
     </div>
-    <div class="customer-manager__header-actions">
+    <div class="customer-manager__header-actions customer-manager__actions">
       <a href="{{ url_for('tags_page') }}" class="btn ghost">Manage tags</a>
+      <a href="{{ csv_template_href }}" class="btn ghost" download>CSV template</a>
+      <button type="button" class="btn ghost" data-export-customers>Export CSV</button>
+      <button type="button" class="btn ghost" data-import-csv>Import CSV</button>
       <button type="button" class="btn primary" data-add-customer>
         <span>+ Add customer</span>
       </button>
@@ -109,6 +113,15 @@
       <div data-form-view>
         <form class="customer-form" data-customer-form>
           <div class="form-alert" data-form-alert hidden></div>
+          <div class="duplicate-existing-panel" data-duplicate-existing-panel hidden>
+            <p class="muted" data-duplicate-existing-message></p>
+            <button type="button" class="btn primary btn--sm" data-duplicate-view-existing>View existing customer</button>
+          </div>
+          <p class="muted import-instructions form-csv-hint" data-csv-template-hint hidden>
+            Prefer bulk entry?
+            <a href="{{ csv_template_href }}" download>Download CSV template</a>,
+            then use <strong>Import CSV</strong> in the header.
+          </p>
           <div class="form-grid">
             <label>
               <span>Email <span class="required">*</span></span>
@@ -228,6 +241,55 @@
   </div>
 </div>
 
+<div class="customer-modal-backdrop" data-import-modal hidden>
+  <div class="customer-modal import-modal card" role="dialog" aria-modal="true" aria-labelledby="importModalTitle">
+    <header class="customer-modal__header">
+      <div>
+        <p class="eyebrow">Bulk import</p>
+        <h3 id="importModalTitle">Import customers from CSV</h3>
+      </div>
+      <button type="button" class="icon-button" aria-label="Close" data-import-close>&times;</button>
+    </header>
+    <div class="customer-modal__body">
+      <p class="import-instructions">
+        Required column: <code>email</code>. Optional:
+        <code>firstname</code>, <code>lastname</code>, <code>company</code>, <code>phone</code>, <code>comments</code>,
+        <code>is_subscribed</code> (1/0 or yes/no), <code>tags</code> (comma-separated).
+        <a href="{{ csv_template_href }}" download class="link-button">Download CSV template</a>
+      </p>
+      <label class="form-label" for="import-on-duplicate">If email already exists</label>
+      <select id="import-on-duplicate" class="import-on-duplicate-select" data-import-on-duplicate>
+        <option value="skip" selected>Skip — do not change existing records (recommended)</option>
+        <option value="update">Update existing records from CSV</option>
+      </select>
+      <div class="import-file-area" data-import-dropzone>
+        <input type="file" accept=".csv,text/csv" data-import-file hidden />
+        <div class="import-file-placeholder" data-import-placeholder>
+          <span class="import-file-icon" aria-hidden="true">📄</span>
+          <p>Drag a CSV here or <button type="button" class="link-button" data-import-browse>choose a file</button></p>
+        </div>
+        <div class="import-file-selected" data-import-selected hidden>
+          <span class="import-file-name" data-import-filename></span>
+          <button type="button" class="link-button danger" data-import-clear-file>Remove</button>
+        </div>
+      </div>
+      <div class="import-summary" data-import-summary hidden></div>
+      <div class="import-errors" data-import-errors-wrap hidden>
+        <p class="import-errors__title">Row errors</p>
+        <ul data-import-errors-list></ul>
+      </div>
+      <div class="import-errors import-skipped-block" data-import-skipped-wrap hidden>
+        <p class="import-errors__title">Skipped — email already in database</p>
+        <ul data-import-skipped-list></ul>
+      </div>
+      <div class="form-actions import-modal-actions">
+        <button type="button" class="btn ghost" data-import-cancel>Cancel</button>
+        <button type="button" class="btn primary" data-import-submit disabled>Import</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   (() => {
     const root = document.querySelector("[data-customers-page]");
@@ -243,6 +305,29 @@
       reloadBtn: root.querySelector("[data-reload-customers]"),
       refreshTableBtn: root.querySelector("[data-refresh-table]"),
       addBtn: root.querySelector("[data-add-customer]"),
+      exportBtn: root.querySelector("[data-export-customers]"),
+      importBtn: root.querySelector("[data-import-csv]"),
+      importModal: document.querySelector("[data-import-modal]"),
+      importClose: document.querySelector("[data-import-close]"),
+      importCancel: document.querySelector("[data-import-cancel]"),
+      importSubmit: document.querySelector("[data-import-submit]"),
+      importFileInput: document.querySelector("[data-import-file]"),
+      importDropzone: document.querySelector("[data-import-dropzone]"),
+      importBrowse: document.querySelector("[data-import-browse]"),
+      importPlaceholder: document.querySelector("[data-import-placeholder]"),
+      importSelected: document.querySelector("[data-import-selected]"),
+      importFilename: document.querySelector("[data-import-filename]"),
+      importClearFile: document.querySelector("[data-import-clear-file]"),
+      importOnDuplicate: document.querySelector("[data-import-on-duplicate]"),
+      importSummary: document.querySelector("[data-import-summary]"),
+      importErrorsWrap: document.querySelector("[data-import-errors-wrap]"),
+      importErrorsList: document.querySelector("[data-import-errors-list]"),
+      importSkippedWrap: document.querySelector("[data-import-skipped-wrap]"),
+      importSkippedList: document.querySelector("[data-import-skipped-list]"),
+      csvTemplateHint: document.querySelector("[data-csv-template-hint]"),
+      duplicatePanel: document.querySelector("[data-duplicate-existing-panel]"),
+      duplicateMessage: document.querySelector("[data-duplicate-existing-message]"),
+      duplicateViewBtn: document.querySelector("[data-duplicate-view-existing]"),
       container: root.querySelector(".customer-table-container"),
       modal: document.querySelector("[data-customer-modal]"),
       formView: document.querySelector("[data-form-view]"),
@@ -337,6 +422,8 @@
       selectedCustomerIds: new Set(),
       bulkAction: null,
       bulkTagDropdownHighlightIndex: 0,
+      importFile: null,
+      pendingDuplicateId: null,
     };
     let tagDropdownBlurTimer = null;
     let bulkTagDropdownBlurTimer = null;
@@ -941,6 +1028,17 @@
 
       updateSendEmailButton(customer);
 
+      if (elements.csvTemplateHint) {
+        elements.csvTemplateHint.hidden = mode !== "create";
+      }
+      if (elements.duplicatePanel) {
+        elements.duplicatePanel.hidden = true;
+      }
+      state.pendingDuplicateId = null;
+      if (elements.duplicateViewBtn) {
+        elements.duplicateViewBtn.hidden = true;
+      }
+
       elements.modal.hidden = false;
       document.body.classList.add("modal-open");
       formFields.email.focus();
@@ -948,9 +1046,15 @@
 
     function closeModal() {
       elements.modal.hidden = true;
-      document.body.classList.remove("modal-open");
+      if (!elements.importModal || elements.importModal.hidden) {
+        document.body.classList.remove("modal-open");
+      }
       elements.alert.hidden = true;
       elements.alert.textContent = "";
+      if (elements.duplicatePanel) {
+        elements.duplicatePanel.hidden = true;
+      }
+      state.pendingDuplicateId = null;
       if (elements.deleteBtn) {
         elements.deleteBtn.hidden = true;
         elements.deleteBtn.disabled = false;
@@ -960,6 +1064,192 @@
       state.currentCustomer = null;
       setModalView("form");
       resetEmailPanel();
+    }
+
+    function resetImportModal() {
+      state.importFile = null;
+      if (elements.importFileInput) elements.importFileInput.value = "";
+      if (elements.importPlaceholder) elements.importPlaceholder.hidden = false;
+      if (elements.importSelected) elements.importSelected.hidden = true;
+      if (elements.importFilename) elements.importFilename.textContent = "";
+      if (elements.importDropzone) elements.importDropzone.classList.remove("drag-over");
+      if (elements.importSummary) {
+        elements.importSummary.hidden = true;
+        elements.importSummary.textContent = "";
+      }
+      if (elements.importErrorsWrap) elements.importErrorsWrap.hidden = true;
+      if (elements.importErrorsList) elements.importErrorsList.innerHTML = "";
+      if (elements.importSkippedWrap) elements.importSkippedWrap.hidden = true;
+      if (elements.importSkippedList) elements.importSkippedList.innerHTML = "";
+      if (elements.importSubmit) {
+        elements.importSubmit.disabled = true;
+        delete elements.importSubmit.dataset.loading;
+      }
+      if (elements.importOnDuplicate) elements.importOnDuplicate.value = "skip";
+    }
+
+    function openImportModal() {
+      if (!elements.importModal) return;
+      resetImportModal();
+      elements.importModal.hidden = false;
+      document.body.classList.add("modal-open");
+    }
+
+    function closeImportModal() {
+      if (!elements.importModal) return;
+      elements.importModal.hidden = true;
+      resetImportModal();
+      if (!elements.modal || elements.modal.hidden) {
+        document.body.classList.remove("modal-open");
+      }
+    }
+
+    function setImportFile(file) {
+      if (!elements.importSubmit) return;
+      if (!file) {
+        state.importFile = null;
+        if (elements.importPlaceholder) elements.importPlaceholder.hidden = false;
+        if (elements.importSelected) elements.importSelected.hidden = true;
+        elements.importSubmit.disabled = true;
+        return;
+      }
+      state.importFile = file;
+      if (elements.importPlaceholder) elements.importPlaceholder.hidden = true;
+      if (elements.importSelected) elements.importSelected.hidden = false;
+      if (elements.importFilename) elements.importFilename.textContent = file.name;
+      elements.importSubmit.disabled = false;
+    }
+
+    function renderImportResult(data) {
+      if (elements.importSummary) {
+        elements.importSummary.hidden = false;
+        const parts = [];
+        parts.push(`Created: ${data.created ?? 0}`);
+        parts.push(`Updated: ${data.updated ?? 0}`);
+        parts.push(`Skipped (existing): ${data.skipped_existing ?? 0}`);
+        const errN = Array.isArray(data.errors) ? data.errors.length : 0;
+        if (errN) parts.push(`Row errors: ${errN}`);
+        elements.importSummary.textContent = parts.join(" · ");
+      }
+      if (elements.importErrorsWrap && elements.importErrorsList) {
+        const errs = Array.isArray(data.errors) ? data.errors : [];
+        if (errs.length) {
+          elements.importErrorsWrap.hidden = false;
+          elements.importErrorsList.innerHTML = "";
+          errs.slice(0, 100).forEach((e) => {
+            const li = document.createElement("li");
+            const emailPart = e.email ? ` (${e.email})` : "";
+            li.textContent = `Row ${e.row}${emailPart}: ${e.message}`;
+            elements.importErrorsList.appendChild(li);
+          });
+          if (errs.length > 100) {
+            const li = document.createElement("li");
+            li.textContent = `…and ${errs.length - 100} more.`;
+            elements.importErrorsList.appendChild(li);
+          }
+        } else {
+          elements.importErrorsWrap.hidden = true;
+          elements.importErrorsList.innerHTML = "";
+        }
+      }
+      if (elements.importSkippedWrap && elements.importSkippedList) {
+        const skipped = Array.isArray(data.skipped_existing_rows) ? data.skipped_existing_rows : [];
+        if (skipped.length) {
+          elements.importSkippedWrap.hidden = false;
+          elements.importSkippedList.innerHTML = "";
+          skipped.slice(0, 100).forEach((e) => {
+            const li = document.createElement("li");
+            const emailPart = e.email ? ` (${e.email})` : "";
+            li.textContent = `Row ${e.row}${emailPart}`;
+            elements.importSkippedList.appendChild(li);
+          });
+          if (skipped.length > 100) {
+            const li = document.createElement("li");
+            li.textContent = `…and ${skipped.length - 100} more.`;
+            elements.importSkippedList.appendChild(li);
+          }
+        } else {
+          elements.importSkippedWrap.hidden = true;
+          elements.importSkippedList.innerHTML = "";
+        }
+      }
+    }
+
+    async function submitImport() {
+      if (!elements.importSubmit || !state.importFile) return;
+      elements.importSubmit.disabled = true;
+      elements.importSubmit.dataset.loading = "true";
+      try {
+        const fd = new FormData();
+        fd.append("file", state.importFile);
+        const onDup = elements.importOnDuplicate ? elements.importOnDuplicate.value : "skip";
+        fd.append("on_duplicate", onDup === "update" ? "update" : "skip");
+        const response = await authorizedFetch("/api/customers/import", { method: "POST", body: fd });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const msg = data.error || "Import failed.";
+          if (elements.importSummary) {
+            elements.importSummary.hidden = false;
+            elements.importSummary.textContent = msg;
+          }
+          if (elements.importErrorsWrap) elements.importErrorsWrap.hidden = true;
+          if (elements.importSkippedWrap) elements.importSkippedWrap.hidden = true;
+          return;
+        }
+        renderImportResult(data);
+        loadCustomers();
+        loadTags();
+      } catch (error) {
+        console.error(error);
+        if (elements.importSummary) {
+          elements.importSummary.hidden = false;
+          elements.importSummary.textContent = error.message || "Import failed.";
+        }
+      } finally {
+        if (elements.importSubmit) {
+          delete elements.importSubmit.dataset.loading;
+          elements.importSubmit.disabled = !state.importFile;
+        }
+      }
+    }
+
+    function exportCustomersCsv() {
+      const params = new URLSearchParams();
+      params.set("format", "csv");
+      if (state.filterTagId) {
+        params.append("tag", state.filterTagId);
+      }
+      const url = `/api/customers/export?${params.toString()}`;
+      const a = document.createElement("a");
+      a.href = url;
+      a.setAttribute("download", "");
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    async function openExistingFromDuplicate() {
+      const id = state.pendingDuplicateId;
+      if (!id) return;
+      const dbMode = document.body.dataset.dbMode === "test" ? "test" : "production";
+      try {
+        const response = await authorizedFetch(`/api/customers/${encodeURIComponent(id)}?db_mode=${encodeURIComponent(dbMode)}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          elements.alert.textContent = data.error || "Unable to load customer.";
+          elements.alert.hidden = false;
+          return;
+        }
+        if (data.customer) {
+          if (elements.duplicatePanel) elements.duplicatePanel.hidden = true;
+          state.pendingDuplicateId = null;
+          openModal("edit", data.customer);
+        }
+      } catch (error) {
+        elements.alert.textContent = error.message || "Unable to load customer.";
+        elements.alert.hidden = false;
+        console.error(error);
+      }
     }
 
     function resetEmailPanel(message) {
@@ -1183,6 +1473,77 @@
     if (elements.addBtn) {
       elements.addBtn.addEventListener("click", () => openModal("create"));
     }
+    if (elements.duplicateViewBtn) {
+      elements.duplicateViewBtn.addEventListener("click", () => {
+        openExistingFromDuplicate();
+      });
+    }
+    if (elements.exportBtn) {
+      elements.exportBtn.addEventListener("click", () => {
+        exportCustomersCsv();
+      });
+    }
+    if (elements.importBtn) {
+      elements.importBtn.addEventListener("click", () => {
+        openImportModal();
+      });
+    }
+    if (elements.importClose) {
+      elements.importClose.addEventListener("click", () => {
+        closeImportModal();
+      });
+    }
+    if (elements.importCancel) {
+      elements.importCancel.addEventListener("click", () => {
+        closeImportModal();
+      });
+    }
+    if (elements.importBrowse && elements.importFileInput) {
+      elements.importBrowse.addEventListener("click", () => {
+        elements.importFileInput.click();
+      });
+    }
+    if (elements.importFileInput) {
+      elements.importFileInput.addEventListener("change", (event) => {
+        const f = event.target.files && event.target.files[0];
+        setImportFile(f || null);
+      });
+    }
+    if (elements.importClearFile) {
+      elements.importClearFile.addEventListener("click", () => {
+        setImportFile(null);
+        if (elements.importFileInput) elements.importFileInput.value = "";
+      });
+    }
+    if (elements.importSubmit) {
+      elements.importSubmit.addEventListener("click", () => {
+        submitImport();
+      });
+    }
+    if (elements.importDropzone) {
+      elements.importDropzone.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        elements.importDropzone.classList.add("drag-over");
+      });
+      elements.importDropzone.addEventListener("dragleave", () => {
+        elements.importDropzone.classList.remove("drag-over");
+      });
+      elements.importDropzone.addEventListener("drop", (event) => {
+        event.preventDefault();
+        elements.importDropzone.classList.remove("drag-over");
+        const f = event.dataTransfer.files && event.dataTransfer.files[0];
+        if (f && /\.csv$/i.test(f.name)) {
+          setImportFile(f);
+        }
+      });
+    }
+    if (elements.importModal) {
+      elements.importModal.addEventListener("click", (event) => {
+        if (event.target === elements.importModal) {
+          closeImportModal();
+        }
+      });
+    }
     if (elements.reloadBtn) {
       elements.reloadBtn.addEventListener("click", () => loadCustomers({ allowRetry: true }));
     }
@@ -1230,6 +1591,22 @@
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
+          if (response.status === 409 && state.mode === "create") {
+            const msg = data.error || "A customer with this email already exists.";
+            elements.alert.hidden = true;
+            elements.alert.textContent = "";
+            if (elements.duplicateMessage) {
+              elements.duplicateMessage.textContent = msg;
+            }
+            if (elements.duplicatePanel) {
+              elements.duplicatePanel.hidden = false;
+            }
+            state.pendingDuplicateId = data.existing_customer_id != null ? Number(data.existing_customer_id) : null;
+            if (elements.duplicateViewBtn) {
+              elements.duplicateViewBtn.hidden = state.pendingDuplicateId == null;
+            }
+            return;
+          }
           const message = data.error || "Unable to save customer.";
           throw new Error(message);
         }
@@ -1337,6 +1714,10 @@
 
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
+      if (elements.importModal && !elements.importModal.hidden) {
+        closeImportModal();
+        return;
+      }
       if (elements.bulkModal && !elements.bulkModal.hidden) {
         closeBulkModal();
         return;
@@ -1543,6 +1924,9 @@
     }
 
     window.addEventListener("db-mode-changed", (event) => {
+      if (elements.importModal && !elements.importModal.hidden) {
+        closeImportModal();
+      }
       if (elements.modal && !elements.modal.hidden) {
         closeModal();
       }

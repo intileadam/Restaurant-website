@@ -1,0 +1,2 @@
+email,firstname,lastname,company,phone,comments,is_subscribed,tags
+example@example.com,Jane,Doe,Example Co,555-0100,,1,newsletter

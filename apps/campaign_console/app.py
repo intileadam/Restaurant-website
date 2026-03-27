@@ -1493,6 +1493,31 @@ def list_customers_api():
     return response
 
 
+@app.get("/api/customers/<int:cust_id>")
+def get_customer_api(cust_id: int):
+    """Return one customer by id (for duplicate flows and deep links)."""
+    query_mode = _normalize_customer_mode(request.args.get("db_mode"))
+    if query_mode is not None:
+        g.db_mode = query_mode
+        dbmod.set_customer_table_mode(query_mode)
+        session[CUSTOMER_MODE_SESSION_KEY] = query_mode
+    try:
+        row = dbmod.fetch_customer_by_id(cust_id)
+    except Exception as e:
+        app.logger.exception("fetch_customer_by_id(%s) failed", cust_id)
+        return jsonify({"error": f"Database error: {e}"}), 500
+    if not row:
+        return jsonify({"error": "Customer not found."}), 404
+    table = dbmod.get_customer_table_name()
+    row["tags"] = dbmod.get_customer_tags(table, cust_id)
+    out = _serialize_customer(row)
+    if not out:
+        return jsonify({"error": "Customer not found."}), 404
+    response = jsonify({"customer": out})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.post("/api/customers")
 def create_customer_api():
     payload = request.get_json(silent=True) or {}
@@ -1524,7 +1549,18 @@ def create_customer_api():
         )
         row = dbmod.fetch_customer_by_id(record["custid"])
     except dbmod.DuplicateCustomerError:
-        return jsonify({"error": "That email address is already subscribed."}), 409
+        existing_dup = None
+        try:
+            existing_dup = dbmod.fetch_customer_by_email(email)
+        except Exception:
+            app.logger.exception("fetch_customer_by_email after duplicate for %s", email)
+        dup_id = None
+        if existing_dup and existing_dup.get("CUSTID") is not None:
+            dup_id = int(existing_dup["CUSTID"])
+        return jsonify({
+            "error": "A customer with this email already exists. No new record was created.",
+            "existing_customer_id": dup_id,
+        }), 409
     except Exception as e:
         app.logger.exception("Failed to create customer")
         return jsonify({"error": f"Failed to add customer: {e}"}), 500
@@ -1549,7 +1585,12 @@ def create_customer_api():
 
 @app.post("/api/customers/import")
 def import_customers_api():
-    """Import customers from CSV. Columns: email (required), firstname, lastname, company, phone, comments, is_subscribed, tags (comma-separated)."""
+    """Import customers from CSV. Columns: email (required), firstname, lastname, company, phone, comments, is_subscribed, tags (comma-separated).
+
+    Form field ``on_duplicate``: ``skip`` (default) leaves existing rows unchanged; ``update`` overwrites fields for matching emails.
+    """
+    on_dup_raw = (request.form.get("on_duplicate") or request.args.get("on_duplicate") or "skip").strip().lower()
+    on_duplicate = on_dup_raw if on_dup_raw in ("skip", "update") else "skip"
     upload = request.files.get("file") or request.files.get("csv_file")
     if not upload or not upload.filename:
         return jsonify({"error": "No CSV file provided."}), 400
@@ -1562,6 +1603,8 @@ def import_customers_api():
     table = dbmod.get_customer_table_name()
     created = 0
     updated = 0
+    skipped_existing = 0
+    skipped_existing_rows: list[dict] = []
     errors: list[dict] = []
     reader = csv.DictReader(io.StringIO(raw))
     if not reader.fieldnames or "email" not in [f.strip().lower() for f in reader.fieldnames]:
@@ -1589,6 +1632,10 @@ def import_customers_api():
         existing = dbmod.fetch_customer_by_email(email)
         try:
             if existing:
+                if on_duplicate == "skip":
+                    skipped_existing += 1
+                    skipped_existing_rows.append({"row": row_num, "email": email})
+                    continue
                 dbmod.update_customer(
                     existing["CUSTID"],
                     email=email,
@@ -1620,6 +1667,9 @@ def import_customers_api():
     return jsonify({
         "created": created,
         "updated": updated,
+        "skipped_existing": skipped_existing,
+        "skipped_existing_rows": skipped_existing_rows,
+        "on_duplicate": on_duplicate,
         "errors": errors,
     })
 

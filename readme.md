@@ -39,6 +39,7 @@ A Flask-based dashboard (see `apps/campaign_console/app.py`) turns the static si
 - Streams confirmation data, batch progress, and SMTP success/failure logs to the browser in real time using Server-Sent Events.
 - Sends full campaigns to the subscribers stored in MySQL (`CUSTOMERS`), throttled by batch size and inter-send delay controls.
 - Provides a REST-ish API (`/api/customers`) plus UI forms to add, edit, and delete subscribers without touching SQL.
+- On the **Customers** page, you can **Import CSV** and **Export CSV**; a **CSV template** (`customers_import_template.csv` in the console static folder) lists every column the importer accepts. Imports default to **skipping rows whose email already exists** so a stale list upload does not silently resubscribe people who opted out—choose **Update existing records** only when you intend to overwrite profiles from the file.
 - Ships a dedicated unsubscribe microservice (`apps/unsubscribe_service/`) that flips `IS_SUBSCRIBED` and honors unique `UNSUBSCRIBE_TOKEN`s injected into every message.
 
 ### Run it locally (email campaign quick start)

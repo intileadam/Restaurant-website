@@ -2625,6 +2625,44 @@ button:focus-visible,
   margin-left: 0.35rem;
 }
 
+.duplicate-existing-panel {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-muted, rgba(0, 0, 0, 0.04));
+}
+
+.duplicate-existing-panel .muted {
+  margin: 0 0 0.75rem;
+}
+
+.form-csv-hint {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+}
+
+.import-on-duplicate-select {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin-bottom: 1rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font: inherit;
+  background: var(--bg, #fff);
+  color: inherit;
+}
+
+.import-modal-actions {
+  margin-top: 1rem;
+}
+
+.import-skipped-block {
+  margin-top: 0.75rem;
+}
+
 /* Clean Contacts */
 .clean-modal {
   max-width: 680px;
