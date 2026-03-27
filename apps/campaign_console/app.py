@@ -1447,15 +1447,22 @@ def list_customers_api():
             tag_ids.append(int(t))
         except (TypeError, ValueError):
             pass
+    subscribed_raw = (request.args.get("subscribed") or "").strip().lower()
+    subscribed_filter: bool | None = None
+    if subscribed_raw in ("1", "true"):
+        subscribed_filter = True
+    elif subscribed_raw in ("0", "false"):
+        subscribed_filter = False
     per_page = _parse_int(request.args.get("per_page"), 25, minimum=1, maximum=100)
     page = _parse_int(request.args.get("page"), 1, minimum=1, maximum=1000)
     offset = (page - 1) * per_page
     try:
         rows, total = dbmod.fetch_customers_paginated(
-        search=search_term,
-        tag_ids=tag_ids if tag_ids else None,
-        limit=per_page,
-        offset=offset,
+            search=search_term,
+            tag_ids=tag_ids if tag_ids else None,
+            subscribed=subscribed_filter,
+            limit=per_page,
+            offset=offset,
         )
         total = int(total or 0)
         if total <= 0:
@@ -1467,10 +1474,11 @@ def list_customers_api():
                 page = total_pages
                 offset = (page - 1) * per_page
                 rows, total = dbmod.fetch_customers_paginated(
-                search=search_term,
-                tag_ids=tag_ids if tag_ids else None,
-                limit=per_page,
-                offset=offset,
+                    search=search_term,
+                    tag_ids=tag_ids if tag_ids else None,
+                    subscribed=subscribed_filter,
+                    limit=per_page,
+                    offset=offset,
                 )
     except Exception as e:
         app.logger.exception("Failed to fetch customers")

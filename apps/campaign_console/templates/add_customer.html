@@ -54,6 +54,14 @@
             data-customers-search
           />
         </label>
+        <label class="customer-subscription-filter">
+          <span>Subscription status</span>
+          <select data-customers-subscription-filter>
+            <option value="">All customers</option>
+            <option value="1">Subscribed</option>
+            <option value="0">Unsubscribed</option>
+          </select>
+        </label>
         <label class="customer-tag-filter">
           <span>Filter by tag</span>
           <select data-customers-tag-filter>
@@ -342,6 +350,7 @@
       deleteBtn: document.querySelector("[data-modal-delete]"),
       sendEmailBtn: document.querySelector("[data-modal-send-email]"),
       searchInput: root.querySelector("[data-customers-search]"),
+      subscriptionFilterSelect: root.querySelector("[data-customers-subscription-filter]"),
       tagFilterSelect: root.querySelector("[data-customers-tag-filter]"),
       pageSizeSelect: root.querySelector("[data-customers-page-size]"),
       pagination: root.querySelector("[data-pagination]"),
@@ -402,6 +411,7 @@
     const state = {
       customers: [],
       allTags: [],
+      filterSubscribed: "",
       filterTagId: "",
       mode: "create",
       activeId: null,
@@ -795,6 +805,9 @@
         }
         if (state.filterTagId) {
           params.set("tag", state.filterTagId);
+        }
+        if (state.filterSubscribed === "1" || state.filterSubscribed === "0") {
+          params.set("subscribed", state.filterSubscribed);
         }
 
         const response = await authorizedFetch(`/api/customers?${params.toString()}`);
@@ -1743,6 +1756,14 @@
           state.page = 1;
           loadCustomers();
         }, SEARCH_DELAY);
+      });
+    }
+
+    if (elements.subscriptionFilterSelect) {
+      elements.subscriptionFilterSelect.addEventListener("change", (event) => {
+        state.filterSubscribed = (event.target.value || "").trim();
+        state.page = 1;
+        loadCustomers();
       });
     }
 

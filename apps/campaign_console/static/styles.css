@@ -1699,7 +1699,8 @@ button:focus-visible,
   min-width: 240px;
 }
 
-.customer-tag-filter {
+.customer-tag-filter,
+.customer-subscription-filter {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -1708,7 +1709,8 @@ button:focus-visible,
   color: var(--muted);
 }
 
-.customer-tag-filter select {
+.customer-tag-filter select,
+.customer-subscription-filter select {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 0.45rem 0.75rem;

@@ -205,11 +205,13 @@ def fetch_customers_paginated(
     *,
     search: str | None = None,
     tag_ids: list[int] | None = None,
+    subscribed: bool | None = None,
     limit: int = 50,
     offset: int = 0,
 ):
     """Return a page of customers along with the total count.
     When tag_ids is non-empty, only customers that have ALL of those tags are returned.
+    When subscribed is True or False, only rows with IS_SUBSCRIBED matching 1 or 0 are returned.
     Each row is enriched with a 'tags' key: list of {id, name}.
     """
     conn = get_connection()
@@ -269,7 +271,18 @@ def fetch_customers_paginated(
         else:
             search_where = ""
 
-    all_params = search_params + tag_filter_params
+    subscribed_params: list[int] = []
+    if subscribed is not None:
+        alias = "c." if use_alias else ""
+        flag = 1 if subscribed else 0
+        clause = f"{alias}IS_SUBSCRIBED = %s"
+        if search_where.strip():
+            search_where = f"{search_where} AND {clause}"
+        else:
+            search_where = f"WHERE {clause}"
+        subscribed_params.append(flag)
+
+    all_params = search_params + tag_filter_params + subscribed_params
 
     if use_alias:
         count_sql = f"SELECT COUNT(*) AS total FROM {table} c {search_where}"
