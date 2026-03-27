@@ -163,6 +163,36 @@ def fetch_subscribed_customers(tag_names: list[str] | None = None):
     return rows
 
 
+def fetch_customer_subscription_stats() -> dict[str, int]:
+    """Return total rows, campaign-eligible subscribers, and unsubscribed rows for the current table mode."""
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    table = get_customer_table_name()
+    cur.execute(
+        f"""
+        SELECT
+            COUNT(*) AS total,
+            SUM(
+                CASE
+                    WHEN IS_SUBSCRIBED = 1 AND EMAIL IS NOT NULL AND EMAIL <> ''
+                    THEN 1 ELSE 0
+                END
+            ) AS subscribed,
+            SUM(CASE WHEN IS_SUBSCRIBED = 0 THEN 1 ELSE 0 END) AS unsubscribed
+        FROM {table}
+        """
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row:
+        return {"total": 0, "subscribed": 0, "unsubscribed": 0}
+    return {
+        "total": int(row["total"] or 0),
+        "subscribed": int(row["subscribed"] or 0),
+        "unsubscribed": int(row["unsubscribed"] or 0),
+    }
+
+
 def _blank_to_empty(value: str | None) -> str:
     """All optional columns are defined as NOT NULL in CUSTOMERS."""
     if value is None:

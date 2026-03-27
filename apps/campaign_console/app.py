@@ -560,10 +560,17 @@ def _login_context(**overrides):
 @app.context_processor
 def _inject_customer_mode():
     """Expose the current DB mode to every template."""
-    return {
+    ctx = {
         "current_db_mode": getattr(g, "db_mode", CUSTOMER_MODE_DEFAULT),
         "csrf_token": _get_csrf_token,
     }
+    if getattr(g, "user", None):
+        try:
+            ctx["customer_stats"] = dbmod.fetch_customer_subscription_stats()
+        except Exception as exc:
+            app.logger.warning("Unable to load customer subscription stats: %s", exc)
+            ctx["customer_stats"] = None
+    return ctx
 
 
 def _db_value_to_bytes(value) -> bytes:

@@ -90,6 +90,72 @@ a {
   gap: 0.75rem;
 }
 
+.header-stats {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.header-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card-soft);
+  min-width: 0;
+}
+
+.header-stat--subscribers {
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+  background: color-mix(in srgb, var(--success) 10%, var(--card-soft));
+}
+
+.header-stat--unsubscribed {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--card-soft));
+}
+
+.header-stat__label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.header-stat--subscribers .header-stat__label {
+  color: color-mix(in srgb, var(--success) 65%, var(--muted));
+}
+
+.header-stat--unsubscribed .header-stat__label {
+  color: color-mix(in srgb, var(--danger) 55%, var(--muted));
+}
+
+.header-stat__value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.header-stat__sep {
+  font-weight: 500;
+  color: var(--muted);
+  margin: 0 0.1rem;
+}
+
+.header-stat__num--emphasis {
+  color: var(--success);
+}
+
+.header-stat__num--alert {
+  color: color-mix(in srgb, var(--danger) 85%, var(--text));
+}
+
 .header-actions {
   margin-left: auto;
   display: flex;
