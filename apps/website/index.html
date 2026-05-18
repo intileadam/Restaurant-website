@@ -173,7 +173,7 @@
             <a
               href="https://www.clover.com/online-ordering/casa-del-pollo-lake-oswego-3/F7115BN8TCTY6"
               target="_blank"
-              ><img hre src="img/roastchicken.jpg" alt=""
+              ><img src="img/roastchicken.jpg" alt=""
             /></a>
           </div>
           <div class="text">
@@ -252,7 +252,7 @@
             <h3>Costa Rican Coffee</h3>
           </div>
         </div>
-        <div class="box">
+        <div class="box" data-carousel-exclude>
           <div class="imgBx">
             <a
               href="https://www.ubereats.com/store/casa-del-pollo-lake-oswego/wb1Ke99JTBeUcBCv8VJZXA?diningMode=DELIVERY&pl=JTdCJTIyYWRkcmVzcyUyMiUzQSUyMjE1OTYlMjBWaWV3JTIwTGFrZSUyMEN0JTIyJTJDJTIycmVmZXJlbmNlJTIyJTNBJTIyNjg4MmY0MTUtMDhhOS1hYjkyLTg1ZDUtOWQwOGQzNjRmYmJmJTIyJTJDJTIycmVmZXJlbmNlVHlwZSUyMiUzQSUyMnViZXJfcGxhY2VzJTIyJTJDJTIybGF0aXR1ZGUlMjIlM0E0NS40MTI5ODElMkMlMjJsb25naXR1ZGUlMjIlM0EtMTIyLjY5Mjk5MiU3RA%3D%3D&ps=1"
@@ -264,7 +264,7 @@
             <h3>Get Delivery by UberEats</h3>
           </div>
         </div>
-        <div class="box">
+        <div class="box" data-carousel-exclude>
           <div class="imgBx">
             <a
               href="https://www.grubhub.com/restaurant/casa-del-pollo-15572-boones-ferry-rd-lake-oswego/6224424"
@@ -293,6 +293,30 @@
             </h3>
           </div>
         </div>
+      </div>
+
+      <div
+        class="favorites-carousel"
+        id="favoritesCarousel"
+        hidden
+        tabindex="0"
+        aria-roledescription="carousel"
+        aria-label="Our favorites photo carousel"
+      >
+        <button
+          type="button"
+          class="favorites-carousel__btn favorites-carousel__btn--prev"
+          aria-label="Previous photo"
+        ></button>
+        <div class="favorites-carousel__viewport">
+          <div class="favorites-carousel__track" aria-live="polite"></div>
+        </div>
+        <button
+          type="button"
+          class="favorites-carousel__btn favorites-carousel__btn--next"
+          aria-label="Next photo"
+        ></button>
+        <p class="favorites-carousel__caption"></p>
       </div>
     </section>
 
@@ -516,6 +540,282 @@
         menuToggle.classList.toggle("active");
         navigation.classList.toggle("active");
       }
+    </script>
+
+    <script>
+      (function initFavoritesCarousel() {
+        var SLIDE_MS = 5000;
+        var TRANSITION_MS = 1000;
+        var SWIPE_THRESHOLD = 50;
+        var DESKTOP_MQ = "(min-width: 769px)";
+        var DESKTOP_TILE_WIDTH = 340;
+        var DESKTOP_TILE_GAP = 20;
+        var MOBILE_SLIDE_RATIO = 0.82;
+
+        var carousel = document.getElementById("favoritesCarousel");
+        if (!carousel) return;
+
+        var track = carousel.querySelector(".favorites-carousel__track");
+        var captionEl = carousel.querySelector(".favorites-carousel__caption");
+        var prevBtn = carousel.querySelector(".favorites-carousel__btn--prev");
+        var nextBtn = carousel.querySelector(".favorites-carousel__btn--next");
+        var viewport = carousel.querySelector(".favorites-carousel__viewport");
+        var slideElements = [];
+
+        var boxes = document.querySelectorAll(
+          ".menu .content .box:not([data-carousel-exclude])"
+        );
+        if (!boxes.length) return;
+
+        var slides = [];
+        boxes.forEach(function (box) {
+          var img = box.querySelector(".imgBx img");
+          var heading = box.querySelector(".text h3");
+          if (!img) return;
+
+          var slide = document.createElement("div");
+          slide.className = "favorites-carousel__slide";
+          var card = document.createElement("div");
+          card.className = "favorites-carousel__card";
+          var imgBx = document.createElement("div");
+          imgBx.className = "favorites-carousel__imgBx";
+          var slideImg = document.createElement("img");
+          slideImg.src = img.getAttribute("src") || img.src;
+          slideImg.alt = img.getAttribute("alt") || "";
+          slideImg.loading = "lazy";
+          slideImg.decoding = "async";
+          imgBx.appendChild(slideImg);
+          var text = document.createElement("div");
+          text.className = "favorites-carousel__text";
+          var title = document.createElement("h3");
+          title.textContent = heading ? heading.textContent.trim() : "";
+          text.appendChild(title);
+          card.appendChild(imgBx);
+          card.appendChild(text);
+          slide.appendChild(card);
+          track.appendChild(slide);
+          slideElements.push(slide);
+          slides.push({
+            caption: heading ? heading.textContent.trim() : "",
+          });
+        });
+
+        if (!slides.length) return;
+
+        carousel.hidden = false;
+
+        var index = 0;
+        var autoplayTimer = null;
+        var reducedMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)"
+        ).matches;
+        var desktopMq = window.matchMedia(DESKTOP_MQ);
+
+        function isDesktop() {
+          return desktopMq.matches;
+        }
+
+        function getLayout() {
+          var vw = viewport.clientWidth;
+          if (isDesktop()) {
+            return {
+              slideWidth: DESKTOP_TILE_WIDTH,
+              gap: DESKTOP_TILE_GAP,
+              centerActive: true,
+            };
+          }
+          return {
+            slideWidth: vw * MOBILE_SLIDE_RATIO,
+            gap: 12,
+            centerActive: true,
+          };
+        }
+
+        function setCaption() {
+          if (isDesktop()) return;
+          captionEl.textContent = slides[index].caption;
+        }
+
+        function updateActiveSlide() {
+          slideElements.forEach(function (slide, i) {
+            slide.classList.toggle("is-active", i === index);
+          });
+        }
+
+        function applyTransform() {
+          var layout = getLayout();
+          var step = layout.slideWidth + layout.gap;
+          var trackWidth =
+            slides.length * layout.slideWidth +
+            (slides.length - 1) * layout.gap;
+          var offset;
+
+          carousel.style.setProperty(
+            "--favorites-carousel-slide-width",
+            layout.slideWidth + "px"
+          );
+          carousel.style.setProperty(
+            "--favorites-carousel-gap",
+            layout.gap + "px"
+          );
+
+          if (isDesktop()) {
+            // Fixed-width tiles: step one tile at a time (centering breaks on wide viewports).
+            offset = -index * step;
+            var minOffset = Math.min(0, viewport.clientWidth - trackWidth);
+            var maxOffset = 0;
+            offset = Math.max(minOffset, Math.min(maxOffset, offset));
+          } else {
+            offset =
+              (viewport.clientWidth - layout.slideWidth) / 2 - index * step;
+            var minOffsetMobile = viewport.clientWidth - trackWidth;
+            var maxOffsetMobile = 0;
+            offset = Math.max(
+              minOffsetMobile,
+              Math.min(maxOffsetMobile, offset)
+            );
+          }
+
+          var skipTransition = track.dataset.initialLayout !== "1";
+          if (skipTransition) {
+            track.style.transition = "none";
+          }
+          track.style.transform = "translateX(" + offset + "px)";
+          if (skipTransition) {
+            track.offsetHeight;
+            track.style.transition = "";
+            track.dataset.initialLayout = "1";
+          }
+          updateActiveSlide();
+          setCaption();
+        }
+
+        function clearAutoplay() {
+          if (autoplayTimer) {
+            clearTimeout(autoplayTimer);
+            autoplayTimer = null;
+          }
+        }
+
+        function beginSlideTimer() {
+          clearAutoplay();
+          if (reducedMotion) return;
+          autoplayTimer = setTimeout(advanceAutoplay, SLIDE_MS);
+        }
+
+        function afterTrackTransition(callback) {
+          if (reducedMotion) {
+            callback();
+            return;
+          }
+          var done = false;
+          var fallback = setTimeout(function () {
+            if (done) return;
+            done = true;
+            callback();
+          }, TRANSITION_MS + 50);
+          track.addEventListener(
+            "transitionend",
+            function onTransitionEnd(e) {
+              if (e.target !== track || e.propertyName !== "transform") return;
+              if (done) return;
+              done = true;
+              clearTimeout(fallback);
+              callback();
+            },
+            { once: true }
+          );
+        }
+
+        function advanceAutoplay() {
+          afterTrackTransition(beginSlideTimer);
+          goTo(index + 1, false);
+        }
+
+        function goTo(newIndex, fromUser) {
+          var count = slides.length;
+          index = ((newIndex % count) + count) % count;
+          if (fromUser) afterTrackTransition(beginSlideTimer);
+          applyTransform();
+        }
+
+        function next(fromUser) {
+          goTo(index + 1, fromUser);
+        }
+
+        function prev(fromUser) {
+          goTo(index - 1, fromUser);
+        }
+
+        var resizeTimer;
+        function onResize() {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(applyTransform, 100);
+        }
+
+        window.addEventListener("resize", onResize);
+        function onBreakpointChange() {
+          applyTransform();
+          beginSlideTimer();
+        }
+
+        if (desktopMq.addEventListener) {
+          desktopMq.addEventListener("change", onBreakpointChange);
+        } else if (desktopMq.addListener) {
+          desktopMq.addListener(onBreakpointChange);
+        }
+
+        applyTransform();
+        beginSlideTimer();
+
+        prevBtn.addEventListener("click", function () {
+          prev(true);
+        });
+        nextBtn.addEventListener("click", function () {
+          next(true);
+        });
+
+        carousel.addEventListener("keydown", function (e) {
+          if (e.key === "ArrowLeft") {
+            e.preventDefault();
+            prev(true);
+          } else if (e.key === "ArrowRight") {
+            e.preventDefault();
+            next(true);
+          }
+        });
+
+        var pointerStartX = 0;
+        var pointerStartY = 0;
+        var activePointerId = null;
+
+        viewport.addEventListener("pointerdown", function (e) {
+          if (e.pointerType === "mouse" && e.button !== 0) return;
+          activePointerId = e.pointerId;
+          pointerStartX = e.clientX;
+          pointerStartY = e.clientY;
+          viewport.setPointerCapture(e.pointerId);
+        });
+
+        viewport.addEventListener("pointerup", function (e) {
+          if (e.pointerId !== activePointerId) return;
+          activePointerId = null;
+          var dx = e.clientX - pointerStartX;
+          var dy = e.clientY - pointerStartY;
+          if (
+            Math.abs(dx) < SWIPE_THRESHOLD ||
+            Math.abs(dx) < Math.abs(dy)
+          ) {
+            return;
+          }
+          if (dx < 0) next(true);
+          else prev(true);
+        });
+
+        viewport.addEventListener("pointercancel", function () {
+          activePointerId = null;
+        });
+      })();
     </script>
 
     <script>
