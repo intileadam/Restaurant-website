@@ -2552,6 +2552,49 @@ button:focus-visible,
   color: var(--muted);
 }
 
+.individual-email-upload {
+  margin-top: 0.5rem;
+}
+
+.individual-email-upload__form {
+  margin-top: 0.5rem;
+}
+
+.individual-email-upload__row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.individual-email-upload__row input[type="file"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+
+.individual-email-upload__row input[type="text"] {
+  flex: 0 1 180px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 6px;
+}
+
+.individual-email-upload__status {
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.individual-email-upload__status.success {
+  color: var(--success, #16a34a);
+}
+
+.individual-email-upload__status.error {
+  color: var(--danger, #dc2626);
+}
+
 /* CSV Import */
 .customer-manager__actions {
   display: flex;

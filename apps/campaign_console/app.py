@@ -103,7 +103,7 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 
 CAMPAIGNS_DIR = pathlib.Path(os.getenv("CAMPAIGNS_DIR", str(APP_ROOT / "campaigns")))
 CAMPAIGNS_DIR.mkdir(parents=True, exist_ok=True)
-INDIVIDUAL_EMAILS_DIR = APP_ROOT / "individual_emails"
+INDIVIDUAL_EMAILS_DIR = pathlib.Path(os.getenv("INDIVIDUAL_EMAILS_DIR", str(APP_ROOT / "individual_emails")))
 ALLOWED_CAMPAIGN_EXTS = {".html", ".htm"}
 INDIVIDUAL_EMAIL_EXTS = {".html", ".htm"}
 DEFAULT_INDIVIDUAL_EMAIL_TEMPLATE = os.getenv("WELCOME_EMAIL_TEMPLATE", "welcome.html")
@@ -1998,6 +1998,44 @@ def list_individual_emails_api():
         app.logger.exception("Failed to list individual emails")
         return jsonify({"error": f"Unable to load individual emails: {e}"}), 500
     return jsonify({"templates": templates})
+
+
+@app.post("/api/individual-emails/upload")
+def upload_individual_email():
+    upload = request.files.get("file")
+    desired_name = (request.form.get("filename") or "").strip()
+
+    if not upload or not upload.filename:
+        return jsonify({"error": "Choose an HTML file to upload."}), 400
+
+    candidate = (desired_name or upload.filename or "").strip()
+    if not candidate:
+        return jsonify({"error": "Please provide a file name."}), 400
+    filename = secure_filename(candidate)
+    if not filename:
+        return jsonify({"error": "Invalid file name."}), 400
+    stem, ext = os.path.splitext(filename)
+    ext = ext.lower()
+    if ext not in INDIVIDUAL_EMAIL_EXTS:
+        return jsonify({"error": "Individual email uploads must be HTML files."}), 400
+    if ext != ".html":
+        filename = f"{stem}.html"
+
+    INDIVIDUAL_EMAILS_DIR.mkdir(parents=True, exist_ok=True)
+    target_path = (INDIVIDUAL_EMAILS_DIR / filename).resolve()
+    base = INDIVIDUAL_EMAILS_DIR.resolve()
+    if base not in target_path.parents:
+        return jsonify({"error": "Invalid upload path."}), 400
+
+    if target_path.exists():
+        return jsonify({"error": "A template with that name already exists."}), 409
+
+    try:
+        upload.save(target_path)
+    except Exception as e:
+        return jsonify({"error": f"Unable to save template: {e}"}), 500
+
+    return jsonify({"ok": True, "filename": filename})
 
 
 @app.get("/api/customers/<int:cust_id>/individual-emails/preview")

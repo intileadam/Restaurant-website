@@ -202,6 +202,17 @@
               <input type="text" data-email-subject placeholder="Subject line" />
             </label>
           </div>
+          <div class="individual-email-upload" data-email-upload-section>
+            <button type="button" class="btn ghost btn--sm" data-email-upload-toggle>Upload new template</button>
+            <div class="individual-email-upload__form" data-email-upload-form hidden>
+              <div class="individual-email-upload__row">
+                <input type="file" accept=".html,text/html" data-email-upload-file />
+                <input type="text" data-email-upload-filename placeholder="Save as (optional)" />
+                <button type="button" class="btn primary btn--sm" data-email-upload-submit disabled>Upload</button>
+              </div>
+              <p class="individual-email-upload__status" data-email-upload-status hidden></p>
+            </div>
+          </div>
           <div class="individual-email-preview">
             <div class="preview-placeholder" data-email-preview-placeholder>
               Select a template to generate an email preview.
@@ -396,6 +407,12 @@
       emailRecipient: document.querySelector("[data-email-recipient]"),
       emailRecipientNote: document.querySelector("[data-email-recipient-note]"),
       emailBackBtns: document.querySelectorAll("[data-email-back]"),
+      emailUploadToggle: document.querySelector("[data-email-upload-toggle]"),
+      emailUploadForm: document.querySelector("[data-email-upload-form]"),
+      emailUploadFile: document.querySelector("[data-email-upload-file]"),
+      emailUploadFilename: document.querySelector("[data-email-upload-filename]"),
+      emailUploadSubmit: document.querySelector("[data-email-upload-submit]"),
+      emailUploadStatus: document.querySelector("[data-email-upload-status]"),
     };
 
     if (!elements.tableBody || !elements.modal || !elements.form) return;
@@ -1715,6 +1732,61 @@
 
     if (elements.emailSendBtn) {
       elements.emailSendBtn.addEventListener("click", handleSendIndividualEmail);
+    }
+
+    if (elements.emailUploadToggle && elements.emailUploadForm) {
+      elements.emailUploadToggle.addEventListener("click", () => {
+        const isHidden = elements.emailUploadForm.hidden;
+        elements.emailUploadForm.hidden = !isHidden;
+        elements.emailUploadToggle.textContent = isHidden ? "Cancel upload" : "Upload new template";
+      });
+    }
+    if (elements.emailUploadFile && elements.emailUploadSubmit) {
+      elements.emailUploadFile.addEventListener("change", () => {
+        elements.emailUploadSubmit.disabled = !elements.emailUploadFile.files.length;
+      });
+      elements.emailUploadSubmit.addEventListener("click", async () => {
+        const file = elements.emailUploadFile.files[0];
+        if (!file) return;
+        elements.emailUploadSubmit.disabled = true;
+        elements.emailUploadSubmit.dataset.loading = "true";
+        if (elements.emailUploadStatus) {
+          elements.emailUploadStatus.hidden = true;
+          elements.emailUploadStatus.textContent = "";
+          elements.emailUploadStatus.classList.remove("error", "success");
+        }
+        const fd = new FormData();
+        fd.append("file", file);
+        const customName = elements.emailUploadFilename ? elements.emailUploadFilename.value.trim() : "";
+        if (customName) fd.append("filename", customName);
+        try {
+          const response = await authorizedFetch("/api/individual-emails/upload", { method: "POST", body: fd });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || "Upload failed.");
+          if (elements.emailUploadStatus) {
+            elements.emailUploadStatus.hidden = false;
+            elements.emailUploadStatus.textContent = `Uploaded ${data.filename}.`;
+            elements.emailUploadStatus.classList.add("success");
+          }
+          elements.emailUploadFile.value = "";
+          if (elements.emailUploadFilename) elements.emailUploadFilename.value = "";
+          elements.emailUploadSubmit.disabled = true;
+          emailTemplatesPromise = null;
+          await ensureEmailTemplates();
+          state.activeEmailTemplate = data.filename;
+          updateEmailTemplateOptions();
+          if (state.emailCustomerId) loadEmailPreview(data.filename);
+        } catch (err) {
+          if (elements.emailUploadStatus) {
+            elements.emailUploadStatus.hidden = false;
+            elements.emailUploadStatus.textContent = err.message;
+            elements.emailUploadStatus.classList.add("error");
+          }
+        } finally {
+          delete elements.emailUploadSubmit.dataset.loading;
+          elements.emailUploadSubmit.disabled = !elements.emailUploadFile.files.length;
+        }
+      });
     }
 
     if (elements.modal) {
