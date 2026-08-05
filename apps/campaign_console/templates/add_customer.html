@@ -190,6 +190,17 @@
           <p data-email-placeholder-text>
             Select a subscribed customer with an email address to send an individual message.
           </p>
+          <div class="individual-email-upload" data-email-upload-section-placeholder>
+            <button type="button" class="btn ghost btn--sm" data-email-upload-toggle>Upload new template</button>
+            <div class="individual-email-upload__form" data-email-upload-form hidden>
+              <div class="individual-email-upload__row">
+                <input type="file" accept=".html,text/html" data-email-upload-file />
+                <input type="text" data-email-upload-filename placeholder="Save as (optional)" />
+                <button type="button" class="btn primary btn--sm" data-email-upload-submit disabled>Upload</button>
+              </div>
+              <p class="individual-email-upload__status" data-email-upload-status hidden></p>
+            </div>
+          </div>
         </div>
         <section class="individual-email-panel" data-email-panel hidden>
           <div class="individual-email-grid">
@@ -202,15 +213,15 @@
               <input type="text" data-email-subject placeholder="Subject line" />
             </label>
           </div>
-          <div class="individual-email-upload" data-email-upload-section>
+          <div class="individual-email-upload" data-email-upload-section-panel>
             <button type="button" class="btn ghost btn--sm" data-email-upload-toggle>Upload new template</button>
-            <div class="individual-email-upload__form" data-email-upload-form hidden>
+            <div class="individual-email-upload__form" data-email-upload-form-panel hidden>
               <div class="individual-email-upload__row">
-                <input type="file" accept=".html,text/html" data-email-upload-file />
-                <input type="text" data-email-upload-filename placeholder="Save as (optional)" />
-                <button type="button" class="btn primary btn--sm" data-email-upload-submit disabled>Upload</button>
+                <input type="file" accept=".html,text/html" data-email-upload-file-panel />
+                <input type="text" data-email-upload-filename-panel placeholder="Save as (optional)" />
+                <button type="button" class="btn primary btn--sm" data-email-upload-submit-panel disabled>Upload</button>
               </div>
-              <p class="individual-email-upload__status" data-email-upload-status hidden></p>
+              <p class="individual-email-upload__status" data-email-upload-status-panel hidden></p>
             </div>
           </div>
           <div class="individual-email-preview">
@@ -413,6 +424,12 @@
       emailUploadFilename: document.querySelector("[data-email-upload-filename]"),
       emailUploadSubmit: document.querySelector("[data-email-upload-submit]"),
       emailUploadStatus: document.querySelector("[data-email-upload-status]"),
+      emailUploadToggles: document.querySelectorAll("[data-email-upload-toggle]"),
+      emailUploadFormPanel: document.querySelector("[data-email-upload-form-panel]"),
+      emailUploadFilePanel: document.querySelector("[data-email-upload-file-panel]"),
+      emailUploadFilenamePanel: document.querySelector("[data-email-upload-filename-panel]"),
+      emailUploadSubmitPanel: document.querySelector("[data-email-upload-submit-panel]"),
+      emailUploadStatusPanel: document.querySelector("[data-email-upload-status-panel]"),
     };
 
     if (!elements.tableBody || !elements.modal || !elements.form) return;
@@ -1734,60 +1751,82 @@
       elements.emailSendBtn.addEventListener("click", handleSendIndividualEmail);
     }
 
-    if (elements.emailUploadToggle && elements.emailUploadForm) {
-      elements.emailUploadToggle.addEventListener("click", () => {
-        const isHidden = elements.emailUploadForm.hidden;
-        elements.emailUploadForm.hidden = !isHidden;
-        elements.emailUploadToggle.textContent = isHidden ? "Cancel upload" : "Upload new template";
+    function setupUploadArea(toggleBtn, form, fileInput, filenameInput, submitBtn, statusEl) {
+      if (!toggleBtn || !form) return;
+      toggleBtn.addEventListener("click", () => {
+        const isHidden = form.hidden;
+        form.hidden = !isHidden;
+        toggleBtn.textContent = isHidden ? "Cancel upload" : "Upload new template";
       });
-    }
-    if (elements.emailUploadFile && elements.emailUploadSubmit) {
-      elements.emailUploadFile.addEventListener("change", () => {
-        elements.emailUploadSubmit.disabled = !elements.emailUploadFile.files.length;
+      if (!fileInput || !submitBtn) return;
+      fileInput.addEventListener("change", () => {
+        submitBtn.disabled = !fileInput.files.length;
       });
-      elements.emailUploadSubmit.addEventListener("click", async () => {
-        const file = elements.emailUploadFile.files[0];
+      submitBtn.addEventListener("click", async () => {
+        const file = fileInput.files[0];
         if (!file) return;
-        elements.emailUploadSubmit.disabled = true;
-        elements.emailUploadSubmit.dataset.loading = "true";
-        if (elements.emailUploadStatus) {
-          elements.emailUploadStatus.hidden = true;
-          elements.emailUploadStatus.textContent = "";
-          elements.emailUploadStatus.classList.remove("error", "success");
+        submitBtn.disabled = true;
+        submitBtn.dataset.loading = "true";
+        if (statusEl) {
+          statusEl.hidden = true;
+          statusEl.textContent = "";
+          statusEl.classList.remove("error", "success");
         }
         const fd = new FormData();
         fd.append("file", file);
-        const customName = elements.emailUploadFilename ? elements.emailUploadFilename.value.trim() : "";
+        const customName = filenameInput ? filenameInput.value.trim() : "";
         if (customName) fd.append("filename", customName);
         try {
           const response = await authorizedFetch("/api/individual-emails/upload", { method: "POST", body: fd });
           const data = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(data.error || "Upload failed.");
-          if (elements.emailUploadStatus) {
-            elements.emailUploadStatus.hidden = false;
-            elements.emailUploadStatus.textContent = `Uploaded ${data.filename}.`;
-            elements.emailUploadStatus.classList.add("success");
+          if (statusEl) {
+            statusEl.hidden = false;
+            statusEl.textContent = `Uploaded ${data.filename}.`;
+            statusEl.classList.add("success");
           }
-          elements.emailUploadFile.value = "";
-          if (elements.emailUploadFilename) elements.emailUploadFilename.value = "";
-          elements.emailUploadSubmit.disabled = true;
+          fileInput.value = "";
+          if (filenameInput) filenameInput.value = "";
+          submitBtn.disabled = true;
           emailTemplatesPromise = null;
           await ensureEmailTemplates();
           state.activeEmailTemplate = data.filename;
           updateEmailTemplateOptions();
-          if (state.emailCustomerId) loadEmailPreview(data.filename);
+          if (state.emailCustomerId) {
+            if (elements.emailPlaceholder) elements.emailPlaceholder.hidden = true;
+            if (elements.emailPanel) elements.emailPanel.hidden = false;
+            if (elements.emailSendBtn) elements.emailSendBtn.disabled = false;
+            loadEmailPreview(data.filename);
+          }
         } catch (err) {
-          if (elements.emailUploadStatus) {
-            elements.emailUploadStatus.hidden = false;
-            elements.emailUploadStatus.textContent = err.message;
-            elements.emailUploadStatus.classList.add("error");
+          if (statusEl) {
+            statusEl.hidden = false;
+            statusEl.textContent = err.message;
+            statusEl.classList.add("error");
           }
         } finally {
-          delete elements.emailUploadSubmit.dataset.loading;
-          elements.emailUploadSubmit.disabled = !elements.emailUploadFile.files.length;
+          delete submitBtn.dataset.loading;
+          submitBtn.disabled = !fileInput.files.length;
         }
       });
     }
+
+    setupUploadArea(
+      elements.emailUploadToggle,
+      elements.emailUploadForm,
+      elements.emailUploadFile,
+      elements.emailUploadFilename,
+      elements.emailUploadSubmit,
+      elements.emailUploadStatus
+    );
+    setupUploadArea(
+      elements.emailUploadToggles[1] || null,
+      elements.emailUploadFormPanel,
+      elements.emailUploadFilePanel,
+      elements.emailUploadFilenamePanel,
+      elements.emailUploadSubmitPanel,
+      elements.emailUploadStatusPanel
+    );
 
     if (elements.modal) {
       elements.modal.addEventListener("click", (event) => {
