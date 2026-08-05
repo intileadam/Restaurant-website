@@ -2595,6 +2595,57 @@ button:focus-visible,
   color: var(--danger, #dc2626);
 }
 
+/* Manage templates modal */
+.manage-templates-modal {
+  max-width: 520px;
+}
+
+.manage-templates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.manage-templates-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+}
+
+.manage-templates-item__name {
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manage-templates-item__file {
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.manage-templates-item .danger {
+  color: var(--danger, #dc2626);
+  flex-shrink: 0;
+}
+
+.manage-templates-upload {
+  margin-top: 0.75rem;
+}
+
+.manage-templates-upload__title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
 /* CSV Import */
 .customer-manager__actions {
   display: flex;

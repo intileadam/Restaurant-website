@@ -2038,6 +2038,25 @@ def upload_individual_email():
     return jsonify({"ok": True, "filename": filename})
 
 
+@app.delete("/api/individual-emails/<path:filename>")
+def delete_individual_email(filename: str):
+    filename = (filename or "").strip()
+    if not filename:
+        return jsonify({"error": "No filename provided."}), 400
+    INDIVIDUAL_EMAILS_DIR.mkdir(parents=True, exist_ok=True)
+    target_path = (INDIVIDUAL_EMAILS_DIR / filename).resolve()
+    base = INDIVIDUAL_EMAILS_DIR.resolve()
+    if base not in target_path.parents:
+        return jsonify({"error": "Invalid path."}), 400
+    if not target_path.exists():
+        return jsonify({"error": "Template not found."}), 404
+    try:
+        target_path.unlink()
+    except Exception as e:
+        return jsonify({"error": f"Unable to delete template: {e}"}), 500
+    return jsonify({"ok": True, "filename": filename})
+
+
 @app.get("/api/customers/<int:cust_id>/individual-emails/preview")
 def preview_individual_email_api(cust_id: int):
     template_name = _clean_field(request.args, "template")
