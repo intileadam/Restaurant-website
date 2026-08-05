@@ -2147,7 +2147,7 @@
           fileSpan.textContent = t.file;
           const deleteBtn = document.createElement("button");
           deleteBtn.type = "button";
-          deleteBtn.className = "btn ghost btn--sm danger";
+          deleteBtn.className = "btn ghost btn--sm manage-templates-item__delete";
           deleteBtn.textContent = "Delete";
           deleteBtn.addEventListener("click", () => handleDeleteTemplate(t.file, row));
           row.appendChild(nameSpan);
