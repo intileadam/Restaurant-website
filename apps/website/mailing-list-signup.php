@@ -23,6 +23,7 @@ if (!$autoloadLoaded) {
 }
 
 use Dotenv\Dotenv;
+use PHPMailer\PHPMailer\PHPMailer;
 
 $dotenv = Dotenv::createImmutable(__DIR__);
 $dotenv->load();
@@ -175,4 +176,32 @@ try {
 }
 
 $conn->close();
+
+try {
+    $welcomeHtml = file_get_contents(__DIR__ . '/welcome-email.html');
+    if ($welcomeHtml !== false) {
+        $displayName = $firstname !== '' ? htmlspecialchars($firstname) : 'friend';
+        $unsubLink = 'https://unsubscribe.casadelpollo.com/unsubscribe?token=' . rawurlencode($token);
+        $welcomeHtml = str_replace('{{FIRST_NAME}}', $displayName, $welcomeHtml);
+        $welcomeHtml = str_replace('{{UNSUBSCRIBE_URL}}', $unsubLink, $welcomeHtml);
+
+        $welcomeMail = new PHPMailer(true);
+        $welcomeMail->isSMTP();
+        $welcomeMail->Host = env_str('SMTP_HOST', 'smtp.dreamhost.com');
+        $welcomeMail->SMTPAuth = true;
+        $welcomeMail->Username = env_str('EMAIL_USER');
+        $welcomeMail->Password = env_str('EMAIL_PASSWORD');
+        $welcomeMail->Port = (int) env_str('SMTP_PORT', '587');
+
+        $welcomeMail->setFrom(env_str('FROM_EMAIL', 'mario@casadelpollo.com'), env_str('FROM_NAME', 'Casa del Pollo'));
+        $welcomeMail->addAddress($email, $firstname);
+        $welcomeMail->isHTML(true);
+        $welcomeMail->Subject = 'Welcome to Casa del Pollo';
+        $welcomeMail->Body = $welcomeHtml;
+        $welcomeMail->send();
+    }
+} catch (\Exception $e) {
+    // Best-effort: don't fail the signup if email delivery fails
+}
+
 echo 'success';
