@@ -52,6 +52,51 @@ function env_str(string $key, string $default = ''): string
     return (string) $v;
 }
 
+/**
+ * Best-effort insert into INDIVIDUAL_EMAIL_SENDS. Never throws to the caller.
+ */
+function log_individual_email_send(
+    mysqli $conn,
+    ?int $custId,
+    string $email,
+    string $firstname,
+    string $lastname,
+    string $templateFile,
+    string $subject,
+    string $source,
+    string $mode,
+    string $status,
+    ?string $errorMessage = null
+): void {
+    try {
+        $stmt = $conn->prepare(
+            'INSERT INTO INDIVIDUAL_EMAIL_SENDS
+            (CUSTID, EMAIL, FIRSTNAME, LASTNAME, TEMPLATE_FILE, SUBJECT, SOURCE, MODE, STATUS, ERROR_MESSAGE, SENT_AT)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())'
+        );
+        // mysqli needs variables by reference; keep nullables in locals.
+        $custIdParam = $custId;
+        $errorParam = $errorMessage;
+        $stmt->bind_param(
+            'isssssssss',
+            $custIdParam,
+            $email,
+            $firstname,
+            $lastname,
+            $templateFile,
+            $subject,
+            $source,
+            $mode,
+            $status,
+            $errorParam
+        );
+        $stmt->execute();
+        $stmt->close();
+    } catch (Throwable $e) {
+        // Table may not exist yet, or DB briefly unavailable — signup must still succeed.
+    }
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     http_response_code(405);
     echo 'error';
@@ -144,6 +189,7 @@ try {
 
 $company = '';
 $token = bin2hex(random_bytes(32));
+$custId = null;
 
 try {
     $stmt = $conn->prepare(
@@ -162,6 +208,7 @@ try {
         $token
     );
     $stmt->execute();
+    $custId = (int) $conn->insert_id;
     $stmt->close();
 } catch (mysqli_sql_exception $e) {
     $conn->close();
@@ -175,7 +222,8 @@ try {
     exit;
 }
 
-$conn->close();
+$welcomeSubject = 'Welcome to Casa del Pollo';
+$welcomeTemplate = 'welcome-email.html';
 
 try {
     $welcomeHtml = file_get_contents(__DIR__ . '/welcome-email.html');
@@ -196,12 +244,40 @@ try {
         $welcomeMail->setFrom(env_str('FROM_EMAIL', 'mario@casadelpollo.com'), env_str('FROM_NAME', 'Casa del Pollo'));
         $welcomeMail->addAddress($email, $firstname);
         $welcomeMail->isHTML(true);
-        $welcomeMail->Subject = 'Welcome to Casa del Pollo';
+        $welcomeMail->Subject = $welcomeSubject;
         $welcomeMail->Body = $welcomeHtml;
         $welcomeMail->send();
+
+        log_individual_email_send(
+            $conn,
+            $custId > 0 ? $custId : null,
+            $email,
+            $firstname,
+            $lastname,
+            $welcomeTemplate,
+            $welcomeSubject,
+            'website_signup',
+            'production',
+            'sent',
+            null
+        );
     }
 } catch (\Exception $e) {
-    // Best-effort: don't fail the signup if email delivery fails
+    log_individual_email_send(
+        $conn,
+        $custId > 0 ? $custId : null,
+        $email,
+        $firstname,
+        $lastname,
+        $welcomeTemplate,
+        $welcomeSubject,
+        'website_signup',
+        'production',
+        'failed',
+        $e->getMessage()
+    );
 }
+
+$conn->close();
 
 echo 'success';

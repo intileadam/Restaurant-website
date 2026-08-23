@@ -851,14 +851,61 @@ def _prepare_individual_email(
     return subject, html
 
 
+def _welcome_template_names() -> list[str]:
+    """Filenames that count as the welcome email for duplicate detection."""
+    names = []
+    configured = (DEFAULT_INDIVIDUAL_EMAIL_TEMPLATE or "").strip()
+    if configured:
+        names.append(configured)
+    if dbmod.WEBSITE_WELCOME_TEMPLATE not in names:
+        names.append(dbmod.WEBSITE_WELCOME_TEMPLATE)
+    return names
+
+
+def _is_welcome_template(template_file: str) -> bool:
+    name = (template_file or "").strip().lower()
+    return any(name == t.strip().lower() for t in _welcome_template_names() if t)
+
+
+def _log_individual_email_send(
+    *,
+    cust_id: int | None,
+    email: str,
+    firstname: str | None,
+    lastname: str | None,
+    template_file: str,
+    subject: str | None,
+    source: str,
+    mode: str,
+    status: str,
+    error_message: str | None = None,
+):
+    try:
+        dbmod.insert_individual_email_send(
+            cust_id=cust_id,
+            email=email,
+            firstname=firstname,
+            lastname=lastname,
+            template_file=template_file,
+            subject=subject,
+            source=source,
+            mode=mode,
+            status=status,
+            error_message=error_message,
+        )
+    except Exception as exc:
+        app.logger.warning("Failed to log individual email send for %s: %s", email, exc)
+
+
 def send_individual_email(
     cust_id: int,
     template_file: str,
     subject_override: str | None = None,
     *,
     mode: str | None = None,
+    source: str = "console_manual",
 ):
-    """Send a one-off email to the specified subscriber."""
+    """Send a one-off email to the specified subscriber and log the attempt."""
     row = dbmod.fetch_customer_by_id(cust_id)
     if not row:
         raise dbmod.CustomerNotFoundError(f"CUSTID {cust_id} not found.")
@@ -869,21 +916,59 @@ def send_individual_email(
         raise ValueError("Customer is currently unsubscribed.")
     active_mode = mode or _current_customer_mode()
     subject, html = _prepare_individual_email(
-    row,
-    template_file,
-    subject_override,
-    mode=active_mode,
+        row,
+        template_file,
+        subject_override,
+        mode=active_mode,
     )
     smtp = SmtpClient()
     msg = smtp.build_message(email, subject, html)
-    smtp.send(msg)
+    try:
+        smtp.send(msg)
+    except Exception as exc:
+        _log_individual_email_send(
+            cust_id=cust_id,
+            email=email,
+            firstname=row.get("FIRSTNAME"),
+            lastname=row.get("LASTNAME"),
+            template_file=template_file,
+            subject=subject,
+            source=source,
+            mode=active_mode,
+            status="failed",
+            error_message=str(exc),
+        )
+        raise
+    _log_individual_email_send(
+        cust_id=cust_id,
+        email=email,
+        firstname=row.get("FIRSTNAME"),
+        lastname=row.get("LASTNAME"),
+        template_file=template_file,
+        subject=subject,
+        source=source,
+        mode=active_mode,
+        status="sent",
+    )
     return {"email": email, "subject": subject}
 
 
-def _send_individual_email_worker(cust_id: int, template_file: str, subject_override: str | None = None, mode: str = CUSTOMER_MODE_DEFAULT):
+def _send_individual_email_worker(
+    cust_id: int,
+    template_file: str,
+    subject_override: str | None = None,
+    mode: str = CUSTOMER_MODE_DEFAULT,
+    source: str = "console_manual",
+):
     try:
         dbmod.set_customer_table_mode(mode)
-        send_individual_email(cust_id, template_file, subject_override, mode=mode)
+        send_individual_email(
+            cust_id,
+            template_file,
+            subject_override,
+            mode=mode,
+            source=source,
+        )
     except Exception as exc:
         app.logger.warning("Failed to send individual email to %s: %s", cust_id, exc)
     finally:
@@ -898,9 +983,24 @@ def _maybe_send_welcome_email(cust_id: int, *, is_subscribed: bool):
     if not path.exists():
         return
     mode = getattr(g, "db_mode", CUSTOMER_MODE_DEFAULT)
+    row = dbmod.fetch_customer_by_id(cust_id)
+    email = (row.get("EMAIL") or "").strip() if row else ""
+    try:
+        if dbmod.has_received_welcome(
+            cust_id=cust_id,
+            email=email or None,
+            welcome_templates=_welcome_template_names(),
+        ):
+            app.logger.info(
+                "Skipping auto-welcome for CUSTID %s; welcome already logged",
+                cust_id,
+            )
+            return
+    except Exception as exc:
+        app.logger.warning("Welcome duplicate check failed for %s: %s", cust_id, exc)
     threading.Thread(
         target=_send_individual_email_worker,
-        args=(cust_id, template_file, None, mode),
+        args=(cust_id, template_file, None, mode, "console_welcome"),
         daemon=True,
     ).start()
 
@@ -1397,7 +1497,10 @@ def send_test():
 @app.get("/customers/new")
 def new_customer():
     """Render the customer creation form."""
-    return render_template("add_customer.html")
+    return render_template(
+        "add_customer.html",
+        welcome_email_template=DEFAULT_INDIVIDUAL_EMAIL_TEMPLATE or "welcome.html",
+    )
 
 
 @app.post("/customers")
@@ -2079,6 +2182,33 @@ def preview_individual_email_api(cust_id: int):
     return jsonify({"subject": subject, "html": html})
 
 
+@app.get("/api/customers/<int:cust_id>/individual-emails/welcome-status")
+def welcome_status_api(cust_id: int):
+    row = dbmod.fetch_customer_by_id(cust_id)
+    if not row:
+        return jsonify({"error": "Customer not found."}), 404
+    email = (row.get("EMAIL") or "").strip()
+    try:
+        prior = dbmod.fetch_welcome_status(
+            cust_id=cust_id,
+            email=email or None,
+            welcome_templates=_welcome_template_names(),
+        )
+    except Exception as e:
+        app.logger.exception("Failed to load welcome status for %s", cust_id)
+        return jsonify({"error": f"Unable to check welcome status: {e}"}), 500
+    if not prior:
+        return jsonify({"already_received": False})
+    sent_at = prior.get("SENT_AT")
+    return jsonify({
+        "already_received": True,
+        "last_sent_at": sent_at.isoformat() + "Z" if sent_at else None,
+        "source": prior.get("SOURCE"),
+        "template_file": prior.get("TEMPLATE_FILE"),
+        "subject": prior.get("SUBJECT"),
+    })
+
+
 @app.post("/api/customers/<int:cust_id>/individual-emails/send")
 def send_individual_email_api(cust_id: int):
     payload = request.get_json(silent=True) or {}
@@ -2086,12 +2216,37 @@ def send_individual_email_api(cust_id: int):
     if not template_name:
         return jsonify({"error": "Select an email template."}), 400
     subject_override = _optional_field(payload, "subject")
+    confirm = bool(payload.get("confirm"))
+    if _is_welcome_template(template_name) and not confirm:
+        row = dbmod.fetch_customer_by_id(cust_id)
+        if not row:
+            return jsonify({"error": "Customer not found."}), 404
+        email = (row.get("EMAIL") or "").strip()
+        try:
+            prior = dbmod.fetch_welcome_status(
+                cust_id=cust_id,
+                email=email or None,
+                welcome_templates=_welcome_template_names(),
+            )
+        except Exception as e:
+            app.logger.exception("Failed welcome duplicate check for %s", cust_id)
+            return jsonify({"error": f"Unable to check welcome status: {e}"}), 500
+        if prior:
+            sent_at = prior.get("SENT_AT")
+            return jsonify({
+                "error": "This customer has already received a welcome email.",
+                "code": "welcome_already_sent",
+                "already_received": True,
+                "last_sent_at": sent_at.isoformat() + "Z" if sent_at else None,
+                "source": prior.get("SOURCE"),
+            }), 409
     try:
         result = send_individual_email(
-        cust_id,
-        template_name,
-        subject_override,
-        mode=_current_customer_mode(),
+            cust_id,
+            template_name,
+            subject_override,
+            mode=_current_customer_mode(),
+            source="console_manual",
         )
     except FileNotFoundError:
         return jsonify({"error": "Email template not found."}), 404
@@ -2634,6 +2789,53 @@ def logs_stream():
 # ── Campaign history ─────────────────────────────────────────────
 
 
+@app.get("/welcome-log")
+def welcome_log():
+    """Log of one-off and welcome emails (console + website signup)."""
+    mode_filter = request.args.get("mode")
+    if mode_filter and mode_filter not in CUSTOMER_MODE_CHOICES:
+        mode_filter = None
+    source_filter = (request.args.get("source") or "").strip() or None
+    allowed_sources = {"console_manual", "console_welcome", "website_signup"}
+    if source_filter and source_filter not in allowed_sources:
+        source_filter = None
+    status_filter = (request.args.get("status") or "").strip() or None
+    if status_filter and status_filter not in ("sent", "failed"):
+        status_filter = None
+    search = _optional_field(request.args, "q")
+    page = _parse_int(request.args.get("page"), 1, minimum=1, maximum=1000)
+    per_page = 50
+    offset = (page - 1) * per_page
+    try:
+        rows, total = dbmod.fetch_individual_email_sends(
+            mode_filter=mode_filter,
+            source_filter=source_filter,
+            status_filter=status_filter,
+            search=search,
+            limit=per_page,
+            offset=offset,
+        )
+    except Exception as exc:
+        app.logger.exception("Failed to load welcome/one-off email log: %s", exc)
+        flash("Unable to load the welcome email log.", "error")
+        rows, total = [], 0
+    total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
+    if page > total_pages:
+        page = total_pages
+    return render_template(
+        "welcome_log.html",
+        sends=rows,
+        total=total,
+        page=page,
+        total_pages=total_pages,
+        per_page=per_page,
+        mode_filter=mode_filter or "all",
+        source_filter=source_filter or "all",
+        status_filter=status_filter or "all",
+        search=search or "",
+    )
+
+
 @app.get("/history")
 def campaign_history():
     """Redirect to home (campaigns list); preserve query params."""
@@ -2856,6 +3058,10 @@ with app.app_context():
         dbmod.ensure_campaign_tables()
     except Exception as exc:
         print(f"WARNING: Could not create campaign history tables: {exc}", file=sys.stderr)
+    try:
+        dbmod.ensure_individual_email_tables()
+    except Exception as exc:
+        print(f"WARNING: Could not create individual email send tables: {exc}", file=sys.stderr)
 
     server_software = os.getenv("SERVER_SOFTWARE", "").strip()
     if SEND_SCHEDULER_ENABLED and (_is_gunicorn() or APP_ENV != "production"):

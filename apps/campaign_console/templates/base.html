@@ -67,6 +67,7 @@
         <div class="header-actions">
           {% set campaigns_endpoints = ["index", "campaign_history_detail", "queue_campaign", "confirm"] %}
           {% set customer_endpoints = ["new_customer"] %}
+          {% set welcome_log_endpoints = ["welcome_log"] %}
           <nav class="primary-nav">
             <a
               href="{{ url_for('index') }}"
@@ -79,6 +80,12 @@
               class="nav-link{% if request.endpoint in customer_endpoints %} nav-link--active{% endif %}"
             >
               Customers
+            </a>
+            <a
+              href="{{ url_for('welcome_log') }}"
+              class="nav-link{% if request.endpoint in welcome_log_endpoints %} nav-link--active{% endif %}"
+            >
+              Welcome log
             </a>
           </nav>
           {% if g.user %}

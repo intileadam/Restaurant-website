@@ -1,0 +1,158 @@
+{% extends 'base.html' %} {% block content %}
+<section class="hero hero-utility">
+  <div class="hero-copy">
+    <p class="eyebrow">One-off emails</p>
+    <h2>Welcome log</h2>
+    <p>Track welcome and individual emails sent from the console and website signup.</p>
+  </div>
+</section>
+
+<form class="welcome-log-controls" method="get" action="{{ url_for('welcome_log') }}">
+  <div class="history-filter" role="group" aria-label="Filter by mode">
+    <a
+      href="{{ url_for('welcome_log', mode='all', source=source_filter if source_filter != 'all' else None, status=status_filter if status_filter != 'all' else None, q=search or None) }}"
+      class="button {% if mode_filter == 'all' %}accent{% else %}ghost{% endif %} history-filter__button"
+    >All</a>
+    <a
+      href="{{ url_for('welcome_log', mode='production', source=source_filter if source_filter != 'all' else None, status=status_filter if status_filter != 'all' else None, q=search or None) }}"
+      class="button {% if mode_filter == 'production' %}accent{% else %}ghost{% endif %} history-filter__button"
+    >Production</a>
+    <a
+      href="{{ url_for('welcome_log', mode='test', source=source_filter if source_filter != 'all' else None, status=status_filter if status_filter != 'all' else None, q=search or None) }}"
+      class="button {% if mode_filter == 'test' %}accent{% else %}ghost{% endif %} history-filter__button"
+    >Test</a>
+  </div>
+
+  <div class="welcome-log-controls__row">
+    <label class="welcome-log-field">
+      <span class="eyebrow">Source</span>
+      <select name="source">
+        <option value="" {% if source_filter == 'all' %}selected{% endif %}>All sources</option>
+        <option value="website_signup" {% if source_filter == 'website_signup' %}selected{% endif %}>Website signup</option>
+        <option value="console_welcome" {% if source_filter == 'console_welcome' %}selected{% endif %}>Console auto-welcome</option>
+        <option value="console_manual" {% if source_filter == 'console_manual' %}selected{% endif %}>Console manual</option>
+      </select>
+    </label>
+    <label class="welcome-log-field">
+      <span class="eyebrow">Status</span>
+      <select name="status">
+        <option value="" {% if status_filter == 'all' %}selected{% endif %}>All statuses</option>
+        <option value="sent" {% if status_filter == 'sent' %}selected{% endif %}>Sent</option>
+        <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Failed</option>
+      </select>
+    </label>
+    <label class="welcome-log-field welcome-log-field--search">
+      <span class="eyebrow">Search</span>
+      <input type="search" name="q" value="{{ search }}" placeholder="Name, email, subject…" />
+    </label>
+    {% if mode_filter and mode_filter != 'all' %}
+    <input type="hidden" name="mode" value="{{ mode_filter }}" />
+    {% endif %}
+    <button type="submit" class="button accent">Apply</button>
+  </div>
+</form>
+
+{% if sends %}
+<div class="card welcome-log-table-wrap">
+  <p class="muted welcome-log-count">{{ total }} logged send{% if total != 1 %}s{% endif %}</p>
+  <div class="welcome-log-table-scroll">
+    <table class="welcome-log-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Recipient</th>
+          <th>Email</th>
+          <th>Template</th>
+          <th>Subject</th>
+          <th>Source</th>
+          <th>Mode</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for send in sends %}
+        {% set display_name = ((send.FIRSTNAME or '') ~ ' ' ~ (send.LASTNAME or '')).strip() %}
+        <tr>
+          <td>
+            {% if send.SENT_AT %}
+            <time data-datetime="{{ send.SENT_AT.isoformat() }}Z">
+              {{ send.SENT_AT.strftime('%b %d, %Y at %I:%M %p') }}
+            </time>
+            {% else %}
+            —
+            {% endif %}
+          </td>
+          <td>{{ display_name or '—' }}</td>
+          <td>{{ send.EMAIL }}</td>
+          <td><code>{{ send.TEMPLATE_FILE }}</code></td>
+          <td>{{ send.SUBJECT or '—' }}</td>
+          <td>
+            <span class="badge badge--{{ send.SOURCE }}">
+              {% if send.SOURCE == 'website_signup' %}Website signup
+              {% elif send.SOURCE == 'console_welcome' %}Auto-welcome
+              {% elif send.SOURCE == 'console_manual' %}Manual
+              {% else %}{{ send.SOURCE }}{% endif %}
+            </span>
+          </td>
+          <td><span class="badge badge--{{ send.MODE }}">{{ send.MODE|capitalize }}</span></td>
+          <td>
+            <span class="badge badge--{{ send.STATUS }}">{{ send.STATUS|capitalize }}</span>
+            {% if send.STATUS == 'failed' and send.ERROR_MESSAGE %}
+            <p class="muted welcome-log-error">{{ send.ERROR_MESSAGE }}</p>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <nav class="welcome-log-pagination" aria-label="Welcome log pages">
+    {% if page > 1 %}
+    <a
+      class="button ghost"
+      href="{{ url_for('welcome_log', page=page-1, mode=mode_filter if mode_filter != 'all' else None, source=source_filter if source_filter != 'all' else None, status=status_filter if status_filter != 'all' else None, q=search or None) }}"
+    >Previous</a>
+    {% endif %}
+    <span class="muted">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a
+      class="button ghost"
+      href="{{ url_for('welcome_log', page=page+1, mode=mode_filter if mode_filter != 'all' else None, source=source_filter if source_filter != 'all' else None, status=status_filter if status_filter != 'all' else None, q=search or None) }}"
+    >Next</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+</div>
+{% else %}
+<div class="card history-empty">
+  <p class="muted">No welcome or one-off email sends have been logged yet.</p>
+</div>
+{% endif %}
+
+<script>
+  (function () {
+    document.querySelectorAll("[data-datetime]").forEach((el) => {
+      const raw = el.getAttribute("data-datetime");
+      if (!raw) return;
+      let d = new Date(raw);
+      if (Number.isNaN(d.getTime())) {
+        d = new Date(raw + "Z");
+        if (Number.isNaN(d.getTime())) return;
+      }
+      try {
+        el.textContent = d.toLocaleString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+      } catch {
+        // ignore
+      }
+    });
+  })();
+</script>
+{% endblock %}

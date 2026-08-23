@@ -87,6 +87,7 @@ a {
 
 .primary-nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
 }
 
@@ -3316,6 +3317,97 @@ button:focus-visible,
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+.welcome-log-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 0 0 1.25rem;
+}
+
+.welcome-log-controls__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: flex-end;
+}
+
+.welcome-log-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 10rem;
+}
+
+.welcome-log-field--search {
+  flex: 1 1 14rem;
+  min-width: 14rem;
+}
+
+.welcome-log-field select,
+.welcome-log-field input {
+  font: inherit;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid rgba(50, 45, 38, 0.18);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.welcome-log-table-wrap {
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.welcome-log-count {
+  margin: 0 0 0.75rem;
+}
+
+.welcome-log-table-scroll {
+  overflow-x: auto;
+}
+
+.welcome-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.welcome-log-table th,
+.welcome-log-table td {
+  text-align: left;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid rgba(50, 45, 38, 0.1);
+  vertical-align: top;
+}
+
+.welcome-log-table thead th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(50, 45, 38, 0.65);
+}
+
+.welcome-log-table code {
+  font-size: 0.85em;
+}
+
+.welcome-log-error {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  max-width: 18rem;
+}
+
+.welcome-log-pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.badge--website_signup,
+.badge--console_welcome,
+.badge--console_manual {
+  background: rgba(50, 45, 38, 0.08);
 }
 
 .history-empty {

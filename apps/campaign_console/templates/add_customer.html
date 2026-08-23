@@ -2,7 +2,7 @@
 {% block app_main_class %} app-main--wide{% endblock %}
 {% block content %}
 {% set csv_template_href = url_for('static', filename='customers_import_template.csv') %}
-<section class="card customer-manager" data-customers-page>
+<section class="card customer-manager" data-customers-page data-welcome-template="{{ welcome_email_template|e }}">
   <header class="customer-manager__header">
     <div>
       <p class="eyebrow">Subscribers</p>
@@ -1512,6 +1512,34 @@
       if (subjectValue) {
         payload.subject = subjectValue;
       }
+
+      const pageRoot = document.querySelector("[data-customers-page]");
+      const welcomeTemplate = (pageRoot && pageRoot.getAttribute("data-welcome-template")) || "welcome.html";
+      const isWelcome =
+        String(state.activeEmailTemplate).trim().toLowerCase() === String(welcomeTemplate).trim().toLowerCase();
+
+      if (isWelcome) {
+        try {
+          const statusResp = await authorizedFetch(
+            `/api/customers/${encodeURIComponent(state.emailCustomerId)}/individual-emails/welcome-status`
+          );
+          const statusData = await statusResp.json().catch(() => ({}));
+          if (statusResp.ok && statusData.already_received) {
+            const when = statusData.last_sent_at
+              ? new Date(statusData.last_sent_at).toLocaleString()
+              : "previously";
+            const sourceLabel = statusData.source ? ` (via ${statusData.source})` : "";
+            const ok = window.confirm(
+              `This customer already received a welcome email ${when}${sourceLabel}. Send another welcome email anyway?`
+            );
+            if (!ok) return;
+            payload.confirm = true;
+          }
+        } catch (error) {
+          console.error(error);
+        }
+      }
+
       elements.emailSendBtn.disabled = true;
       elements.emailSendBtn.dataset.loading = "true";
       try {
@@ -1521,6 +1549,31 @@
           body: JSON.stringify(payload),
         });
         const data = await response.json().catch(() => ({}));
+        if (response.status === 409 && data.code === "welcome_already_sent") {
+          const when = data.last_sent_at
+            ? new Date(data.last_sent_at).toLocaleString()
+            : "previously";
+          const sourceLabel = data.source ? ` (via ${data.source})` : "";
+          const ok = window.confirm(
+            `This customer already received a welcome email ${when}${sourceLabel}. Send another welcome email anyway?`
+          );
+          if (!ok) {
+            setEmailStatus("Send cancelled — welcome already sent.", "error");
+            return;
+          }
+          payload.confirm = true;
+          const retry = await authorizedFetch(`/api/customers/${encodeURIComponent(state.emailCustomerId)}/individual-emails/send`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const retryData = await retry.json().catch(() => ({}));
+          if (!retry.ok) {
+            throw new Error(retryData.error || "Unable to send email.");
+          }
+          setEmailStatus(`Sent to ${retryData.email} with subject "${retryData.subject}".`, "success");
+          return;
+        }
         if (!response.ok) {
           throw new Error(data.error || "Unable to send email.");
         }

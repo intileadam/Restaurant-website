@@ -1639,3 +1639,211 @@ def fetch_active_send() -> dict | None:
         return cur.fetchone()
     finally:
         cur.close()
+
+
+# ── Individual / welcome email send log ───────────────────────────
+
+WELCOME_SOURCES = ("console_welcome", "website_signup")
+WEBSITE_WELCOME_TEMPLATE = "welcome-email.html"
+
+
+def ensure_individual_email_tables():
+    """Create INDIVIDUAL_EMAIL_SENDS if it does not exist."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS INDIVIDUAL_EMAIL_SENDS (
+                ID             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                CUSTID         INT          NULL,
+                EMAIL          VARCHAR(320) NOT NULL,
+                FIRSTNAME      VARCHAR(255) NULL,
+                LASTNAME       VARCHAR(255) NULL,
+                TEMPLATE_FILE  VARCHAR(255) NOT NULL,
+                SUBJECT        VARCHAR(500) NULL,
+                SOURCE         VARCHAR(40)  NOT NULL,
+                MODE           VARCHAR(20)  NOT NULL DEFAULT 'production',
+                STATUS         VARCHAR(20)  NOT NULL DEFAULT 'sent',
+                ERROR_MESSAGE  TEXT         NULL,
+                SENT_AT        DATETIME     NOT NULL,
+                INDEX idx_indiv_email (EMAIL),
+                INDEX idx_indiv_cust_template (CUSTID, TEMPLATE_FILE),
+                INDEX idx_indiv_sent_at (SENT_AT),
+                INDEX idx_indiv_source (SOURCE)
+            )
+            """
+        )
+    finally:
+        cur.close()
+
+
+def insert_individual_email_send(
+    *,
+    cust_id: int | None,
+    email: str,
+    firstname: str | None,
+    lastname: str | None,
+    template_file: str,
+    subject: str | None,
+    source: str,
+    mode: str,
+    status: str,
+    error_message: str | None = None,
+) -> int:
+    """Insert one individual/welcome email send log row. Returns new ID."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO INDIVIDUAL_EMAIL_SENDS
+                (CUSTID, EMAIL, FIRSTNAME, LASTNAME, TEMPLATE_FILE, SUBJECT,
+                 SOURCE, MODE, STATUS, ERROR_MESSAGE, SENT_AT)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP())
+            """,
+            (
+                cust_id,
+                email,
+                firstname,
+                lastname,
+                template_file,
+                subject,
+                source,
+                mode,
+                status,
+                error_message,
+            ),
+        )
+        return int(cur.lastrowid)
+    finally:
+        cur.close()
+
+
+def _welcome_match_clause(welcome_templates: list[str]) -> tuple[str, list]:
+    """SQL fragment + params matching a prior successful welcome send."""
+    templates = [t for t in welcome_templates if t]
+    clauses = ["SOURCE IN %s"]
+    params: list = [WELCOME_SOURCES]
+    if templates:
+        clauses.append("TEMPLATE_FILE IN %s")
+        params.append(tuple(templates))
+    return "(" + " OR ".join(clauses) + ")", params
+
+
+def fetch_welcome_status(
+    *,
+    cust_id: int | None = None,
+    email: str | None = None,
+    welcome_templates: list[str] | None = None,
+) -> dict | None:
+    """Return the most recent successful welcome send for this customer/email, if any."""
+    if cust_id is None and not (email or "").strip():
+        return None
+    templates = list(welcome_templates or [])
+    if WEBSITE_WELCOME_TEMPLATE not in templates:
+        templates.append(WEBSITE_WELCOME_TEMPLATE)
+    welcome_sql, welcome_params = _welcome_match_clause(templates)
+
+    where_parts = ["STATUS = 'sent'", welcome_sql]
+    params: list = list(welcome_params)
+    identity_parts = []
+    if cust_id is not None:
+        identity_parts.append("CUSTID = %s")
+        params.append(cust_id)
+    if email and email.strip():
+        identity_parts.append("LOWER(EMAIL) = LOWER(%s)")
+        params.append(email.strip())
+    where_parts.append("(" + " OR ".join(identity_parts) + ")")
+
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        cur.execute(
+            f"""
+            SELECT ID, CUSTID, EMAIL, TEMPLATE_FILE, SUBJECT, SOURCE, MODE, SENT_AT
+            FROM INDIVIDUAL_EMAIL_SENDS
+            WHERE {" AND ".join(where_parts)}
+            ORDER BY SENT_AT DESC
+            LIMIT 1
+            """,
+            params,
+        )
+        return cur.fetchone()
+    finally:
+        cur.close()
+
+
+def has_received_welcome(
+    *,
+    cust_id: int | None = None,
+    email: str | None = None,
+    welcome_templates: list[str] | None = None,
+) -> bool:
+    """True if this customer/email already has a successful welcome send logged."""
+    return fetch_welcome_status(
+        cust_id=cust_id,
+        email=email,
+        welcome_templates=welcome_templates,
+    ) is not None
+
+
+def fetch_individual_email_sends(
+    *,
+    mode_filter: str | None = None,
+    source_filter: str | None = None,
+    status_filter: str | None = None,
+    search: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Return paginated individual email send rows (most recent first) and total count."""
+    where_parts: list[str] = []
+    params: list = []
+    if mode_filter:
+        where_parts.append("MODE = %s")
+        params.append(mode_filter)
+    if source_filter:
+        where_parts.append("SOURCE = %s")
+        params.append(source_filter)
+    if status_filter:
+        where_parts.append("STATUS = %s")
+        params.append(status_filter)
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        where_parts.append(
+            "(EMAIL LIKE %s OR FIRSTNAME LIKE %s OR LASTNAME LIKE %s OR SUBJECT LIKE %s OR TEMPLATE_FILE LIKE %s)"
+        )
+        params.extend([term, term, term, term, term])
+
+    where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+    normalized_limit = max(1, min(int(limit), 500))
+    normalized_offset = max(0, int(offset))
+
+    conn = get_connection()
+    count_cur = conn.cursor()
+    try:
+        count_cur.execute(
+            f"SELECT COUNT(*) FROM INDIVIDUAL_EMAIL_SENDS {where_sql}",
+            params,
+        )
+        total = int(count_cur.fetchone()[0])
+    finally:
+        count_cur.close()
+
+    data_cur = conn.cursor(DictCursor)
+    try:
+        data_cur.execute(
+            f"""
+            SELECT ID, CUSTID, EMAIL, FIRSTNAME, LASTNAME, TEMPLATE_FILE, SUBJECT,
+                   SOURCE, MODE, STATUS, ERROR_MESSAGE, SENT_AT
+            FROM INDIVIDUAL_EMAIL_SENDS
+            {where_sql}
+            ORDER BY SENT_AT DESC, ID DESC
+            LIMIT %s OFFSET %s
+            """,
+            params + [normalized_limit, normalized_offset],
+        )
+        return data_cur.fetchall(), total
+    finally:
+        data_cur.close()
