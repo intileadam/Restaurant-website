@@ -1255,21 +1255,38 @@ def mark_recipient_failed(result_id: int, error_message: str | None = None):
         cur.close()
 
 
-def update_send_progress(send_id: str, sent_count: int, failed_count: int):
-    """Increment SENT_COUNT/FAILED_COUNT and set LAST_BATCH_AT after each batch."""
+def update_send_progress(
+    send_id: str,
+    sent_count: int,
+    failed_count: int,
+    *,
+    touch_last_batch: bool = True,
+):
+    """Write SENT_COUNT/FAILED_COUNT; optionally bump LAST_BATCH_AT after a batch."""
     conn = get_connection()
     cur = conn.cursor()
     try:
-        cur.execute(
-        """
-        UPDATE CAMPAIGN_SENDS
-        SET SENT_COUNT = %s,
-            FAILED_COUNT = %s,
-            LAST_BATCH_AT = UTC_TIMESTAMP()
-        WHERE SEND_ID = %s
-        """,
-        (sent_count, failed_count, send_id),
-        )
+        if touch_last_batch:
+            cur.execute(
+            """
+            UPDATE CAMPAIGN_SENDS
+            SET SENT_COUNT = %s,
+                FAILED_COUNT = %s,
+                LAST_BATCH_AT = UTC_TIMESTAMP()
+            WHERE SEND_ID = %s
+            """,
+            (sent_count, failed_count, send_id),
+            )
+        else:
+            cur.execute(
+            """
+            UPDATE CAMPAIGN_SENDS
+            SET SENT_COUNT = %s,
+                FAILED_COUNT = %s
+            WHERE SEND_ID = %s
+            """,
+            (sent_count, failed_count, send_id),
+            )
     finally:
         cur.close()
 
@@ -1391,7 +1408,7 @@ def resume_send(send_id: str) -> bool:
 
 
 def cancel_send(send_id: str) -> bool:
-    """Cancel a running or paused send."""
+    """Cancel a running or paused send, syncing aggregate counts from results."""
     conn = get_connection()
     cur = conn.cursor()
     try:
@@ -1403,9 +1420,12 @@ def cancel_send(send_id: str) -> bool:
         """,
         (send_id,),
         )
-        return cur.rowcount > 0
+        changed = cur.rowcount > 0
     finally:
         cur.close()
+    if changed:
+        reconcile_send_counts(send_id)
+    return changed
 
 
 def fetch_ready_sends() -> list[dict]:
@@ -1617,6 +1637,63 @@ def count_send_results(send_id: str) -> dict[str, int]:
         for row in cur.fetchall():
             result[row[0]] = int(row[1])
         return result
+    finally:
+        cur.close()
+
+
+def reconcile_send_counts(
+    send_id: str,
+    *,
+    touch_last_batch: bool = False,
+) -> dict[str, int]:
+    """Align CAMPAIGN_SENDS.SENT_COUNT/FAILED_COUNT with CAMPAIGN_SEND_RESULTS.
+
+    Recipient rows are the source of truth; aggregate counters can lag if a worker
+    dies between marking recipients and writing progress.
+
+    By default does not bump LAST_BATCH_AT (safe for startup repair / batch seeding).
+    Pass touch_last_batch=True after finishing a real send batch.
+    """
+    counts = count_send_results(send_id)
+    update_send_progress(
+        send_id,
+        counts["sent"],
+        counts["failed"],
+        touch_last_batch=touch_last_batch,
+    )
+    return counts
+
+
+def reconcile_finished_send_counts() -> int:
+    """Repair SENT_COUNT/FAILED_COUNT on finished sends that drifted from results.
+
+    Returns the number of CAMPAIGN_SENDS rows updated.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+        """
+        UPDATE CAMPAIGN_SENDS s
+        LEFT JOIN (
+            SELECT
+                SEND_ID,
+                SUM(CASE WHEN STATUS = 'sent' THEN 1 ELSE 0 END) AS sent_cnt,
+                SUM(CASE WHEN STATUS = 'failed' THEN 1 ELSE 0 END) AS failed_cnt
+            FROM CAMPAIGN_SEND_RESULTS
+            GROUP BY SEND_ID
+        ) r ON r.SEND_ID = s.SEND_ID
+        SET
+            s.SENT_COUNT = COALESCE(r.sent_cnt, 0),
+            s.FAILED_COUNT = COALESCE(r.failed_cnt, 0)
+        WHERE s.STATUS IN ('completed', 'cancelled', 'failed')
+          AND (
+            s.SENT_COUNT <> COALESCE(r.sent_cnt, 0)
+            OR s.FAILED_COUNT <> COALESCE(r.failed_cnt, 0)
+          )
+        """
+        )
+        return int(cur.rowcount or 0)
     finally:
         cur.close()
 

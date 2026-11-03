@@ -2523,8 +2523,9 @@ def send_progress(send_id: str):
         return jsonify({"error": "Send not found."}), 404
     counts = dbmod.count_send_results(send_id)
     total = int(row.get("TOTAL_RECIPIENTS") or 0)
-    sent = int(row.get("SENT_COUNT") or 0)
-    failed = int(row.get("FAILED_COUNT") or 0)
+    # Prefer recipient-row totals so progress stays accurate if aggregates lag.
+    sent = counts.get("sent", 0)
+    failed = counts.get("failed", 0)
     pending = counts.get("pending", 0)
     delay_ms = int(row.get("DELAY_MS") or 0)
     restrict_start_s = (row.get("RESTRICT_START") or "").strip() or None
@@ -2694,11 +2695,12 @@ def active_send_api():
     row = dbmod.fetch_active_send()
     if not row:
         return jsonify({"send_id": None})
+    counts = dbmod.count_send_results(row["SEND_ID"])
     return jsonify({
         "send_id": row["SEND_ID"], "campaign_file": row["CAMPAIGN_FILE"],
         "subject": row.get("SUBJECT"), "campaign_name": row.get("CAMPAIGN_NAME"),
         "status": row["STATUS"], "total_recipients": int(row.get("TOTAL_RECIPIENTS") or 0),
-        "sent_count": int(row.get("SENT_COUNT") or 0), "failed_count": int(row.get("FAILED_COUNT") or 0),
+        "sent_count": counts.get("sent", 0), "failed_count": counts.get("failed", 0),
     })
 
 
@@ -2939,8 +2941,12 @@ def _process_one_batch(send_row: dict):
     mode = send_row.get("MODE", CUSTOMER_MODE_DEFAULT)
     batch_size = int(send_row.get("BATCH_SIZE") or 25)
     delay_ms = int(send_row.get("DELAY_MS") or 0)
-    sent_count = int(send_row.get("SENT_COUNT") or 0)
-    failed_count = int(send_row.get("FAILED_COUNT") or 0)
+
+    # Recipient rows are canonical; re-seed aggregates in case a prior batch
+    # marked results but crashed before writing SENT_COUNT/FAILED_COUNT.
+    counts = dbmod.reconcile_send_counts(send_id)
+    sent_count = counts["sent"]
+    failed_count = counts["failed"]
 
     sess = get_send_session(send_id)
     bus = sess.bus if sess else None
@@ -2962,7 +2968,8 @@ def _process_one_batch(send_row: dict):
 
     batch = dbmod.fetch_pending_recipients(send_id, limit=batch_size)
     if not batch:
-        emit(f"Done. Sent {sent_count}/{send_row.get('TOTAL_RECIPIENTS', 0)}.")
+        total = int(send_row.get("TOTAL_RECIPIENTS") or 0)
+        emit(f"Done. Sent {sent_count}/{total}.")
         dbmod.update_campaign_send_finished(send_id, "completed", sent_count, failed_count)
         if sess:
             finish_send_session(send_id, "completed", sent_count, failed_count)
@@ -3005,7 +3012,11 @@ def _process_one_batch(send_row: dict):
                     emit(f"✖ Failed for {to_addr}: {e}")
                     dbmod.mark_recipient_failed(result_id, str(e))
 
-        dbmod.update_send_progress(send_id, sent_count, failed_count)
+        # Prefer results-table totals so the campaign tile matches recipient status
+        # even if this process's in-memory counters drifted.
+        counts = dbmod.reconcile_send_counts(send_id, touch_last_batch=True)
+        sent_count = counts["sent"]
+        failed_count = counts["failed"]
         if sess:
             sess.sent_count = sent_count
             sess.failed_count = failed_count
@@ -3058,6 +3069,12 @@ with app.app_context():
         dbmod.ensure_campaign_tables()
     except Exception as exc:
         print(f"WARNING: Could not create campaign history tables: {exc}", file=sys.stderr)
+    try:
+        repaired = dbmod.reconcile_finished_send_counts()
+        if repaired:
+            print(f"Reconciled SENT_COUNT/FAILED_COUNT on {repaired} finished campaign send(s).", file=sys.stderr)
+    except Exception as exc:
+        print(f"WARNING: Could not reconcile finished campaign send counts: {exc}", file=sys.stderr)
     try:
         dbmod.ensure_individual_email_tables()
     except Exception as exc:
