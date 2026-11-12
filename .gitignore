@@ -12,3 +12,6 @@ apps/campaign_console/campaigns/
 apps/campaign_console/individual_emails/
 apps/campaign_console/campaign_images/*
 !apps/campaign_console/campaign_images/.gitkeep
+
+# Server/audit logs (may contain visitor IPs)
+*.log

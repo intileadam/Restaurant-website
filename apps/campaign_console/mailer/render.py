@@ -59,6 +59,11 @@ def _build_unsubscribe_url(token: str, mode: str | None = None, send_id: str | N
     return f"{UNSUBSCRIBE_BASE_URL}{UNSUB_PATH}?{query}"
 
 
+def build_unsubscribe_url(token: str, mode: str | None = None, send_id: str | None = None) -> str:
+    """Public wrapper: the same URL goes in the footer link and the List-Unsubscribe header."""
+    return _build_unsubscribe_url(token, mode, send_id)
+
+
 _jinja = Environment(loader=BaseLoader(), autoescape=False)
 
 

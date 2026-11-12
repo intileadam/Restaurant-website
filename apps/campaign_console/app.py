@@ -36,7 +36,13 @@ load_dotenv(APP_ROOT / ".env")  # Load app-specific .env
 from mailer import db as dbmod
 from mailer.smtp import SmtpClient
 from mailer.lint import lint_html
-from mailer.render import load_campaign_html, ensure_unsubscribe, render_for_recipient, render_for_test
+from mailer.render import (
+    load_campaign_html,
+    ensure_unsubscribe,
+    render_for_recipient,
+    render_for_test,
+    build_unsubscribe_url,
+)
 from mailer.sse import GLOBAL_BUS, create_send_session, get_send_session, finish_send_session, evict_stale_sessions
 
 
@@ -950,8 +956,12 @@ def send_individual_email(
         subject_override,
         mode=active_mode,
     )
+    unsub_token = dbmod.ensure_unsubscribe_token(row.get("CUSTID"), row.get("UNSUBSCRIBE_TOKEN"))
     smtp = SmtpClient()
-    msg = smtp.build_message(email, subject, html)
+    msg = smtp.build_message(
+        email, subject, html,
+        list_unsubscribe_url=build_unsubscribe_url(unsub_token, active_mode),
+    )
     try:
         smtp.send(msg)
     except Exception as exc:
@@ -3090,7 +3100,10 @@ def _process_one_batch(send_row: dict):
 
                 html = render_for_recipient(raw_html, firstname, lastname, token, mode=mode, send_id=send_id)
                 try:
-                    msg = smtp.build_message(to_addr, subject, html)
+                    msg = smtp.build_message(
+                        to_addr, subject, html,
+                        list_unsubscribe_url=build_unsubscribe_url(token, mode, send_id),
+                    )
                     conn.send(msg, delay_ms=delay_ms)
                     sent_count += 1
                     emit(f"✔ Sent to {to_addr}")

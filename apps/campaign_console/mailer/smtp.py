@@ -38,13 +38,26 @@ class SmtpClient:
         return server
 
 
-    def build_message(self, to_email: str, subject: str, html_body: str, text_alt: str | None = None) -> EmailMessage:
+    def build_message(
+        self,
+        to_email: str,
+        subject: str,
+        html_body: str,
+        text_alt: str | None = None,
+        *,
+        list_unsubscribe_url: str | None = None,
+    ) -> EmailMessage:
         msg = EmailMessage()
         msg["From"] = f"{self.from_name} <{self.from_email}>"
         msg["To"] = to_email
         msg["Subject"] = subject
         msg["Date"] = formatdate(localtime=True)
         msg["Message-ID"] = make_msgid(domain=self.from_email.split("@")[-1]) if self.from_email else make_msgid()
+        if list_unsubscribe_url:
+            # RFC 2369 / RFC 8058: lets Gmail, Yahoo, Apple Mail show their own
+            # "Unsubscribe" button, which POSTs "List-Unsubscribe=One-Click" to this URL.
+            msg["List-Unsubscribe"] = f"<{list_unsubscribe_url}>"
+            msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
         if text_alt:
             msg.set_content(text_alt)
             msg.add_alternative(html_body, subtype="html")

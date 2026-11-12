@@ -150,9 +150,24 @@ function test_table(): string
     return $table;
 }
 
+/**
+ * Read a request parameter from the query string, falling back to the POST body.
+ * The one-click (RFC 8058) POST keeps everything in the URL; the confirm form posts fields.
+ */
+function requestParam(string $key): string
+{
+    if (isset($_GET[$key])) {
+        return trim((string) $_GET[$key]);
+    }
+    if (isset($_POST[$key])) {
+        return trim((string) $_POST[$key]);
+    }
+    return '';
+}
+
 function resolve_table_for_request(): string
 {
-    $mode = isset($_GET['mode']) ? strtolower(trim((string) $_GET['mode'])) : '';
+    $mode = strtolower(requestParam('mode'));
     if ($mode === 'test') {
         return test_table();
     }
@@ -180,7 +195,7 @@ function render(string $template, array $data = [], int $status = 200): void
 
 function readToken(): string
 {
-    $token = isset($_GET['token']) ? trim((string) $_GET['token']) : '';
+    $token = requestParam('token');
     if ($token === '') {
         return '';
     }
@@ -196,7 +211,7 @@ function readToken(): string
  */
 function readCampaignRef(): ?string
 {
-    $ref = isset($_GET['c']) ? strtolower(trim((string) $_GET['c'])) : '';
+    $ref = strtolower(requestParam('c'));
     return preg_match('/^[a-f0-9]{32}$/', $ref) ? $ref : null;
 }
 
@@ -205,19 +220,19 @@ function readCampaignRef(): ?string
  * console can show when a customer unsubscribed and from which campaign.
  * Best effort: failures are logged and never block the (un)subscribe itself.
  */
-function recordSubscriptionEvent(mysqli $conn, string $table, string $token, string $action, ?string $sendId): void
+function recordSubscriptionEvent(mysqli $conn, string $table, string $token, string $action, ?string $sendId, string $source = 'email_link'): void
 {
     try {
         $escapedTable = '`' . $table . '`';
         $sql = "INSERT INTO SUBSCRIPTION_EVENTS (CUSTOMER_TABLE, CUSTID, EMAIL, ACTION, SOURCE, SEND_ID, OCCURRED_AT)
-                SELECT ?, CUSTID, EMAIL, ?, 'email_link', ?, UTC_TIMESTAMP()
+                SELECT ?, CUSTID, EMAIL, ?, ?, ?, UTC_TIMESTAMP()
                 FROM {$escapedTable} WHERE UNSUBSCRIBE_TOKEN = ? LIMIT 1";
         $stmt = $conn->prepare($sql);
         if ($stmt === false) {
             error_log('subscription event prepare failed: ' . $conn->error);
             return;
         }
-        $stmt->bind_param('ssss', $table, $action, $sendId, $token);
+        $stmt->bind_param('sssss', $table, $action, $source, $sendId, $token);
         $stmt->execute();
         $stmt->close();
     } catch (Throwable $e) {
@@ -240,12 +255,22 @@ function logAuditEvent(string $action, string $token, bool $success): void
     @file_put_contents(storage_path('audit.log'), $line . PHP_EOL, FILE_APPEND | LOCK_EX);
 }
 
+/**
+ * GET  /unsubscribe?token=...  -> confirmation page only (no change). Corporate mail
+ *      filters and link scanners open every link in an email; acting on GET let them
+ *      unsubscribe people who never clicked.
+ * POST /unsubscribe            -> performs the unsubscribe. Sent by the confirm button,
+ *      or by the inbox's own Unsubscribe button via the List-Unsubscribe-Post header
+ *      (body "List-Unsubscribe=One-Click", token in the URL).
+ */
 function handleUnsubscribe(): void
 {
-    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+    $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    if ($method !== 'GET' && $method !== 'POST') {
         http_response_code(405);
         exit;
     }
+    $isOneClick = $method === 'POST' && (($_POST['List-Unsubscribe'] ?? '') === 'One-Click');
     $token = readToken();
     if ($token === '') {
         logAuditEvent('unsubscribe.missing_token', '', false);
@@ -277,6 +302,17 @@ function handleUnsubscribe(): void
             ]);
         }
 
+        if ($method === 'GET') {
+            logAuditEvent('unsubscribe.confirm_shown', $token, true);
+            render('unsubscribed', [
+                'confirm' => true,
+                'token' => $token,
+                'campaignRef' => readCampaignRef(),
+                'rejoined' => false,
+                'alreadyUnsubscribed' => false,
+            ]);
+        }
+
         $stmt = $conn->prepare("UPDATE {$escapedTable} SET IS_SUBSCRIBED = 0 WHERE UNSUBSCRIBE_TOKEN = ?");
         $stmt->bind_param('s', $token);
         $stmt->execute();
@@ -286,8 +322,8 @@ function handleUnsubscribe(): void
             render('error', ['message' => 'Unable to process request.'], 500);
         }
 
-        logAuditEvent('unsubscribe.success', $token, true);
-        recordSubscriptionEvent($conn, $table, $token, 'unsubscribe', readCampaignRef());
+        logAuditEvent($isOneClick ? 'unsubscribe.success_one_click' : 'unsubscribe.success', $token, true);
+        recordSubscriptionEvent($conn, $table, $token, 'unsubscribe', readCampaignRef(), $isOneClick ? 'one_click' : 'email_link');
         render('unsubscribed', ['rejoined' => false, 'token' => $token, 'alreadyUnsubscribed' => false]);
     } catch (Throwable $e) {
         logAuditEvent('unsubscribe.error', $token, false);

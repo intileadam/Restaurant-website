@@ -63,22 +63,31 @@ def main() -> int:
     by_hash = parse_log(args.audit_log)
     print(f"Found {len(by_hash)} distinct successful unsubscribes in {args.audit_log}")
 
-    dbmod.ensure_subscription_event_tables()
+    if args.apply:
+        dbmod.ensure_subscription_event_tables()
     conn = dbmod.get_connection()
     cur = conn.cursor(dbmod.DictCursor)
+    # Dry runs stay read-only, even if the console hasn't created the table yet.
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM information_schema.TABLES "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'SUBSCRIPTION_EVENTS'"
+    )
+    has_events_table = bool(cur.fetchone()["n"])
     planned = []
     for mode, table in dbmod.get_customer_table_options().items():
+        not_logged = """
+              AND NOT EXISTS (
+                SELECT 1 FROM SUBSCRIPTION_EVENTS e
+                WHERE e.CUSTOMER_TABLE = %s AND e.CUSTID = c.CUSTID AND e.ACTION = 'unsubscribe'
+              )""" if has_events_table else ""
         cur.execute(
             f"""
             SELECT c.CUSTID, c.EMAIL, c.UNSUBSCRIBE_TOKEN
             FROM {table} c
             WHERE c.IS_SUBSCRIBED = '0' AND c.UNSUBSCRIBE_TOKEN IS NOT NULL AND c.UNSUBSCRIBE_TOKEN <> ''
-              AND NOT EXISTS (
-                SELECT 1 FROM SUBSCRIPTION_EVENTS e
-                WHERE e.CUSTOMER_TABLE = %s AND e.CUSTID = c.CUSTID AND e.ACTION = 'unsubscribe'
-              )
+            {not_logged}
             """,
-            (table,),
+            (table,) if has_events_table else (),
         )
         for row in cur.fetchall():
             h = hashlib.sha256(row["UNSUBSCRIBE_TOKEN"].encode()).hexdigest()[:12]
@@ -90,13 +99,15 @@ def main() -> int:
                 SELECT r.SEND_ID, s.CAMPAIGN_NAME, s.CAMPAIGN_FILE
                 FROM CAMPAIGN_SEND_RESULTS r
                 JOIN CAMPAIGN_SENDS s ON s.SEND_ID = r.SEND_ID
-                WHERE s.MODE = %s AND r.STATUS = 'sent' AND r.ATTEMPTED_AT <= %s
+                WHERE s.MODE = %s AND r.STATUS = 'sent' AND r.ATTEMPTED_AT <= DATE_ADD(%s, INTERVAL 120 SECOND)
                   AND (r.CUSTID = %s OR LOWER(r.EMAIL) = LOWER(%s))
                 ORDER BY r.ATTEMPTED_AT DESC
                 LIMIT 1
                 """,
                 (mode, when, row["CUSTID"], row["EMAIL"]),
             )
+            # ATTEMPTED_AT is stamped after the SMTP send and per-email delay finish,
+            # so a fast click can land a few seconds "before" its own send: allow 2 min.
             send = cur.fetchone()
             planned.append((table, row, when, send))
 
