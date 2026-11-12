@@ -976,7 +976,13 @@ def create_service_user(
         """,
         (email, password_hash, password_algo, role, 1 if is_active else 0),
         )
-        return cur.lastrowid or 0
+        new_id = cur.lastrowid or 0
+        # Read it back so the console never reports success for a row that isn't there.
+        cur.execute("SELECT id FROM service_users WHERE username = %s", (email,))
+        row = cur.fetchone()
+        if not row:
+            raise RuntimeError(f"Insert into service_users for {email} did not persist (lastrowid={new_id}).")
+        return int(row[0])
     except pymysql.MySQLError as exc:
         if getattr(exc, "errno", None) == ER.DUP_ENTRY:
             raise ServiceUserAlreadyExists("User already exists.") from exc
@@ -1051,6 +1057,9 @@ def ensure_campaign_tables():
             ("RESTRICT_START", "VARCHAR(5) NULL"),
             ("RESTRICT_END", "VARCHAR(5) NULL"),
             ("ARCHIVED", "TINYINT(1) NOT NULL DEFAULT 0"),
+            # JSON list of tag names the send targeted; "[]" = all subscribers,
+            # NULL = sent before targets were recorded.
+            ("TARGET_TAGS", "TEXT NULL"),
         ]
         def _is_dup_field(exc):
             errno = getattr(exc, "errno", None)
@@ -1123,8 +1132,14 @@ def insert_campaign_send(
     cooldown_seconds: int | None = None,
     restrict_start: str | None = None,
     restrict_end: str | None = None,
+    target_tags: list[str] | None = None,
 ):
-    """Create the initial CAMPAIGN_SENDS row when a campaign is queued."""
+    """Create the initial CAMPAIGN_SENDS row when a campaign is queued.
+
+    target_tags: tag names the send was limited to; None/empty means all subscribers.
+    """
+    import json
+    target_json = json.dumps(sorted({t.strip() for t in (target_tags or []) if t and t.strip()}))
     conn = get_connection()
     cur = conn.cursor()
     try:
@@ -1133,12 +1148,13 @@ def insert_campaign_send(
         INSERT INTO CAMPAIGN_SENDS
             (SEND_ID, CAMPAIGN_FILE, SUBJECT, CAMPAIGN_NAME, MODE, TOTAL_RECIPIENTS,
              STATUS, QUEUED_AT, BATCH_SIZE, DELAY_MS, COOLDOWN_SECONDS,
-             RESTRICT_START, RESTRICT_END)
+             RESTRICT_START, RESTRICT_END, TARGET_TAGS)
         VALUES
-            (%s, %s, %s, %s, %s, %s, 'queued', UTC_TIMESTAMP(), %s, %s, %s, %s, %s)
+            (%s, %s, %s, %s, %s, %s, 'queued', UTC_TIMESTAMP(), %s, %s, %s, %s, %s, %s)
         """,
         (send_id, campaign_file, subject, campaign_name, mode, total_recipients,
-         batch_size, delay_ms, cooldown_seconds, restrict_start or None, restrict_end or None),
+         batch_size, delay_ms, cooldown_seconds, restrict_start or None, restrict_end or None,
+         target_json),
         )
     finally:
         cur.close()

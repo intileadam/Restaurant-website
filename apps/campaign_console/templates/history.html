@@ -42,6 +42,10 @@
             File: {{ send.CAMPAIGN_FILE }}
             {% if send.SUBJECT %} · Subject: {{ send.SUBJECT }}{% endif %}
           </p>
+          {% set sent_to = send.TARGET_TAGS|target_tags %}
+          {% if sent_to %}
+          <p class="muted history-card__subject">Sent to: {{ sent_to }}</p>
+          {% endif %}
         </div>
         <div class="history-card__badges">
           <span class="badge badge--{{ send.MODE }}">{{ send.MODE|capitalize }}</span>

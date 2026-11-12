@@ -569,6 +569,8 @@ def _inject_customer_mode():
     ctx = {
         "current_db_mode": getattr(g, "db_mode", CUSTOMER_MODE_DEFAULT),
         "csrf_token": _get_csrf_token,
+        # The Manage admins modal lives in base.html, so every page needs this.
+        "min_password_length": MIN_PASSWORD_LENGTH,
     }
     if getattr(g, "user", None):
         try:
@@ -1133,6 +1135,18 @@ def index():
     return render_template("history.html", sends=sends, unsub_counts=unsub_counts, mode_filter=mode_filter or "all")
 
 
+@app.template_filter("target_tags")
+def _target_tags_label(raw) -> str | None:
+    """CAMPAIGN_SENDS.TARGET_TAGS -> display text; None when not recorded (older sends)."""
+    if raw is None:
+        return None
+    try:
+        tags = json.loads(raw) if isinstance(raw, str) else list(raw)
+    except (TypeError, ValueError):
+        return None
+    return ", ".join(tags) if tags else "All subscribers"
+
+
 @app.get("/queue")
 def queue_campaign():
     """Queue campaign workflow: select campaign, configure, send."""
@@ -1217,7 +1231,11 @@ def add_operator():
         return redirect(redirect_target)
 
     try:
-        dbmod.create_service_user(email=email, password_hash=hashed, password_algo="pbkdf2_sha256")
+        new_id = dbmod.create_service_user(email=email, password_hash=hashed, password_algo="pbkdf2_sha256")
+        app.logger.info(
+            "Created operator id=%s username=%s (db=%s host=%s)",
+            new_id, email, os.getenv("DB_NAME"), os.getenv("DB_HOST"),
+        )
     except dbmod.ServiceUserAlreadyExists:
         flash("That email is already registered.", "error")
         return redirect(redirect_target)
@@ -2539,6 +2557,7 @@ def queue_campaign_post():
             batch_size=batch_size, delay_ms=delay_ms, cooldown_seconds=cooldown_seconds,
             restrict_start=restrict_start_utc,
             restrict_end=restrict_end_utc,
+            target_tags=tag_names,
         )
         dbmod.bulk_insert_send_recipients(send_id, recipients)
         dbmod.activate_campaign_send(send_id)

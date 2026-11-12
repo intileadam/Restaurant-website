@@ -13,6 +13,10 @@
         File: {{ send.CAMPAIGN_FILE }}
         {% if send.SUBJECT %} · Subject: {{ send.SUBJECT }}{% endif %}
       </p>
+      {% set sent_to = send.TARGET_TAGS|target_tags %}
+      {% if sent_to %}
+      <p class="muted">Sent to: {{ sent_to }}</p>
+      {% endif %}
       <form class="campaign-rename" method="post" action="{{ url_for('rename_campaign', send_id=send.SEND_ID) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <input
