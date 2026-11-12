@@ -175,6 +175,18 @@
         <input type="hidden" name="subject" value="{{ subject }}" />
         <input type="hidden" name="send_to" value="all" data-form-send-to />
         <div data-form-tag-names-container></div>
+        <label class="confirm-campaign-name">
+          <span>Campaign name <span class="muted">(optional, for your own tracking)</span></span>
+          <input
+            type="text"
+            name="campaign_name"
+            maxlength="255"
+            value="{{ campaign_name or '' }}"
+            placeholder="e.g. November lunch specials"
+            autocomplete="off"
+          />
+          <small class="muted">Shown in campaign history. The file name ({{ file }}) is kept as a reference.</small>
+        </label>
         <div class="confirm-send-options-row">
           <div class="confirm-form-grid confirm-form-grid--send-params">
             <label>

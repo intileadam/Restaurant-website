@@ -770,7 +770,36 @@ def _serialize_customer(row) -> dict | None:
         "comments": row.get("COMMENTS") or "",
         "is_subscribed": _bool_from_db(row.get("IS_SUBSCRIBED")),
         "tags": tags,
+        "unsubscribe": row.get("unsubscribe"),
     }
+
+
+def _attach_unsubscribe_info(rows: list[dict]) -> None:
+    """Add row["unsubscribe"] = {at, source, send_id, campaign} for unsubscribed customers.
+
+    Best effort: if SUBSCRIPTION_EVENTS is unavailable the directory still loads.
+    """
+    unsubscribed = [r for r in rows if r and not _bool_from_db(r.get("IS_SUBSCRIBED"))]
+    if not unsubscribed:
+        return
+    try:
+        latest = dbmod.fetch_latest_unsubscribes(
+            dbmod.get_customer_table_name(), [r["CUSTID"] for r in unsubscribed]
+        )
+    except Exception as exc:
+        app.logger.warning("Could not load unsubscribe history: %s", exc)
+        return
+    for r in unsubscribed:
+        ev = latest.get(int(r["CUSTID"]))
+        if not ev:
+            continue
+        at = ev.get("OCCURRED_AT")
+        r["unsubscribe"] = {
+            "at": f"{at.isoformat()}Z" if at else None,
+            "source": ev.get("SOURCE"),
+            "send_id": ev.get("SEND_ID"),
+            "campaign": (ev.get("CAMPAIGN_NAME") or ev.get("CAMPAIGN_FILE")) if ev.get("SEND_ID") else None,
+        }
 
 
 def _parse_int(value, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
@@ -1086,7 +1115,12 @@ def index():
     except Exception as exc:
         app.logger.exception("Failed to load campaign history: %s", exc)
         sends = []
-    return render_template("history.html", sends=sends, mode_filter=mode_filter or "all")
+    try:
+        unsub_counts = dbmod.fetch_unsubscribe_counts_for_sends([s["SEND_ID"] for s in sends])
+    except Exception as exc:
+        app.logger.warning("Could not load unsubscribe counts: %s", exc)
+        unsub_counts = {}
+    return render_template("history.html", sends=sends, unsub_counts=unsub_counts, mode_filter=mode_filter or "all")
 
 
 @app.get("/queue")
@@ -1152,6 +1186,10 @@ def add_operator():
         return redirect(redirect_target)
 
     email = email_info.normalized
+
+    if len(email) > dbmod.SERVICE_USERNAME_MAX_LENGTH:
+        flash(f"Email addresses for admin accounts must be {dbmod.SERVICE_USERNAME_MAX_LENGTH} characters or fewer.", "error")
+        return redirect(redirect_target)
 
     if len(password) < MIN_PASSWORD_LENGTH:
         flash(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long.", "error")
@@ -1593,6 +1631,7 @@ def list_customers_api():
     except Exception as e:
         app.logger.exception("Failed to fetch customers")
         return jsonify({"error": f"Unable to load customers: {e}"}), 500
+    _attach_unsubscribe_info(rows)
     serialized = [_serialize_customer(row) for row in rows]
     if total > 0:
         total_pages = max(1, math.ceil(total / per_page))
@@ -1628,6 +1667,7 @@ def get_customer_api(cust_id: int):
         return jsonify({"error": "Customer not found."}), 404
     table = dbmod.get_customer_table_name()
     row["tags"] = dbmod.get_customer_tags(table, cust_id)
+    _attach_unsubscribe_info([row])
     out = _serialize_customer(row)
     if not out:
         return jsonify({"error": "Customer not found."}), 404
@@ -1701,6 +1741,44 @@ def create_customer_api():
     return jsonify({"customer": _serialize_customer(row)}), 201
 
 
+_IMPORT_DNS_TIMEOUT_SECONDS = 4
+_IMPORT_VALIDATION_WORKERS = 16
+
+
+def _decode_csv_upload(data: bytes) -> str:
+    """CSV exported from Excel on a Mac/Windows is often not UTF-8; fall back to Windows-1252."""
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("cp1252", errors="replace")
+
+
+def _validate_import_emails(emails: list[str]) -> list[tuple[str | None, str | None]]:
+    """Validate addresses concurrently with a shared DNS cache.
+
+    validate_email() does a live MX/A lookup per address; done serially for a few
+    hundred rows (many with dead domains) it alone could approach the request timeout.
+    Returns [(normalized_email, error_message)] aligned with ``emails``.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from email_validator import caching_resolver
+
+    resolver = caching_resolver(timeout=_IMPORT_DNS_TIMEOUT_SECONDS)
+
+    def check(addr: str):
+        try:
+            return validate_email(addr, dns_resolver=resolver).normalized, None
+        except EmailNotValidError as e:
+            return None, str(e)
+        except Exception as e:  # DNS library hiccup: report the row, don't fail the import
+            return None, f"Could not verify email: {e}"
+
+    if not emails:
+        return []
+    with ThreadPoolExecutor(max_workers=_IMPORT_VALIDATION_WORKERS) as pool:
+        return list(pool.map(check, emails))
+
+
 @app.post("/api/customers/import")
 def import_customers_api():
     """Import customers from CSV. Columns: email (required), firstname, lastname, company, phone, comments, is_subscribed, tags (comma-separated).
@@ -1713,80 +1791,65 @@ def import_customers_api():
     if not upload or not upload.filename:
         return jsonify({"error": "No CSV file provided."}), 400
     if not upload.filename.lower().endswith(".csv"):
-        return jsonify({"error": "File must be a CSV."}), 400
-    try:
-        raw = upload.read().decode("utf-8-sig").strip()
-    except UnicodeDecodeError:
-        return jsonify({"error": "CSV must be UTF-8 encoded."}), 400
+        return jsonify({"error": "File must be a CSV. In Excel use File → Save As → CSV UTF-8."}), 400
+    raw = _decode_csv_upload(upload.read()).strip()
     table = dbmod.get_customer_table_name()
-    created = 0
-    updated = 0
-    skipped_existing = 0
-    skipped_existing_rows: list[dict] = []
     errors: list[dict] = []
     reader = csv.DictReader(io.StringIO(raw))
-    if not reader.fieldnames or "email" not in [f.strip().lower() for f in reader.fieldnames]:
+    if not reader.fieldnames or "email" not in [(f or "").strip().lower() for f in reader.fieldnames]:
         return jsonify({"error": "CSV must have an 'email' column."}), 400
+
+    parsed: list[dict] = []
     for row_num, row in enumerate(reader, start=2):
-        row_lower = {k.strip().lower(): v for k, v in row.items() if k}
-        email_raw = (row_lower.get("email") or "").strip()
+        row_lower = {k.strip().lower(): (v or "") for k, v in row.items() if k}
+        if not any(str(v).strip() for v in row_lower.values()):
+            continue  # fully blank line (common at the end of Excel exports)
+        email_raw = row_lower.get("email", "").strip()
         if not email_raw:
             errors.append({"row": row_num, "message": "Missing email"})
             continue
-        try:
-            email = validate_email(email_raw).email
-        except EmailNotValidError as e:
-            errors.append({"row": row_num, "email": email_raw, "message": str(e)})
+        tags_raw = row_lower.get("tags", "").strip()
+        parsed.append({
+            "row": row_num,
+            "email_raw": email_raw,
+            "firstname": row_lower.get("firstname", "").strip() or None,
+            "lastname": row_lower.get("lastname", "").strip() or None,
+            "company": row_lower.get("company", "").strip() or None,
+            "phone": row_lower.get("phone", "").strip() or None,
+            "comments": row_lower.get("comments", "").strip() or None,
+            "is_subscribed": row_lower.get("is_subscribed", "").strip().lower() in ("1", "yes", "true", "on"),
+            "tag_names": [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else [],
+        })
+
+    validated = _validate_import_emails([p["email_raw"] for p in parsed])
+    rows: list[dict] = []
+    first_row_by_email: dict[str, int] = {}
+    for p, (email, err) in zip(parsed, validated):
+        if err:
+            errors.append({"row": p["row"], "email": p["email_raw"], "message": err})
             continue
-        firstname = (row_lower.get("firstname") or "").strip() or None
-        lastname = (row_lower.get("lastname") or "").strip() or None
-        company = (row_lower.get("company") or "").strip() or None
-        phone = (row_lower.get("phone") or "").strip() or None
-        comments = (row_lower.get("comments") or "").strip() or None
-        is_sub_raw = (row_lower.get("is_subscribed") or "").strip().lower()
-        is_subscribed = is_sub_raw in ("1", "yes", "true", "on")
-        tags_raw = (row_lower.get("tags") or "").strip()
-        tag_names = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
-        existing = dbmod.fetch_customer_by_email(email)
-        try:
-            if existing:
-                if on_duplicate == "skip":
-                    skipped_existing += 1
-                    skipped_existing_rows.append({"row": row_num, "email": email})
-                    continue
-                dbmod.update_customer(
-                    existing["CUSTID"],
-                    email=email,
-                    firstname=firstname or "",
-                    lastname=lastname or "",
-                    company=company or "",
-                    phone=phone or "",
-                    comments=comments or "",
-                    is_subscribed=is_subscribed,
-                )
-                dbmod.set_customer_tags(table, existing["CUSTID"], tag_names)
-                updated += 1
-            else:
-                record = dbmod.create_customer(
-                    email=email,
-                    firstname=firstname,
-                    lastname=lastname,
-                    company=company,
-                    phone=phone,
-                    comments=comments,
-                    is_subscribed=is_subscribed,
-                )
-                dbmod.set_customer_tags(table, record["custid"], tag_names)
-                created += 1
-        except dbmod.DuplicateCustomerError:
-            errors.append({"row": row_num, "email": email, "message": "Duplicate email"})
-        except Exception as e:
-            errors.append({"row": row_num, "email": email, "message": str(e)})
+        key = email.lower()
+        if key in first_row_by_email:
+            errors.append({"row": p["row"], "email": email,
+                           "message": f"Duplicate of row {first_row_by_email[key]} in this file"})
+            continue
+        first_row_by_email[key] = p["row"]
+        p["email"] = email
+        rows.append(p)
+
+    try:
+        result = dbmod.import_customers_bulk(rows, on_duplicate=on_duplicate, customer_table=table)
+    except Exception as e:
+        app.logger.exception("Customer import failed")
+        return jsonify({"error": f"Import failed while saving to the database: {e}"}), 500
+
+    errors.extend(result["errors"])
+    errors.sort(key=lambda e: e.get("row") or 0)
     return jsonify({
-        "created": created,
-        "updated": updated,
-        "skipped_existing": skipped_existing,
-        "skipped_existing_rows": skipped_existing_rows,
+        "created": result["created"],
+        "updated": result["updated"],
+        "skipped_existing": len(result["skipped_existing_rows"]),
+        "skipped_existing_rows": result["skipped_existing_rows"],
         "on_duplicate": on_duplicate,
         "errors": errors,
     })
@@ -2386,6 +2449,7 @@ def confirm():
 def queue_campaign_post():
     file = (request.form.get("file") or "").strip()
     subject = request.form.get("subject")
+    campaign_name = (request.form.get("campaign_name") or "").strip()[:255] or None
     send_to = (request.form.get("send_to") or "all").strip().lower()
     tag_names = request.form.getlist("tag_names")
     tag_names = [n.strip() for n in tag_names if n and n.strip()] or None
@@ -2461,7 +2525,7 @@ def queue_campaign_post():
 
     try:
         dbmod.insert_campaign_send(
-            send_id, file, subject, None, mode, total,
+            send_id, file, subject, campaign_name, mode, total,
             batch_size=batch_size, delay_ms=delay_ms, cooldown_seconds=cooldown_seconds,
             restrict_start=restrict_start_utc,
             restrict_end=restrict_end_utc,
@@ -2860,6 +2924,23 @@ def archive_campaign(send_id: str):
     return redirect(url_for("index", **request.args))
 
 
+@app.post("/history/<send_id>/rename")
+def rename_campaign(send_id: str):
+    """Set the internal campaign name (the file name stays as the reference)."""
+    name = request.form.get("campaign_name")
+    try:
+        found = dbmod.update_campaign_name(send_id, name)
+    except Exception as exc:
+        app.logger.exception("Failed to rename campaign %s: %s", send_id, exc)
+        flash("Unable to rename campaign.", "error")
+        return redirect(url_for("campaign_history_detail", send_id=send_id))
+    if not found:
+        flash("Campaign send not found.", "error")
+        return redirect(url_for("index"))
+    flash("Campaign name saved." if (name or "").strip() else "Campaign name cleared.", "success")
+    return redirect(url_for("campaign_history_detail", send_id=send_id))
+
+
 @app.get("/history/<send_id>")
 def campaign_history_detail(send_id: str):
     try:
@@ -2888,9 +2969,16 @@ def campaign_history_detail(send_id: str):
         restrict_start_display = _utc_time_str_to_pacific_display((send_row.get("RESTRICT_START") or "").strip())
         restrict_end_display = _utc_time_str_to_pacific_display((send_row.get("RESTRICT_END") or "").strip())
 
+    try:
+        unsubscribes = dbmod.fetch_unsubscribes_for_send(send_id)
+    except Exception as exc:
+        app.logger.warning("Could not load unsubscribes for %s: %s", send_id, exc)
+        unsubscribes = []
+
     return render_template(
         "history_detail.html",
         send=send_row,
+        unsubscribes=unsubscribes,
         results=filtered_results,
         all_results=results,
         status_filter=status_filter or "all",
@@ -3000,7 +3088,7 @@ def _process_one_batch(send_row: dict):
                     dbmod.mark_recipient_failed(result_id, str(e))
                     continue
 
-                html = render_for_recipient(raw_html, firstname, lastname, token, mode=mode)
+                html = render_for_recipient(raw_html, firstname, lastname, token, mode=mode, send_id=send_id)
                 try:
                     msg = smtp.build_message(to_addr, subject, html)
                     conn.send(msg, delay_ms=delay_ms)
@@ -3079,6 +3167,14 @@ with app.app_context():
         dbmod.ensure_individual_email_tables()
     except Exception as exc:
         print(f"WARNING: Could not create individual email send tables: {exc}", file=sys.stderr)
+    try:
+        dbmod.ensure_service_user_schema()
+    except Exception as exc:
+        print(f"WARNING: Could not update service_users schema: {exc}", file=sys.stderr)
+    try:
+        dbmod.ensure_subscription_event_tables()
+    except Exception as exc:
+        print(f"WARNING: Could not create subscription event table: {exc}", file=sys.stderr)
 
     server_software = os.getenv("SERVER_SOFTWARE", "").strip()
     if SEND_SCHEDULER_ENABLED and (_is_gunicorn() or APP_ENV != "production"):

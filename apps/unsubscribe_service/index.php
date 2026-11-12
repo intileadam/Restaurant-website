@@ -190,6 +190,41 @@ function readToken(): string
     return $token;
 }
 
+/**
+ * Optional campaign reference (`c`) added by the console to campaign emails:
+ * the 32-hex-char CAMPAIGN_SENDS.SEND_ID. Anything else is ignored.
+ */
+function readCampaignRef(): ?string
+{
+    $ref = isset($_GET['c']) ? strtolower(trim((string) $_GET['c'])) : '';
+    return preg_match('/^[a-f0-9]{32}$/', $ref) ? $ref : null;
+}
+
+/**
+ * Append to SUBSCRIPTION_EVENTS (created by the campaign console on startup) so the
+ * console can show when a customer unsubscribed and from which campaign.
+ * Best effort: failures are logged and never block the (un)subscribe itself.
+ */
+function recordSubscriptionEvent(mysqli $conn, string $table, string $token, string $action, ?string $sendId): void
+{
+    try {
+        $escapedTable = '`' . $table . '`';
+        $sql = "INSERT INTO SUBSCRIPTION_EVENTS (CUSTOMER_TABLE, CUSTID, EMAIL, ACTION, SOURCE, SEND_ID, OCCURRED_AT)
+                SELECT ?, CUSTID, EMAIL, ?, 'email_link', ?, UTC_TIMESTAMP()
+                FROM {$escapedTable} WHERE UNSUBSCRIBE_TOKEN = ? LIMIT 1";
+        $stmt = $conn->prepare($sql);
+        if ($stmt === false) {
+            error_log('subscription event prepare failed: ' . $conn->error);
+            return;
+        }
+        $stmt->bind_param('ssss', $table, $action, $sendId, $token);
+        $stmt->execute();
+        $stmt->close();
+    } catch (Throwable $e) {
+        error_log('subscription event error: ' . $e->getMessage());
+    }
+}
+
 function logAuditEvent(string $action, string $token, bool $success): void
 {
     $tokenHash = $token !== '' ? substr(hash('sha256', $token), 0, 12) : '-';
@@ -252,6 +287,7 @@ function handleUnsubscribe(): void
         }
 
         logAuditEvent('unsubscribe.success', $token, true);
+        recordSubscriptionEvent($conn, $table, $token, 'unsubscribe', readCampaignRef());
         render('unsubscribed', ['rejoined' => false, 'token' => $token, 'alreadyUnsubscribed' => false]);
     } catch (Throwable $e) {
         logAuditEvent('unsubscribe.error', $token, false);
@@ -286,6 +322,7 @@ function handleResubscribe(): void
         }
 
         logAuditEvent('resubscribe.success', $token, true);
+        recordSubscriptionEvent($conn, $table, $token, 'resubscribe', readCampaignRef());
         render('unsubscribed', ['rejoined' => true, 'token' => $token, 'alreadyUnsubscribed' => false]);
     } catch (Throwable $e) {
         logAuditEvent('resubscribe.error', $token, false);

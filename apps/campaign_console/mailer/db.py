@@ -465,22 +465,28 @@ def update_customer(
     comments: str | None = None,
     is_subscribed: bool = True,
     customer_table: str | None = None,
+    event_source: str = "console",
 ):
-    """Update customer fields or raise errors. If customer_table is given, use it (avoids thread-local race)."""
+    """Update customer fields or raise errors. If customer_table is given, use it (avoids thread-local race).
+
+    When IS_SUBSCRIBED flips, a row is written to SUBSCRIPTION_EVENTS (source=event_source).
+    """
     table = _normalize_table(customer_table) if customer_table else get_customer_table_name()
     conn = get_connection()
     cur = conn.cursor()
     try:
         cur.execute(
         f"""
-        SELECT 1
+        SELECT IS_SUBSCRIBED
         FROM {table}
         WHERE CUSTID = %s
         """,
         (custid,),
         )
-        if not cur.fetchone():
+        current = cur.fetchone()
+        if not current:
             raise CustomerNotFoundError(f"CUSTID {custid} not found.")
+        was_subscribed = _flag_is_set(current[0])
 
         cur.execute(
         f"""
@@ -520,6 +526,14 @@ def update_customer(
         )
         # Do not treat rowcount == 0 as "not found": MySQL reports rows changed, not matched.
         # If payload is unchanged (e.g. only tags changed), UPDATE matches the row but affects 0 rows.
+        if was_subscribed != bool(is_subscribed):
+            record_subscription_event(
+                customer_table=table,
+                custid=custid,
+                email=email,
+                action="resubscribe" if is_subscribed else "unsubscribe",
+                source=event_source,
+            )
     except pymysql.MySQLError as exc:
         if getattr(exc, "errno", None) == ER.DUP_ENTRY:
             raise DuplicateCustomerError("Customer already exists.") from exc
@@ -1924,3 +1938,375 @@ def fetch_individual_email_sends(
         return data_cur.fetchall(), total
     finally:
         data_cur.close()
+
+
+# --- Campaign naming ---
+
+
+def update_campaign_name(send_id: str, name: str | None) -> bool:
+    """Set (or clear, when blank) the internal display name for a campaign send."""
+    cleaned = (name or "").strip()[:255] or None
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT 1 FROM CAMPAIGN_SENDS WHERE SEND_ID = %s", (send_id,))
+        if not cur.fetchone():
+            return False
+        cur.execute(
+            "UPDATE CAMPAIGN_SENDS SET CAMPAIGN_NAME = %s WHERE SEND_ID = %s",
+            (cleaned, send_id),
+        )
+        return True
+    finally:
+        cur.close()
+
+
+# --- Subscription events (unsubscribe / resubscribe audit trail) ---
+#
+# CUSTOMERS.IS_SUBSCRIBED only holds the current state. Every change is also
+# appended here so the console can show *when* someone unsubscribed and which
+# campaign email they clicked. Rows are written by:
+#   - the unsubscribe service (SOURCE='email_link', SEND_ID from the link's `c` param)
+#   - console edits / bulk edits (SOURCE='console')
+#   - CSV imports in "update" mode (SOURCE='import')
+#   - scripts/backfill_unsubscribe_events.py (SOURCE='audit_log', SEND_ID inferred)
+# EMAIL is copied in so history survives a customer row being deleted.
+
+SUBSCRIPTION_ACTIONS = ("unsubscribe", "resubscribe")
+
+
+def _flag_is_set(value) -> bool:
+    """Interpret IS_SUBSCRIBED, which is BINARY(1) (b'1'/b'0') but may arrive as str/int."""
+    if isinstance(value, (bytes, bytearray)):
+        return value[:1] == b"1"
+    return str(value).strip() in ("1", "true", "True")
+
+
+def ensure_subscription_event_tables():
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS SUBSCRIPTION_EVENTS (
+                ID             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                CUSTOMER_TABLE VARCHAR(64)  NOT NULL,
+                CUSTID         INT          NULL,
+                EMAIL          VARCHAR(320) NOT NULL DEFAULT '',
+                ACTION         VARCHAR(20)  NOT NULL,
+                SOURCE         VARCHAR(20)  NOT NULL,
+                SEND_ID        VARCHAR(32)  NULL,
+                OCCURRED_AT    DATETIME     NOT NULL,
+                KEY idx_sub_events_customer (CUSTOMER_TABLE, CUSTID, ACTION),
+                KEY idx_sub_events_send (SEND_ID, ACTION)
+            ) ENGINE=InnoDB
+            """
+        )
+    finally:
+        cur.close()
+
+
+def record_subscription_event(
+    *,
+    customer_table: str,
+    custid: int | None,
+    email: str,
+    action: str,
+    source: str,
+    send_id: str | None = None,
+    occurred_at: datetime | None = None,
+) -> None:
+    """Append one audit row. Never raises: a logging failure must not block the subscription change."""
+    if action not in SUBSCRIPTION_ACTIONS:
+        return
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                INSERT INTO SUBSCRIPTION_EVENTS
+                    (CUSTOMER_TABLE, CUSTID, EMAIL, ACTION, SOURCE, SEND_ID, OCCURRED_AT)
+                VALUES (%s, %s, %s, %s, %s, %s, COALESCE(%s, UTC_TIMESTAMP()))
+                """,
+                (
+                    _normalize_table(customer_table),
+                    custid,
+                    (email or "")[:320],
+                    action,
+                    (source or "unknown")[:20],
+                    send_id or None,
+                    occurred_at,
+                ),
+            )
+        finally:
+            cur.close()
+    except Exception as exc:  # pragma: no cover - best effort
+        import sys
+        print(f"WARNING: could not record subscription event for CUSTID {custid}: {exc}", file=sys.stderr)
+
+
+def fetch_latest_unsubscribes(customer_table: str, custids: list[int]) -> dict[int, dict]:
+    """Return {custid: {OCCURRED_AT, SOURCE, SEND_ID, CAMPAIGN_NAME, CAMPAIGN_FILE}} for each
+    customer's most recent unsubscribe event."""
+    ids = [int(c) for c in custids if c is not None]
+    if not ids:
+        return {}
+    table = _normalize_table(customer_table)
+    placeholders = ", ".join(["%s"] * len(ids))
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        cur.execute(
+            f"""
+            SELECT e.CUSTID, e.OCCURRED_AT, e.SOURCE, e.SEND_ID,
+                   s.CAMPAIGN_NAME, s.CAMPAIGN_FILE
+            FROM SUBSCRIPTION_EVENTS e
+            INNER JOIN (
+                SELECT MAX(ID) AS max_id
+                FROM SUBSCRIPTION_EVENTS
+                WHERE CUSTOMER_TABLE = %s AND ACTION = 'unsubscribe' AND CUSTID IN ({placeholders})
+                GROUP BY CUSTID
+            ) latest ON latest.max_id = e.ID
+            LEFT JOIN CAMPAIGN_SENDS s ON s.SEND_ID = e.SEND_ID
+            """,
+            [table] + ids,
+        )
+        return {int(r["CUSTID"]): r for r in cur.fetchall()}
+    finally:
+        cur.close()
+
+
+def fetch_unsubscribes_for_send(send_id: str) -> list[dict]:
+    """Unsubscribes attributed to a campaign send, oldest first."""
+    conn = get_connection()
+    cur = conn.cursor(DictCursor)
+    try:
+        cur.execute(
+            """
+            SELECT ID, CUSTID, EMAIL, SOURCE, OCCURRED_AT
+            FROM SUBSCRIPTION_EVENTS
+            WHERE SEND_ID = %s AND ACTION = 'unsubscribe'
+            ORDER BY OCCURRED_AT ASC, ID ASC
+            """,
+            (send_id,),
+        )
+        return list(cur.fetchall())
+    finally:
+        cur.close()
+
+
+def fetch_unsubscribe_counts_for_sends(send_ids: list[str]) -> dict[str, int]:
+    """{send_id: distinct customers who unsubscribed via that send}."""
+    ids = [s for s in send_ids if s]
+    if not ids:
+        return {}
+    placeholders = ", ".join(["%s"] * len(ids))
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
+            SELECT SEND_ID, COUNT(DISTINCT COALESCE(CUSTID, EMAIL))
+            FROM SUBSCRIPTION_EVENTS
+            WHERE ACTION = 'unsubscribe' AND SEND_ID IN ({placeholders})
+            GROUP BY SEND_ID
+            """,
+            ids,
+        )
+        return {row[0]: int(row[1]) for row in cur.fetchall()}
+    finally:
+        cur.close()
+
+
+# --- Bulk CSV import ---
+#
+# The console talks to a remote MySQL host, so per-row round trips dominate.
+# The old per-row import made ~10 sequential round trips per new customer, which
+# for a few hundred rows exceeded gunicorn's 30s worker timeout: the worker was
+# killed mid-import (leaving a partial import) and the browser got a bare 502.
+# This version does a constant number of round trips for inserts.
+
+
+def import_customers_bulk(
+    rows: list[dict],
+    *,
+    on_duplicate: str = "skip",
+    customer_table: str | None = None,
+) -> dict:
+    """Import pre-validated rows.
+
+    Each row: {row, email, firstname, lastname, company, phone, comments, is_subscribed, tag_names}.
+    Emails must already be unique (case-insensitive) within ``rows``.
+    Returns {created, updated, skipped_existing_rows, errors}.
+    """
+    table = _normalize_table(customer_table) if customer_table else get_customer_table_name()
+    conn = get_connection()
+    cur = conn.cursor()
+    created = 0
+    updated = 0
+    skipped_existing_rows: list[dict] = []
+    errors: list[dict] = []
+    try:
+        cur.execute(f"SELECT CUSTID, LOWER(EMAIL), IS_SUBSCRIBED FROM {table}")
+        existing = {r[1]: (int(r[0]), _flag_is_set(r[2])) for r in cur.fetchall() if r[1]}
+
+        tag_ids_by_name: dict[str, int] = {}
+        for name in {_normalize_tag_name(t) for r in rows for t in r["tag_names"]}:
+            if name:
+                tag_ids_by_name[name] = get_or_create_tag(name)
+
+        to_insert = []
+        to_update = []
+        for r in rows:
+            match = existing.get(r["email"].lower())
+            if match is None:
+                to_insert.append(r)
+            elif on_duplicate == "update":
+                to_update.append((r, match[0], match[1]))
+            else:
+                skipped_existing_rows.append({"row": r["row"], "email": r["email"]})
+
+        if to_insert:
+            cur.executemany(
+                f"""
+                INSERT INTO {table}
+                (FIRSTNAME, LASTNAME, EMAIL, COMPANY, PHONE, COMMENTS, IS_SUBSCRIBED, UNSUBSCRIBE_TOKEN)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                [
+                    (
+                        _blank_to_empty(r["firstname"]),
+                        _blank_to_empty(r["lastname"]),
+                        r["email"],
+                        _blank_to_empty(r["company"]),
+                        _blank_to_empty(r["phone"]),
+                        _blank_to_empty(r["comments"]),
+                        "1" if r["is_subscribed"] else "0",
+                        secrets.token_hex(32),
+                    )
+                    for r in to_insert
+                ],
+            )
+            created = len(to_insert)
+
+        if to_update:
+            cur.executemany(
+                f"""
+                UPDATE {table}
+                SET FIRSTNAME = %s, LASTNAME = %s, COMPANY = %s, PHONE = %s,
+                    COMMENTS = %s, IS_SUBSCRIBED = %s
+                WHERE CUSTID = %s
+                """,
+                [
+                    (
+                        _blank_to_empty(r["firstname"]),
+                        _blank_to_empty(r["lastname"]),
+                        _blank_to_empty(r["company"]),
+                        _blank_to_empty(r["phone"]),
+                        _blank_to_empty(r["comments"]),
+                        "1" if r["is_subscribed"] else "0",
+                        custid,
+                    )
+                    for r, custid, _ in to_update
+                ],
+            )
+            updated = len(to_update)
+            for r, custid, was_subscribed in to_update:
+                if was_subscribed != bool(r["is_subscribed"]):
+                    record_subscription_event(
+                        customer_table=table,
+                        custid=custid,
+                        email=r["email"],
+                        action="resubscribe" if r["is_subscribed"] else "unsubscribe",
+                        source="import",
+                    )
+
+        # Resolve CUSTIDs for inserted rows by email, then replace tags in bulk.
+        touched = list(to_insert) + [r for r, _, _ in to_update]
+        if touched:
+            emails = [r["email"].lower() for r in touched]
+            custid_by_email: dict[str, int] = {}
+            for i in range(0, len(emails), 500):
+                chunk = emails[i:i + 500]
+                ph = ", ".join(["%s"] * len(chunk))
+                cur.execute(f"SELECT CUSTID, LOWER(EMAIL) FROM {table} WHERE LOWER(EMAIL) IN ({ph})", chunk)
+                for cid, em in cur.fetchall():
+                    custid_by_email.setdefault(em, int(cid))
+            custids = []
+            pairs = []
+            for r in touched:
+                cid = custid_by_email.get(r["email"].lower())
+                if cid is None:
+                    errors.append({"row": r["row"], "email": r["email"], "message": "Saved but could not apply tags"})
+                    continue
+                custids.append(cid)
+                for t in r["tag_names"]:
+                    tid = tag_ids_by_name.get(_normalize_tag_name(t))
+                    if tid:
+                        pairs.append((table, cid, tid))
+            for i in range(0, len(custids), 500):
+                chunk = custids[i:i + 500]
+                ph = ", ".join(["%s"] * len(chunk))
+                cur.execute(
+                    f"DELETE FROM customer_tags WHERE customer_table = %s AND custid IN ({ph})",
+                    [table] + chunk,
+                )
+            if pairs:
+                cur.executemany(
+                    "INSERT IGNORE INTO customer_tags (customer_table, custid, tag_id) VALUES (%s, %s, %s)",
+                    pairs,
+                )
+    finally:
+        cur.close()
+    return {
+        "created": created,
+        "updated": updated,
+        "skipped_existing_rows": skipped_existing_rows,
+        "errors": errors,
+    }
+
+
+# --- Operator accounts (service_users) ---
+
+SERVICE_USERNAME_MAX_LENGTH = 80  # service_users.username is VARCHAR(80)
+
+
+def ensure_service_user_schema() -> None:
+    """Let service_users.password_algo hold the algorithm the console actually uses.
+
+    The column was created as ENUM('bcrypt','argon2'), but the console hashes with
+    Werkzeug pbkdf2:sha256 and writes 'pbkdf2_sha256'. Under the server's non-strict
+    SQL mode that silently became '' (and under strict mode the insert fails). Add the
+    value and relabel existing pbkdf2 rows. No-op once applied.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_users'
+              AND COLUMN_NAME = 'password_algo'
+            """
+        )
+        row = cur.fetchone()
+        if not row:
+            return
+        column_type = row[0].decode() if isinstance(row[0], (bytes, bytearray)) else str(row[0])
+        if column_type.lower().startswith("enum(") and "'pbkdf2_sha256'" not in column_type:
+            cur.execute(
+                """
+                ALTER TABLE service_users
+                MODIFY password_algo ENUM('bcrypt','argon2','pbkdf2_sha256')
+                    NOT NULL DEFAULT 'pbkdf2_sha256'
+                """
+            )
+        cur.execute(
+            """
+            UPDATE service_users SET password_algo = 'pbkdf2_sha256'
+            WHERE password_algo = '' AND password_hash LIKE 'pbkdf2:%%'
+            """
+        )
+    finally:
+        cur.close()

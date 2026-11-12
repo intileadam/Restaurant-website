@@ -13,6 +13,20 @@
         File: {{ send.CAMPAIGN_FILE }}
         {% if send.SUBJECT %} · Subject: {{ send.SUBJECT }}{% endif %}
       </p>
+      <form class="campaign-rename" method="post" action="{{ url_for('rename_campaign', send_id=send.SEND_ID) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input
+          type="text"
+          id="campaignNameInput"
+          aria-label="Campaign name"
+          name="campaign_name"
+          maxlength="255"
+          value="{{ send.CAMPAIGN_NAME or '' }}"
+          placeholder="Name this campaign"
+          autocomplete="off"
+        />
+        <button type="submit" class="button ghost">Save name</button>
+      </form>
     </div>
     <div class="confirm-meta">
       <div class="confirm-meta__item">
@@ -111,6 +125,33 @@
           <button type="button" class="button" id="btnCancel" {% if st not in ('running', 'paused') %}hidden{% endif %} style="color:var(--color-error,#c0392b)">Cancel</button>
         </div>
       </div>
+      {% endif %}
+    </section>
+
+    <section class="card history-unsubscribes">
+      <h3>Unsubscribes from this campaign ({{ unsubscribes|length }})</h3>
+      {% if unsubscribes %}
+      <table>
+        <thead>
+          <tr><th>Email</th><th>When</th></tr>
+        </thead>
+        <tbody>
+          {% for u in unsubscribes %}
+          <tr>
+            <td>{{ u.EMAIL }}{% if u.SOURCE == 'audit_log' %} <span class="muted" title="Recovered from the unsubscribe log; campaign matched to the last email sent before the unsubscribe.">(inferred)</span>{% endif %}</td>
+            <td>
+              {% if u.OCCURRED_AT %}
+              <time class="history-detail__time" data-datetime="{{ u.OCCURRED_AT.isoformat() }}Z">{{ u.OCCURRED_AT.strftime('%b %d, %Y at %I:%M %p') }}</time>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="muted" style="margin:0.25rem 0 0;font-size:0.85rem;">
+        No one has unsubscribed using this campaign's link yet. Unsubscribe tracking applies to campaigns sent after it was enabled.
+      </p>
       {% endif %}
     </section>
 

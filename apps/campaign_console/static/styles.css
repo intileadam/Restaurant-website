@@ -3616,3 +3616,58 @@ button:focus-visible,
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* Campaign name (confirm page + history rename) */
+.confirm-campaign-name {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0 0 1rem;
+  max-width: 600px;
+}
+
+.confirm-campaign-name > span {
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.confirm-campaign-name small {
+  font-size: 0.8rem;
+}
+
+.campaign-rename {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.75rem;
+  max-width: 560px;
+}
+
+.campaign-rename input {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+/* Unsubscribe attribution */
+.unsubscribe-note {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.history-unsubscribes table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.history-unsubscribes th,
+.history-unsubscribes td {
+  text-align: left;
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--border, #e5e5e5);
+}

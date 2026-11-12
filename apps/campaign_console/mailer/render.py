@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 import os
+import re
 from urllib.parse import urlparse, urlunparse, urlencode
 from jinja2 import Environment, BaseLoader
 
@@ -43,11 +44,17 @@ UNSUBSCRIBE_BASE_URL = _unsubscribe_base_url(BASE_URL)
 UNSUB_PATH = _normalize_unsubscribe_path(UNSUB_PATH)
 
 
-def _build_unsubscribe_url(token: str, mode: str | None = None) -> str:
+_SEND_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _build_unsubscribe_url(token: str, mode: str | None = None, send_id: str | None = None) -> str:
     params = {"token": token}
     normalized_mode = (mode or "").strip().lower()
     if normalized_mode == "test":
         params["mode"] = normalized_mode
+    # `c` lets the unsubscribe service attribute the unsubscribe to this campaign send.
+    if send_id and _SEND_ID_PATTERN.match(send_id):
+        params["c"] = send_id
     query = urlencode(params)
     return f"{UNSUBSCRIBE_BASE_URL}{UNSUB_PATH}?{query}"
 
@@ -103,8 +110,9 @@ def render_for_recipient(
     token: str,
     *,
     mode: str | None = None,
+    send_id: str | None = None,
 ) -> str:
-    unsubscribe_url = _build_unsubscribe_url(token, mode)
+    unsubscribe_url = _build_unsubscribe_url(token, mode, send_id)
     template = _jinja.from_string(html)
     # Accept both lowercase and uppercase keys by duplicating.
     ctx = {

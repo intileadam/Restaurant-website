@@ -70,6 +70,10 @@
           <span class="history-card__stat-label">Pending</span>
         </div>
         <div class="history-card__stat">
+          <span class="history-card__stat-value">{{ unsub_counts.get(send.SEND_ID, 0) }}</span>
+          <span class="history-card__stat-label">Unsubscribed</span>
+        </div>
+        <div class="history-card__stat">
           <span
             class="history-card__stat-value"
           >

@@ -160,6 +160,7 @@
               <input type="checkbox" name="is_subscribed" data-field-subscribed checked />
               <span>Subscribed</span>
             </label>
+            <small class="unsubscribe-note" data-unsubscribe-note hidden></small>
             <div class="customer-form-tags" data-tags-container>
               <span class="form-label">Tags</span>
               <div class="tag-chips" data-tag-chips></div>
@@ -285,7 +286,7 @@
       <p class="import-instructions">
         Required column: <code>email</code>. Optional:
         <code>firstname</code>, <code>lastname</code>, <code>company</code>, <code>phone</code>, <code>comments</code>,
-        <code>is_subscribed</code> (1/0 or yes/no), <code>tags</code> (comma-separated).
+        <code>is_subscribed</code> (1/0 or yes/no; blank = unsubscribed), <code>tags</code> (comma-separated).
         <a href="{{ csv_template_href }}" download class="link-button">Download CSV template</a>
       </p>
       <label class="form-label" for="import-on-duplicate">If email already exists</label>
@@ -598,6 +599,39 @@
       elements.shell.hidden = false;
     }
 
+    const UNSUBSCRIBE_SOURCE_LABELS = {
+      email_link: "via email link",
+      console: "changed in console",
+      import: "via CSV import",
+      audit_log: "via email link",
+    };
+
+    function describeUnsubscribe(customer) {
+      const info = customer && !customer.is_subscribed ? customer.unsubscribe : null;
+      if (!info) return "";
+      const parts = [];
+      if (info.at) {
+        const when = new Date(info.at);
+        if (!Number.isNaN(when.getTime())) {
+          parts.push(when.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }));
+        }
+      }
+      if (info.campaign) {
+        parts.push(`from “${info.campaign}”${info.source === "audit_log" ? " (inferred)" : ""}`);
+      } else if (UNSUBSCRIBE_SOURCE_LABELS[info.source]) {
+        parts.push(UNSUBSCRIBE_SOURCE_LABELS[info.source]);
+      }
+      return parts.join(" · ");
+    }
+
+    function setUnsubscribeNote(customer) {
+      const note = elements.form && elements.form.querySelector("[data-unsubscribe-note]");
+      if (!note) return;
+      const text = describeUnsubscribe(customer);
+      note.textContent = text ? `Unsubscribed ${text}` : "";
+      note.hidden = !text;
+    }
+
     function renderCustomers() {
       elements.tableBody.innerHTML = "";
       if (!state.customers.length) {
@@ -636,6 +670,13 @@
         pill.className = customer.is_subscribed ? "status-pill success" : "status-pill muted";
         pill.textContent = customer.is_subscribed ? "Subscribed" : "Unsubscribed";
         statusTd.appendChild(pill);
+        const unsubText = describeUnsubscribe(customer);
+        if (unsubText) {
+          const note = document.createElement("small");
+          note.className = "unsubscribe-note";
+          note.textContent = unsubText;
+          statusTd.appendChild(note);
+        }
         row.appendChild(statusTd);
 
         const commentsTd = document.createElement("td");
@@ -1090,11 +1131,13 @@
         formFields.phone.value = customer.phone || "";
         formFields.comments.value = customer.comments || "";
         formFields.subscribed.checked = customer.is_subscribed;
+        setUnsubscribeNote(customer);
         state.modalTagNames = Array.isArray(customer.tags)
           ? customer.tags.map((t) => (t && t.name) || t).filter(Boolean)
           : [];
       } else {
         formFields.subscribed.checked = true;
+        setUnsubscribeNote(null);
         state.modalTagNames = [];
       }
       renderTagChips();
@@ -1270,7 +1313,10 @@
         const response = await authorizedFetch("/api/customers/import", { method: "POST", body: fd });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          const msg = data.error || "Import failed.";
+          const msg =
+            data.error ||
+            `Import failed (server error ${response.status}). The server may have stopped partway through, ` +
+              "so some rows may already be saved. Re-run the import with “Skip” selected to finish safely.";
           if (elements.importSummary) {
             elements.importSummary.hidden = false;
             elements.importSummary.textContent = msg;
